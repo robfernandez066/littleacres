@@ -1,15 +1,18 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-07
-**Phase:** Phase 0 - Skeleton
-**Active task:** T0.5 - Debug/dev overlay (prompt out; Sonnet)
+**Phase:** Phase 1 - MVP Core Loop
+**Active task:** T1.1 - Crop data + plot state machine (prompt out; Fable5/Opus)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
 - T0.2 PWA + deploy pipeline - DONE. Live at robfernandez066.github.io/littleacres/; installs on Android, fullscreen portrait confirmed
 - T0.3 Asset pipeline + placeholder art - DONE, committed + pushed. Survived a mid-task crash (salvaged, RESUME prompt). Demo crops on 3 plots are temporary atlas-proof; remove when planting lands (T1.2/T1.3)
 - T0.4 GameState store + local save - DONE, committed + pushed. 13 Vitest tests; window.dev console hooks until T0.5. Note for Phase 1 balancing: starting coins (50) live in gameState.ts, fold into src/data/ config later
-- T0.5 Debug/dev overlay - IN PROGRESS (prompt handed to coder). Time-warp maturation check deferred to T1.2 (no crops yet); introduces now() game-clock in src/systems/time.ts
+- T0.5 Debug/dev overlay - DONE, committed + pushed. Overlay confirmed working on PC and mobile (installed app + URL)
+- T0.5a Lockfile CI fix - DONE (PM-direct fix, user-approved). Deploy green again; CLAUDE.md lockfile guard rule added
+- PHASE 0 COMPLETE
+- T1.1 Crop data + plot state machine - IN PROGRESS (prompt handed to coder). Provisional economy numbers set by PM (placeholder until balancing spreadsheet); ready state is derived from timestamps, not stored
 
 ## Blockers
 - None.

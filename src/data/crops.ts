@@ -1,4 +1,4 @@
-/** The three MVP crops. Gameplay data (grow times, prices) arrives in a later task. */
+/** The three MVP crops. All gameplay numbers live here, never in scene/system logic. */
 export type CropId = 'sunwheat' | 'carrot' | 'glowberry';
 
 /** Growth stages per crop: 0 = sprout, 1 = mid, 2 = ready to harvest. */
@@ -18,22 +18,48 @@ export interface CropDef {
   name: string;
   /** Atlas frame per growth stage, index 0 (sprout) to 2 (ready). */
   stageFrames: readonly [string, string, string];
+  /** Coins spent to plant one (planting spends coins directly in MVP). */
+  seedCost: number;
+  /** Coins received per crop when sold. */
+  sellValue: number;
+  /** Real time from planting to harvest-ready, in ms of game-clock time. */
+  growMs: number;
+  /** XP granted per harvest. */
+  xp: number;
+  /** Minimum player level required to plant. */
+  unlockLevel: number;
 }
 
+/** Balance numbers are provisional and will be tuned later. */
 export const CROPS: Record<CropId, CropDef> = {
   sunwheat: {
     id: 'sunwheat',
     name: 'Sunwheat',
     stageFrames: ['sunwheat_0', 'sunwheat_1', 'sunwheat_2'],
+    seedCost: 5,
+    sellValue: 8,
+    growMs: 30_000,
+    xp: 2,
+    unlockLevel: 1,
   },
   carrot: {
     id: 'carrot',
     name: 'Carrot',
     stageFrames: ['carrot_0', 'carrot_1', 'carrot_2'],
+    seedCost: 12,
+    sellValue: 20,
+    growMs: 120_000,
+    xp: 5,
+    unlockLevel: 2,
   },
   glowberry: {
     id: 'glowberry',
     name: 'Glowberry',
     stageFrames: ['glowberry_0', 'glowberry_1', 'glowberry_2'],
+    seedCost: 30,
+    sellValue: 55,
+    growMs: 300_000,
+    xp: 12,
+    unlockLevel: 3,
   },
 };

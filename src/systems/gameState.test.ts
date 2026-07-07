@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { type CropId, CROPS } from '../data/crops';
 import {
   createDefaultState,
   GameStateStore,
@@ -8,6 +9,7 @@ import {
   SAVE_KEY,
   type SaveStorage,
 } from './gameState';
+import { advanceTime, now } from './time';
 
 /** In-memory Storage stand-in so tests never touch real localStorage. */
 function makeStorage(initial: Record<string, string> = {}): SaveStorage & {
@@ -174,6 +176,155 @@ describe('export and import', () => {
     expect(store.importSave('{"version":1}')).toBe(false);
     expect(store.getState().coins).toBe(60);
     expect(console.warn).toHaveBeenCalled();
+  });
+});
+
+describe('plantCrop', () => {
+  it('plants on an empty plot, deducts the seed cost, and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    const before = now();
+    expect(store.plantCrop(0, 'sunwheat')).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(50 - CROPS.sunwheat.seedCost);
+    const plot = state.plots[0];
+    expect(plot?.state).toBe('growing');
+    if (plot?.state === 'growing') {
+      expect(plot.cropId).toBe('sunwheat');
+      expect(plot.plantedAt).toBeGreaterThanOrEqual(before);
+    }
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().plots[0]).toEqual(plot);
+  });
+
+  it('fails on an occupied plot without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.plantCrop(0, 'sunwheat')).toBe(true);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.plantCrop(0, 'sunwheat')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fails on an out-of-range or fractional index without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.plantCrop(-1, 'sunwheat')).toBe(false);
+    expect(store.plantCrop(PLOT_COUNT, 'sunwheat')).toBe(false);
+    expect(store.plantCrop(0.5, 'sunwheat')).toBe(false);
+    expect(store.getState().coins).toBe(50);
+    expect(store.getState().plots.every((p) => p.state === 'empty')).toBe(true);
+  });
+
+  it('fails on an unknown crop without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.plantCrop(0, 'tomato' as CropId)).toBe(false);
+    expect(store.getState().coins).toBe(50);
+    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+  });
+
+  it('fails when coins are insufficient without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addCoins(-(50 - CROPS.sunwheat.seedCost + 1)); // one coin short
+    const coinsBefore = store.getState().coins;
+    expect(store.plantCrop(0, 'sunwheat')).toBe(false);
+    expect(store.getState().coins).toBe(coinsBefore);
+    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+  });
+
+  it('fails when the crop is not unlocked yet without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(CROPS.carrot.unlockLevel).toBeGreaterThan(store.getState().level);
+    expect(store.plantCrop(0, 'carrot')).toBe(false);
+    expect(store.getState().coins).toBe(50);
+    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+  });
+});
+
+describe('harvestPlot', () => {
+  it('fails on an empty plot and on an out-of-range index', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.harvestPlot(0)).toBe(false);
+    expect(store.harvestPlot(-1)).toBe(false);
+    expect(store.harvestPlot(PLOT_COUNT)).toBe(false);
+  });
+
+  it('fails on a growing plot that is not ready yet, without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    store.plantCrop(0, 'sunwheat');
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.harvestPlot(0)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('harvests a ready plot after the game clock is warped forward', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.plantCrop(0, 'sunwheat')).toBe(true);
+    advanceTime(CROPS.sunwheat.growMs);
+    expect(store.harvestPlot(0)).toBe(true);
+    const state = store.getState();
+    expect(state.plots[0]).toEqual({ state: 'empty' });
+    expect(state.inventory.sunwheat).toBe(1);
+    expect(state.xp).toBe(CROPS.sunwheat.xp);
+    // A second harvest of the now-empty plot fails.
+    expect(store.harvestPlot(0)).toBe(false);
+    expect(state.inventory.sunwheat).toBe(1);
+  });
+
+  it('accumulates inventory across harvests', () => {
+    const store = new GameStateStore({ storage: null });
+    for (let i = 0; i < 2; i++) {
+      store.plantCrop(i, 'sunwheat');
+      advanceTime(CROPS.sunwheat.growMs);
+      expect(store.harvestPlot(i)).toBe(true);
+    }
+    expect(store.getState().inventory.sunwheat).toBe(2);
+    expect(store.getState().xp).toBe(2 * CROPS.sunwheat.xp);
+  });
+});
+
+describe('offline growth (app closed during growth)', () => {
+  it('a growing plot matures across a save/load round-trip', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    expect(writer.plantCrop(0, 'sunwheat')).toBe(true);
+    // The app "closes" here; time passes while nothing is running.
+    advanceTime(CROPS.sunwheat.growMs + 1);
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.harvestPlot(0)).toBe(true);
+    expect(reader.getState().inventory.sunwheat).toBe(1);
+  });
+
+  it('a save whose plantedAt long predates load is immediately ready', () => {
+    const saved = createDefaultState(1);
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: now() - CROPS.sunwheat.growMs - 60_000,
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(console.warn).not.toHaveBeenCalled();
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().inventory.sunwheat).toBe(1);
+  });
+
+  it('rejects growing plots with an unknown crop or bad timestamp', () => {
+    for (const badPlot of [
+      { state: 'growing', cropId: 'tomato', plantedAt: 0 },
+      { state: 'growing', cropId: 'sunwheat', plantedAt: 'yesterday' },
+      { state: 'growing', cropId: 'sunwheat', plantedAt: Infinity },
+    ]) {
+      const saved = { ...createDefaultState(1), plots: [...createDefaultState(1).plots] };
+      saved.plots[0] = badPlot as never;
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+      expect(console.warn).toHaveBeenCalled();
+    }
   });
 });
 

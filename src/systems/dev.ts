@@ -1,3 +1,4 @@
+import type { CropId } from '../data/crops';
 import type { GameStateData, GameStateStore } from './gameState';
 import { advanceTime, getTimeOffsetMs } from './time';
 
@@ -10,6 +11,8 @@ export interface DevTools {
   addCoins(n: number): void;
   advanceTime(ms: number): void;
   getTimeOffsetMs(): number;
+  plant(plotIndex: number, cropId: CropId): boolean;
+  harvest(plotIndex: number): boolean;
 }
 
 declare global {
@@ -30,5 +33,7 @@ export function installDevTools(store: GameStateStore): void {
     },
     advanceTime: (ms) => advanceTime(ms),
     getTimeOffsetMs: () => getTimeOffsetMs(),
+    plant: (plotIndex, cropId) => store.plantCrop(plotIndex, cropId),
+    harvest: (plotIndex) => store.harvestPlot(plotIndex),
   };
 }

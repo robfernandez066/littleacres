@@ -1,5 +1,7 @@
 import { CROPS, type CropId } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { isReady } from './growth';
+import { now } from './time';
 
 /**
  * Game state store: one serializable plain object (no classes, no Phaser
@@ -19,11 +21,19 @@ export interface EmptyPlot {
   state: 'empty';
 }
 
+export interface GrowingPlot {
+  state: 'growing';
+  cropId: CropId;
+  /** Game-clock timestamp (see systems/time.ts) when the crop was planted. */
+  plantedAt: number;
+}
+
 /**
- * Discriminated union over `state`. Today only `empty` exists; a future
- * `growing` variant will carry `cropId` and a `plantedAt` timestamp.
+ * Discriminated union over `state`. Only `empty` and `growing` are ever
+ * stored - "ready" is derived from `plantedAt + growMs`, never saved, so
+ * offline growth is free and cannot desync.
  */
-export type PlotState = EmptyPlot;
+export type PlotState = EmptyPlot | GrowingPlot;
 
 export interface GameSettings {
   musicOn: boolean;
@@ -79,7 +89,14 @@ function isFiniteNumber(value: unknown): value is number {
 }
 
 function isPlotState(value: unknown): value is PlotState {
-  return isRecord(value) && value.state === 'empty';
+  if (!isRecord(value)) return false;
+  if (value.state === 'empty') return true;
+  return (
+    value.state === 'growing' &&
+    typeof value.cropId === 'string' &&
+    value.cropId in CROPS &&
+    isFiniteNumber(value.plantedAt)
+  );
 }
 
 /** Crop-keyed count map, e.g. inventory and seeds. */
@@ -161,6 +178,43 @@ export class GameStateStore {
 
   addXp(amount: number): void {
     this.state.xp += amount;
+  }
+
+  /**
+   * Plant a crop on an empty plot, spending its seed cost from coins (the
+   * `seeds` field stays reserved in MVP). Returns false without mutating
+   * anything if the index is out of range, the plot is occupied, the crop is
+   * unknown, the crop is not unlocked yet, or coins are insufficient.
+   */
+  plantCrop(plotIndex: number, cropId: CropId): boolean {
+    const plot = this.state.plots[plotIndex];
+    if (plot === undefined || plot.state !== 'empty') return false;
+    // cropId is typed, but console/dev calls can pass arbitrary strings.
+    if (!((cropId as string) in CROPS)) return false;
+    const crop = CROPS[cropId];
+    if (this.state.level < crop.unlockLevel) return false;
+    if (this.state.coins < crop.seedCost) return false;
+    this.state.coins -= crop.seedCost;
+    this.state.plots[plotIndex] = { state: 'growing', cropId, plantedAt: now() };
+    this.save();
+    return true;
+  }
+
+  /**
+   * Harvest a ready plot: the plot returns to empty, the crop goes to the
+   * inventory, and its xp accrues (leveling arrives in a later task).
+   * Returns false without mutating anything if the plot is not growing or
+   * not ready yet.
+   */
+  harvestPlot(plotIndex: number): boolean {
+    const plot = this.state.plots[plotIndex];
+    if (plot === undefined || plot.state !== 'growing') return false;
+    if (!isReady(plot, now())) return false;
+    this.state.plots[plotIndex] = { state: 'empty' };
+    this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + 1;
+    this.state.xp += CROPS[plot.cropId].xp;
+    this.save();
+    return true;
   }
 
   /**
