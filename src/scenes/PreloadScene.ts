@@ -1,8 +1,20 @@
 import Phaser from 'phaser';
 
+import atlasJsonUrl from '../../assets/atlas.json?url';
+import atlasPngUrl from '../../assets/atlas.png';
+import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+
+const BACKGROUND_COLOR = 0xfdf6e3;
+const TRACK_COLOR = 0x2e4a1f;
+const FILL_COLOR = 0xf7d154;
+const TEXT_COLOR = '#2e4a1f';
+const BAR_WIDTH = 560;
+const BAR_HEIGHT = 28;
+const BAR_PADDING = 4;
+
 /**
- * Loads game assets before the game starts. No assets exist yet - future
- * tasks will queue loads in preload(). Hands off to Farm when done.
+ * Loads the texture atlas and shows a centered progress bar driven by the
+ * loader's progress events, then hands off to Farm.
  */
 export class PreloadScene extends Phaser.Scene {
   constructor() {
@@ -10,7 +22,35 @@ export class PreloadScene extends Phaser.Scene {
   }
 
   preload(): void {
-    // Placeholder: asset loading will be added in a future task.
+    const centerX = DESIGN_WIDTH / 2;
+    const centerY = DESIGN_HEIGHT / 2;
+
+    this.add.rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR).setOrigin(0, 0);
+    this.add
+      .text(centerX, centerY - 70, 'Loading...', {
+        fontFamily: 'sans-serif',
+        fontSize: '40px',
+        color: TEXT_COLOR,
+      })
+      .setOrigin(0.5, 0.5);
+    this.add.rectangle(centerX, centerY, BAR_WIDTH, BAR_HEIGHT, TRACK_COLOR).setOrigin(0.5, 0.5);
+
+    // Left-anchored fill scaled by load progress (scaleX 0 -> 1 == 0% -> 100%).
+    const fill = this.add
+      .rectangle(
+        centerX - BAR_WIDTH / 2 + BAR_PADDING,
+        centerY,
+        BAR_WIDTH - BAR_PADDING * 2,
+        BAR_HEIGHT - BAR_PADDING * 2,
+        FILL_COLOR,
+      )
+      .setOrigin(0, 0.5)
+      .setScale(0, 1);
+    this.load.on('progress', (value: number) => {
+      fill.setScale(value, 1);
+    });
+
+    this.load.atlas(ATLAS_KEY, atlasPngUrl, atlasJsonUrl);
   }
 
   create(): void {

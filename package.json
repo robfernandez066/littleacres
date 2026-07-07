@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . && prettier --check .",
+    "gen:assets": "node tools/gen-assets.mjs",
     "format": "prettier --write ."
   },
   "dependencies": {
