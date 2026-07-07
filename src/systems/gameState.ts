@@ -180,6 +180,11 @@ export class GameStateStore {
     this.state.xp += amount;
   }
 
+  /** Set the player level directly (dev tooling). Clamped to a minimum of 1. */
+  setLevel(level: number): void {
+    this.state.level = Math.max(1, Math.floor(level));
+  }
+
   /**
    * Plant a crop on an empty plot, spending its seed cost from coins (the
    * `seeds` field stays reserved in MVP). Returns false without mutating

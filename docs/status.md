@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.2 - Grid rendering + growth visuals (prompt out; Sonnet)
+**Active task:** T1.3 - Seed selection UI + paint planting (prompt out; Fable5/Opus - gesture pattern is precedent for T1.4 sweep harvest). Adds dev.setLevel(n); reusable plot-pointer gesture helper required
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -13,7 +13,7 @@
 - T0.5a Lockfile CI fix - DONE (PM-direct fix, user-approved). Deploy green again; CLAUDE.md lockfile guard rule added
 - PHASE 0 COMPLETE
 - T1.1 Crop data + plot state machine - DONE, committed + pushed, deploy green. 42 tests; ready is derived, never stored; provisional economy numbers (placeholder until balancing spreadsheet)
-- T1.2 Grid rendering + growth visuals - IN PROGRESS (prompt handed to coder). Removes T0.3 demo crops; carries the time-warp-matures-crops check deferred from T0.5
+- T1.2 Grid rendering + growth visuals - DONE (user visual test passed, committed). Deferred T0.5 time-warp check closed. Art-pass note: occupied plots need a distinct tile variant (see roadmap T2.6)
 
 ## Blockers
 - None.

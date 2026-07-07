@@ -9,6 +9,7 @@ export interface DevTools {
   importSave(json: string): boolean;
   reset(): void;
   addCoins(n: number): void;
+  setLevel(n: number): void;
   advanceTime(ms: number): void;
   getTimeOffsetMs(): number;
   plant(plotIndex: number, cropId: CropId): boolean;
@@ -29,6 +30,10 @@ export function installDevTools(store: GameStateStore): void {
     reset: () => store.reset(),
     addCoins: (n) => {
       store.addCoins(n);
+      store.save();
+    },
+    setLevel: (n) => {
+      store.setLevel(n);
       store.save();
     },
     advanceTime: (ms) => advanceTime(ms),

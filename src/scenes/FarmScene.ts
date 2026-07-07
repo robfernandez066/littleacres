@@ -6,7 +6,9 @@ import { FARM_COLS, FARM_ROWS } from '../data/farm';
 import { gameState, PLOT_COUNT } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { gridToIso, TILE_WIDTH } from '../systems/iso';
+import { PlotPointerTracker } from '../systems/plotPointer';
 import { now } from '../systems/time';
+import { SeedBar } from '../ui/SeedBar';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
 const BACKGROUND_COLOR = 0x55913f;
@@ -30,8 +32,9 @@ const READY_TINT = 0xfff59d;
 
 /**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
- * a grass field, rendered live from `gameState`. Planting/harvest input
- * arrives in a later task; for now `window.dev.plant`/`dev.harvest` drive it.
+ * a grass field, rendered live from `gameState`, plus the seed bar. With a
+ * seed selected, tapping or dragging across the field paint-plants empty
+ * plots. Harvest input arrives in a later task; `dev.harvest` drives it.
  *
  * Plot index convention (matches `gameState.plots`): index = row * FARM_COLS
  * + col. Any future code mapping a tile tap to a plot must use the same
@@ -43,6 +46,9 @@ export class FarmScene extends Phaser.Scene {
   /** Whether the ready-state bounce/glow is currently active, per plot. */
   private readyActive: boolean[] = [];
   private refreshAccumulatorMs = 0;
+  private seedBar!: SeedBar;
+  /** Dedups plots per drag gesture; shared shape with next task's harvest. */
+  private readonly plotTracker = new PlotPointerTracker();
 
   constructor() {
     super('Farm');
@@ -54,6 +60,8 @@ export class FarmScene extends Phaser.Scene {
     this.layGrassField();
     this.layPlots();
     this.createCropSprites();
+    this.seedBar = new SeedBar(this);
+    this.setupPlantingInput();
     this.refreshCrops();
   }
 
@@ -62,6 +70,56 @@ export class FarmScene extends Phaser.Scene {
     if (this.refreshAccumulatorMs < CROP_REFRESH_INTERVAL_MS) return;
     this.refreshAccumulatorMs = 0;
     this.refreshCrops();
+    this.seedBar.refresh();
+  }
+
+  /**
+   * Paint planting: with a seed selected, pointerdown/drag over the field
+   * attempts to plant every plot the pointer newly enters (once per gesture,
+   * courtesy of PlotPointerTracker). With no seed selected, field input is
+   * inert - harvest taps arrive in a later task.
+   */
+  private setupPlantingInput(): void {
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      if (this.seedBar.getSelected() === null) return;
+      this.tryPlant(this.plotTracker.begin(pointer.worldX, pointer.worldY));
+    });
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
+      if (!pointer.isDown || this.seedBar.getSelected() === null) return;
+      this.tryPlant(this.plotTracker.move(pointer.worldX, pointer.worldY));
+    });
+    const endGesture = (): void => {
+      this.plotTracker.end();
+    };
+    this.input.on(Phaser.Input.Events.POINTER_UP, endGesture);
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, endGesture);
+  }
+
+  /**
+   * Attempt to plant the selected crop on a plot. All planting rules live in
+   * `gameState.plantCrop`; on failure this only picks the feedback cue -
+   * occupied plots stay silent, an unaffordable seed gets a gentle nudge.
+   */
+  private tryPlant(plotIndex: number | null): void {
+    const cropId = this.seedBar.getSelected();
+    if (plotIndex === null || cropId === null) return;
+    if (gameState.plantCrop(plotIndex, cropId)) {
+      this.refreshCrops();
+      this.playPlantPop(plotIndex);
+      return;
+    }
+    const state = gameState.getState();
+    if (state.plots[plotIndex]?.state !== 'empty') return;
+    if (state.coins < CROPS[cropId].seedCost) this.seedBar.flashInsufficientCoins(cropId);
+  }
+
+  /** Placeholder "plip" on a fresh plant; real particles come later. */
+  private playPlantPop(plotIndex: number): void {
+    const sprite = this.cropSprites[plotIndex];
+    if (sprite === undefined) return;
+    this.tweens.killTweensOf(sprite);
+    sprite.setScale(0.5);
+    this.tweens.add({ targets: sprite, scale: 1, duration: 120, ease: 'Back.easeOut' });
   }
 
   /** Cover the field band with grass tiles (they also run under the plots). */
