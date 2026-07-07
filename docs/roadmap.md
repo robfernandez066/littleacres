@@ -4,15 +4,32 @@ Tech stack: **Phaser 3 + TypeScript + Vite**, web-first PWA, Capacitor wrap in P
 
 ## How to use this document
 
-- Each task is designed to be a single, self-contained Claude Code session (or one task within a longer session).
-- Keep this roadmap and the GDD in the repo (e.g., `docs/`); Claude Code will read them for design context.
-- A `CLAUDE.md` at the repo root (created in T0.1) carries the global conventions below, so you never re-paste them.
-- Tasks within a phase are ordered by dependency; don't parallelize within a phase unless noted.
-- Every task lists **Acceptance criteria** - use these verbatim in the task prompt so the agent knows when it's done.
-- After each phase: play the game yourself. If it isn't fun/feeling right, fix before moving on. Juice problems compound.
-- Recommended repo hygiene: one branch per task, small PRs, agent writes/updates tests where noted.
+This project runs through a two-agent workflow with you (the human) in the loop as courier:
 
-### Global conventions (put these in CLAUDE.md at the repo root so Claude Code applies them to every task automatically)
+- **The PM (project manager agent)** owns `docs/` - this roadmap, the GDD, `status.md`, and `decisions.md` - and turns roadmap tasks into self-contained prompts.
+- **The coder (Claude Code)** does the implementation. It never reads `docs/`; every piece of design context it needs is baked into the task prompt the PM writes.
+- **You** paste the PM's task prompt into Claude Code, then paste Claude Code's end-of-task report back to the PM.
+
+The loop for each task:
+
+1. **PM writes a self-contained task prompt** for the next task (all design context, acceptance criteria verbatim, no reference to `docs/`).
+2. **You paste it into Claude Code.** Claude Code implements it and returns its end-of-task report (template in `CLAUDE.md`). It does not commit or push.
+3. **You paste the report back to the PM.**
+4. **The PM interprets the report and responds with exactly one of:**
+   - **COMMIT** - report checks out and acceptance is met; commit the working tree as-is (the PM supplies a commit message).
+   - **USER TEST** - acceptance needs human play/feel testing; the PM tells you what to try, and you report back before it decides.
+   - **CODER FIX** - a gap, bug, or unmet criterion; the PM issues a follow-up fix prompt for Claude Code.
+   - **NEXT TASK** - this task is fully resolved; the PM hands over the next task's prompt.
+5. **The PM updates `status.md` and `decisions.md` itself after every report.** You never edit those.
+
+Conventions and process notes:
+
+- `CLAUDE.md` at the repo root is **authored and maintained by the PM** (not created in T0.1). It carries the global conventions below plus the standing rules (never read `docs/`, never commit/push) and the mandatory report template.
+- Tasks within a phase are ordered by dependency; don't parallelize within a phase unless noted.
+- Every task lists **Acceptance criteria** - the PM copies these verbatim into the prompt so the coder knows when it's done.
+- After each phase: play the game yourself. If it isn't fun/feeling right, tell the PM before moving on. Juice problems compound.
+
+### Global conventions (mirrored into CLAUDE.md so the coder applies them to every task automatically)
 
 - TypeScript strict mode; no `any` unless justified in a comment.
 - All game data (crops, orders, levels, prices) lives in typed JSON/TS config files under `src/data/` - never hardcoded in scene logic.
@@ -29,7 +46,7 @@ Tech stack: **Phaser 3 + TypeScript + Vite**, web-first PWA, Capacitor wrap in P
 **Goal:** empty but running game you can open on your phone's browser.
 
 **T0.1 - Project scaffold**
-Set up Vite + Phaser 3 + TypeScript project with strict tsconfig, ESLint, Prettier, folder structure (`src/scenes`, `src/systems`, `src/data`, `src/ui`, `assets/`, `docs/`). Boot scene -> Preload scene -> Farm scene displaying a placeholder background at 1080x1920 portrait with FIT scaling. Create `CLAUDE.md` at the repo root containing the Global Conventions from this roadmap, plus pointers to `docs/gdd.md` and `docs/roadmap.md`.
+Set up Vite + Phaser 3 + TypeScript project with strict tsconfig, ESLint, Prettier, folder structure (`src/scenes`, `src/systems`, `src/data`, `src/ui`, `assets/`). Boot scene -> Preload scene -> Farm scene displaying a placeholder background at 1080x1920 portrait with FIT scaling. (`CLAUDE.md` and `docs/` already exist and are PM-owned; the coder does not create or touch them.)
 *Acceptance:* `npm run dev` opens a portrait game canvas; `npm run build` produces a deployable bundle; lint passes.
 
 **T0.2 - PWA + deploy pipeline**

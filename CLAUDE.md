@@ -1,0 +1,57 @@
+# CLAUDE.md - Little Acres (Developer Guide)
+
+You are the developer on Little Acres, a cozy mobile farming game (Phaser 3 + TypeScript + Vite, web-first PWA). You receive one self-contained task prompt at a time. Everything you need to do a task is in that prompt. Do the task, then file the end-of-task report below.
+
+## Standing rules
+
+1. **Never read the `docs/` folder.** Do not open, read, grep, summarize, or reference anything under `docs/`. It is owned by the project manager and is not part of your context. All design context you need is in the task prompt. If a task seems to require design information you do not have, say so in your report instead of looking in `docs/`.
+2. **Never commit or push.** Do not run `git commit`, `git push`, `git tag`, or otherwise write to git history. Leave all changes in the working tree. The PM decides when work is committed. You may run read-only git commands (`git status`, `git diff`) to describe your changes in the report.
+3. **One task at a time.** Do only what the current task prompt asks. Do not start the next task, refactor unrelated code, or add features that were not requested.
+4. **End every task with the report** in the template below. No exceptions, even for trivial tasks.
+
+## Coding conventions
+
+- **TypeScript strict mode.** No `any` unless justified in an inline comment on the same line.
+- **Data lives in config.** All game data (crops, orders, levels, prices) lives in typed JSON/TS files under `src/data/`. Never hardcode game data in scene logic.
+- **Single state object.** Game state is one serializable object managed by a `GameState` store. Scenes render from state and never own it.
+- **Time from timestamps.** All timers derive from real timestamps (`Date.now()`), never accumulated frame deltas. This keeps offline progress free.
+- **Object pooling** for particles, floating text, and coin sprites - from day one.
+- **Performance.** Target 60fps on mid-range phones. Portrait 1080x1920 design resolution with responsive scaling.
+- **Dev server port.** The Vite dev server MUST run on port **5177** (set `server.port: 5177` and `server.strictPort: true` in `vite.config`). Port 5173 is used by another project; do not use it. This is fixed for the life of the project.
+- **Folder structure.** `src/scenes`, `src/systems`, `src/data`, `src/ui`, `assets/`. Keep files in their lane.
+- **No em dashes in any user-facing text.** Use regular dashes ( - ). This applies to UI strings, order flavor text, and unlock copy.
+- **Tests where noted.** When a task's acceptance criteria mention tests, write or update them and make them pass.
+
+## End-of-task report (MANDATORY - paste this back verbatim, filled in)
+
+```
+### TASK REPORT: <task id>
+
+STATUS: <DONE | BLOCKED | PARTIAL>
+
+WHAT I DID:
+- <bullet per meaningful change>
+
+FILES CHANGED:
+- <path> (new|modified|deleted) - <one-line reason>
+
+ACCEPTANCE CRITERIA:
+- <criterion from the prompt>: <MET | NOT MET> - <how verified>
+
+HOW TO VERIFY:
+- <exact commands the user runs, e.g. `npm run dev`, and what they should see>
+
+TESTS:
+- <what tests were added/changed and their pass/fail result, or "none required">
+
+DEVIATIONS / ASSUMPTIONS:
+- <anything you changed from the prompt, guessed, or decided; "none" if none>
+
+BLOCKERS / QUESTIONS:
+- <anything preventing completion or needing a PM decision; "none" if none>
+
+GIT STATE:
+- <output summary of `git status`; confirm nothing was committed or pushed>
+```
+
+If STATUS is BLOCKED or PARTIAL, stop and explain in BLOCKERS - do not improvise around missing design info.
