@@ -22,6 +22,21 @@ Format:
 **Decision:** Little Acres' Vite dev server runs on port 5177 with strictPort. Recorded as a standing convention in CLAUDE.md so both PM and coder apply it automatically without per-prompt mention.
 **Trigger:** User request.
 
+## 2026-07-07 - Repo made public for free Pages hosting
+**Context:** GitHub Pages was blocked because the repo is private (free plan requires public repo or paid Pro/Enterprise for private Pages). Options: make public (free), Netlify (free, private, needs workflow swap), or GitHub Pro (~$4/mo, private, no changes).
+**Decision:** Make the repo public. No secrets in the repo; simplest free path, keeps the existing GitHub Actions deploy workflow unchanged. Source code is now publicly visible - acceptable for a hobby game.
+**Trigger:** T0.2 hosting - Pages disabled on private free repo.
+
+## 2026-07-07 - T0.2 deviations accepted
+**Context:** T0.2 report (STATUS DONE; all locally verifiable criteria MET; publish + phone-install are USER-VERIFIED after push).
+**Decision:** COMMIT. Accepted: placeholder app icons hand-encoded as PNGs via Node zlib (no image lib available; art swappable later with no code change); `injectRegister: false` with manual `registerSW` from `virtual:pwa-register`; theme_color `#3f6b3d` / background_color `#fdf6e3`; dev URL now under base, `http://localhost:5177/littleacres/`. Lighthouse audit skipped due to a Windows chrome-launcher bug (unrelated); manifest/SW/icon checks substituted. Task stays open until user confirms live install on a phone; then NEXT TASK (T0.3). Ran on Sonnet - appropriate; work was clean.
+**Trigger:** T0.2 coder report.
+
+## 2026-07-07 - Deploy target: GitHub Pages
+**Context:** T0.2 needs a host to publish a URL. Repo already has origin on GitHub (robfernandez066/littleacres, main). Options were GitHub Pages vs Netlify.
+**Decision:** GitHub Pages via GitHub Actions. Published URL: https://robfernandez066.github.io/littleacres/. Vite `base` set to `/littleacres/`. User does a one-time enable of Pages (source: GitHub Actions). Coder cannot push (standing rule), so publish + phone-install acceptance become USER TEST steps after commit.
+**Trigger:** T0.2 planning.
+
 ## 2026-07-07 - Model selection per task
 **Context:** Coder tasks can run on a stronger model (Fable5/Opus) or a cheaper/faster one (Sonnet). User wants the PM to pick per task rather than default to the strongest.
 **Decision:** Every task prompt names a recommended model. Heuristic - use **Fable5/Opus** for tasks with real architectural decisions, subtle correctness (timestamp/offline math, save/migration, GameState design), performance-sensitive systems, or precedent-setting patterns; use **Sonnet** for well-specified, mechanical, low-ambiguity work (config/data entry, UI wiring on an established pattern, straightforward rendering, asset loading, small additive features). When borderline, favor the stronger model for foundational tasks and Sonnet once the pattern exists.
