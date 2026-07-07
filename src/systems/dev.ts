@@ -1,15 +1,15 @@
 import type { GameStateData, GameStateStore } from './gameState';
+import { advanceTime, getTimeOffsetMs } from './time';
 
-/**
- * Console-callable debug hooks, e.g. `dev.addCoins(100)`. Debug only - the
- * real debug overlay UI arrives in T0.5.
- */
+/** Console-callable debug hooks, e.g. `dev.addCoins(100)`. Debug only. */
 export interface DevTools {
   getState(): Readonly<GameStateData>;
   exportSave(): string;
   importSave(json: string): boolean;
   reset(): void;
   addCoins(n: number): void;
+  advanceTime(ms: number): void;
+  getTimeOffsetMs(): number;
 }
 
 declare global {
@@ -28,5 +28,7 @@ export function installDevTools(store: GameStateStore): void {
       store.addCoins(n);
       store.save();
     },
+    advanceTime: (ms) => advanceTime(ms),
+    getTimeOffsetMs: () => getTimeOffsetMs(),
   };
 }

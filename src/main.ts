@@ -7,6 +7,7 @@ import { FarmScene } from './scenes/FarmScene';
 import { PreloadScene } from './scenes/PreloadScene';
 import { installDevTools } from './systems/dev';
 import { gameState } from './systems/gameState';
+import { DevOverlay } from './ui/DevOverlay';
 
 registerSW({ immediate: true });
 
@@ -27,4 +28,5 @@ const config: Phaser.Types.Core.GameConfig = {
   scene: [BootScene, PreloadScene, FarmScene],
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+new DevOverlay(game);

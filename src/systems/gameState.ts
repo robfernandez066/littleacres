@@ -159,6 +159,10 @@ export class GameStateStore {
     this.state.coins += amount;
   }
 
+  addXp(amount: number): void {
+    this.state.xp += amount;
+  }
+
   /**
    * Load from storage. A missing save means a fresh install and yields a
    * default state; a corrupt, invalid, or unmigratable save logs a warning

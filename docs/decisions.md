@@ -37,6 +37,16 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-07 - T0.4 verified (COMMIT)
+**Context:** T0.4 report, STATUS DONE. PM traced the migration indexing (slice(version-1) + version stamping) through the v1->v2, already-current, and throwing cases; all 13 claimed tests exist and match their descriptions; storage injectable and try/caught throughout; window.dev typed via declare global.
+**Decision:** COMMIT (user committed + pushed). Accepted deviations: silent fresh-install (warning reserved for corruption); dev.addCoins persists immediately; importSave failure leaves state untouched (never wipe a player save on bad paste); schema version derived from migration list length. Nits deferred: lastSavedAt re-stamped even on failed save (harmless); starting coins (50) live in gameState.ts, to be folded into src/data/ config during Phase 1 balancing.
+**Trigger:** T0.4 coder report.
+
+## 2026-07-07 - T0.5 prompt: time-warp scope adapted, game clock introduced
+**Context:** Roadmap T0.5 acceptance says "time-warp visibly matures crops", but crops/growth do not exist until T1.1/T1.2. Time-warp needs a mechanism all future timers share.
+**Decision:** T0.5 introduces src/systems/time.ts with a now() game clock (Date.now() + in-memory dev offset, not persisted); all future gameplay timers must use now() instead of Date.now() (metadata stamps like lastSavedAt stay real time). T0.5 acceptance adapted: time-warp advances the game clock visibly in the overlay; the crop-maturation check moves to T1.2 acceptance. Overlay is a DOM layer (not a Phaser scene), hidden toggle = 5 quick taps in the top-left corner or backtick on desktop. Model: Sonnet (UI wiring on established patterns).
+**Trigger:** T0.5 prompt writing.
+
 ## 2026-07-07 - T0.4 prompt: tests required, console debug hooks instead of menu
 **Context:** Roadmap T0.4 acceptance mentions no tests and asks for export/import "in a debug menu", but the debug overlay is T0.5 and save/migration correctness is exactly where silent bugs hide.
 **Decision:** T0.4 prompt strengthens the roadmap: Vitest added with required unit tests (round-trip, corrupt-save reset, migration hook, export/import); debug access is a typed `window.dev` console object for now, with the real overlay UI deferred to T0.5. Save key `littleacres:save`, schema starts at version 1, new players get 50 coins. Model: Fable5/Opus (foundational, correctness-sensitive).
