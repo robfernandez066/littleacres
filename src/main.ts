@@ -5,8 +5,14 @@ import { DESIGN_HEIGHT, DESIGN_WIDTH } from './config';
 import { BootScene } from './scenes/BootScene';
 import { FarmScene } from './scenes/FarmScene';
 import { PreloadScene } from './scenes/PreloadScene';
+import { installDevTools } from './systems/dev';
+import { gameState } from './systems/gameState';
 
 registerSW({ immediate: true });
+
+gameState.load();
+gameState.startAutosave();
+installDevTools(gameState);
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,

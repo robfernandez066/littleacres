@@ -32,6 +32,21 @@ Format:
 **Decision:** Salvage without restart. PM rewrote `package.json` to correct full content; user removed `.git/index.lock` and confirmed `npm run build` green. Issued a T0.3 RESUME prompt (Step 0 integrity re-check + finish Preload progress bar, Farm iso grid + coord helper, ASSETS.md). Note for future: partial coder crashes are recoverable since nothing is committed; check for truncated files + stale git locks first. Also logged Windows env notes: use `npm.cmd` under PowerShell, or set CurrentUser execution policy to RemoteSigned.
 **Trigger:** Claude Code API error during T0.3.
 
+## 2026-07-07 - T0.3 verified (COMMIT) + asset conventions accepted
+**Context:** T0.3 RESUME report, STATUS DONE. PM review: iso.ts math hand-verified (gridToIso/isoToGrid exact inverses, grid centered in design space); atlas.json has all 13 frames matching crops.ts and the ASSETS.md frame-name table; full T0.3 asset list covered. Coder verified build, lint, and runtime in Chrome; PM could not independently re-run build (PM sandbox mount served stale truncated caches of fresh coder writes - PM environment issue, repo files confirmed intact via direct reads).
+**Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
+**Trigger:** T0.3 coder report.
+
+## 2026-07-07 - T0.4 prompt: tests required, console debug hooks instead of menu
+**Context:** Roadmap T0.4 acceptance mentions no tests and asks for export/import "in a debug menu", but the debug overlay is T0.5 and save/migration correctness is exactly where silent bugs hide.
+**Decision:** T0.4 prompt strengthens the roadmap: Vitest added with required unit tests (round-trip, corrupt-save reset, migration hook, export/import); debug access is a typed `window.dev` console object for now, with the real overlay UI deferred to T0.5. Save key `littleacres:save`, schema starts at version 1, new players get 50 coins. Model: Fable5/Opus (foundational, correctness-sensitive).
+**Trigger:** T0.4 prompt writing.
+
+## 2026-07-07 - Process note: prefer atomic writes after two truncation incidents
+**Context:** Two file-truncation incidents in one day: the T0.3 crash left package.json unterminated mid-write, and the PM's sandbox later cached truncated copies of files mid-write. Interrupted writes are the common failure mode; nothing was ever lost thanks to no-commit-until-verdict.
+**Decision:** Standing recovery drill for any coder crash: check for truncated files (npm EJSONPARSE, unterminated comments/strings) and stale .git/index.lock before resuming; salvage rather than restart since the working tree is uncommitted. PM verifies repo files via direct reads when its sandbox mount looks stale.
+**Trigger:** T0.3 crash recovery + PM verification of the RESUME report.
+
 ## 2026-07-07 - T0.2 closed (NEXT TASK)
 **Context:** After setting Pages Source to "GitHub Actions" and re-running, deploy went green. User confirmed the live PWA installs on Android Chrome and launches fullscreen portrait.
 **Decision:** T0.2 DONE. Phase 0 continues with T0.3. Live URL: https://robfernandez066.github.io/littleacres/. Gotchas logged for future: private repos block free Pages (made public); cross-env lockfiles must include optional deps for `npm ci`; Pages Source must be set to GitHub Actions before first deploy.
