@@ -21,6 +21,7 @@ You are the developer on Little Acres, a cozy mobile farming game (Phaser 3 + Ty
 - **Folder structure.** `src/scenes`, `src/systems`, `src/data`, `src/ui`, `assets/`. Keep files in their lane.
 - **No em dashes in any user-facing text.** Use regular dashes ( - ). This applies to UI strings, order flavor text, and unlock copy.
 - **Tests where noted.** When a task's acceptance criteria mention tests, write or update them and make them pass.
+- **Lockfile must stay CI-safe.** CI runs `npm ci` on Linux; npm on Windows silently drops other platforms' optional deps when it regenerates the lockfile. After ANY change to dependencies, verify `package-lock.json` still contains top-level `node_modules/@emnapi/core` and `node_modules/@emnapi/runtime` entries (e.g. `findstr "node_modules/@emnapi" package-lock.json`). If they are missing, regenerate with `npm install --package-lock-only` from a clean state (no `node_modules` present) and re-check. Mention the lockfile check result in your report whenever dependencies changed.
 
 ## End-of-task report (MANDATORY - paste this back verbatim, filled in)
 
