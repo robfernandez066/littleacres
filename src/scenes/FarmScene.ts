@@ -3,7 +3,10 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { gameState, PLOT_COUNT } from '../systems/gameState';
+import { isReady, stageIndex } from '../systems/growth';
 import { gridToIso, TILE_WIDTH } from '../systems/iso';
+import { now } from '../systems/time';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
 const BACKGROUND_COLOR = 0x55913f;
@@ -19,11 +22,28 @@ const FIELD_MAX_Y = 1500;
 const GRASS_GRID_MIN = -6;
 const GRASS_GRID_MAX = 9;
 
+/** How often (ms of real time) growth visuals re-derive from state/clock. */
+const CROP_REFRESH_INTERVAL_MS = 250;
+
+/** Tint applied to a ready-to-harvest crop, on top of its normal frame. */
+const READY_TINT = 0xfff59d;
+
 /**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
- * a grass field. Purely visual for now - planting and harvesting come later.
+ * a grass field, rendered live from `gameState`. Planting/harvest input
+ * arrives in a later task; for now `window.dev.plant`/`dev.harvest` drive it.
+ *
+ * Plot index convention (matches `gameState.plots`): index = row * FARM_COLS
+ * + col. Any future code mapping a tile tap to a plot must use the same
+ * formula (see `indexToGrid` below).
  */
 export class FarmScene extends Phaser.Scene {
+  /** One reusable crop sprite per plot, indexed like `gameState.plots`. */
+  private cropSprites: Phaser.GameObjects.Image[] = [];
+  /** Whether the ready-state bounce/glow is currently active, per plot. */
+  private readyActive: boolean[] = [];
+  private refreshAccumulatorMs = 0;
+
   constructor() {
     super('Farm');
   }
@@ -33,7 +53,15 @@ export class FarmScene extends Phaser.Scene {
 
     this.layGrassField();
     this.layPlots();
-    this.showDemoCrops();
+    this.createCropSprites();
+    this.refreshCrops();
+  }
+
+  override update(_time: number, delta: number): void {
+    this.refreshAccumulatorMs += delta;
+    if (this.refreshAccumulatorMs < CROP_REFRESH_INTERVAL_MS) return;
+    this.refreshAccumulatorMs = 0;
+    this.refreshCrops();
   }
 
   /** Cover the field band with grass tiles (they also run under the plots). */
@@ -58,22 +86,84 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
-  /**
-   * A few crops on plots purely to prove the atlas frames load; planting
-   * logic in a later task replaces this.
-   */
-  private showDemoCrops(): void {
-    this.addCrop(0, 0, CROPS.sunwheat.stageFrames[2]);
-    this.addCrop(2, 1, CROPS.carrot.stageFrames[1]);
-    this.addCrop(3, 2, CROPS.glowberry.stageFrames[2]);
+  /** (col, row) for a plot index, inverse of `index = row * FARM_COLS + col`. */
+  private indexToGrid(index: number): { col: number; row: number } {
+    return { col: index % FARM_COLS, row: Math.floor(index / FARM_COLS) };
   }
 
-  /** Place a crop sprite so its baseline sits on the tile's iso center. */
-  private addCrop(col: number, row: number, frame: string): void {
-    const { x, y } = gridToIso(col, row);
-    this.add
-      .image(x, y, ATLAS_KEY, frame)
-      .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
-      .setDepth(y);
+  /**
+   * Create the 12 crop sprites once, positioned on their plot's tile with the
+   * baseline anchoring, hidden until their plot has a growing crop. These
+   * sprites are reused for the life of the scene - no per-frame allocation.
+   */
+  private createCropSprites(): void {
+    for (let index = 0; index < PLOT_COUNT; index++) {
+      const { col, row } = this.indexToGrid(index);
+      const { x, y } = gridToIso(col, row);
+      const sprite = this.add
+        .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
+        .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
+        .setDepth(y)
+        .setVisible(false);
+      this.cropSprites[index] = sprite;
+      this.readyActive[index] = false;
+    }
+  }
+
+  /**
+   * Re-derive every plot's visuals from `gameState` and the game clock:
+   * show/hide the sprite, set its growth-stage frame, and start/stop the
+   * ready-state bounce and glow. Reads state fresh every call - the scene
+   * never caches plot data beyond the sprite objects themselves.
+   */
+  private refreshCrops(): void {
+    const plots = gameState.getState().plots;
+    const nowMs = now();
+    for (let index = 0; index < PLOT_COUNT; index++) {
+      const plot = plots[index];
+      const sprite = this.cropSprites[index];
+      if (plot === undefined || sprite === undefined) continue;
+
+      if (plot.state === 'empty') {
+        sprite.setVisible(false);
+        this.stopReadyEffect(index, sprite);
+        continue;
+      }
+
+      sprite.setVisible(true);
+      // stageIndex() is clamped to 0..CROP_STAGES-1, which stageFrames always covers.
+      const frame = CROPS[plot.cropId].stageFrames[stageIndex(plot, nowMs)]!;
+      if (sprite.frame.name !== frame) sprite.setFrame(frame);
+
+      if (isReady(plot, nowMs)) {
+        this.startReadyEffect(index, sprite);
+      } else {
+        this.stopReadyEffect(index, sprite);
+      }
+    }
+  }
+
+  /** Start the idle bounce + glow tint on a just-ready crop; idempotent. */
+  private startReadyEffect(index: number, sprite: Phaser.GameObjects.Image): void {
+    if (this.readyActive[index]) return;
+    this.readyActive[index] = true;
+    sprite.setTint(READY_TINT);
+    this.tweens.add({
+      targets: sprite,
+      scale: 1.06,
+      duration: 450,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  /** Stop the idle bounce + glow tint and restore defaults; idempotent. */
+  private stopReadyEffect(index: number, sprite: Phaser.GameObjects.Image): void {
+    if (!this.readyActive[index]) return;
+    this.readyActive[index] = false;
+    this.tweens.killTweensOf(sprite);
+    sprite.setScale(1);
+    sprite.clearTint();
   }
 }

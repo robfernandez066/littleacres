@@ -37,6 +37,11 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-07 - T1.1 verified (COMMIT)
+**Context:** T1.1 report, STATUS DONE, 42/42 tests. PM read every changed file and both test suites: boundary tests exact (growMs-1 vs growMs, thirds for stages), offline growth covered by round-trip and hand-crafted stale save, clock-skew clamp covered, import-type breaks the growth/gameState cycle at runtime, guard-then-mutate ordering airtight.
+**Decision:** COMMIT (user committed + pushed, deploy green). Accepted hardening deviations: fractional plot indices rejected; cropId runtime-checked despite typing (console-reachable). Noted dev-only artifact, not a bug: planting under a warped clock then refreshing leaves plantedAt in the future; growthFraction clamps to 0 and the crop just re-grows.
+**Trigger:** T1.1 coder report.
+
 ## 2026-07-07 - T0.5 closed; Phase 0 complete
 **Context:** After the T0.5a lockfile fix, deploy went green and the user confirmed the dev overlay works on PC (backtick + corner clicks) and on mobile (5-tap corner) on both the installed PWA and the site URL.
 **Decision:** T0.5 DONE. Phase 0 (skeleton) complete: deployed PWA, asset pipeline, saved state, dev tooling. Phase 1 (MVP core loop) begins with T1.1.

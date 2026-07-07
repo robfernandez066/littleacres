@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.1 - Crop data + plot state machine (prompt out; Fable5/Opus)
+**Active task:** T1.2 - Grid rendering + growth visuals (prompt out; Sonnet)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -12,7 +12,8 @@
 - T0.5 Debug/dev overlay - DONE, committed + pushed. Overlay confirmed working on PC and mobile (installed app + URL)
 - T0.5a Lockfile CI fix - DONE (PM-direct fix, user-approved). Deploy green again; CLAUDE.md lockfile guard rule added
 - PHASE 0 COMPLETE
-- T1.1 Crop data + plot state machine - IN PROGRESS (prompt handed to coder). Provisional economy numbers set by PM (placeholder until balancing spreadsheet); ready state is derived from timestamps, not stored
+- T1.1 Crop data + plot state machine - DONE, committed + pushed, deploy green. 42 tests; ready is derived, never stored; provisional economy numbers (placeholder until balancing spreadsheet)
+- T1.2 Grid rendering + growth visuals - IN PROGRESS (prompt handed to coder). Removes T0.3 demo crops; carries the time-warp-matures-crops check deferred from T0.5
 
 ## Blockers
 - None.
