@@ -22,6 +22,7 @@ export type OnboardingStepId =
   | 'close-bag'
   | 'check-orders'
   | 'review-order'
+  | 'close-orders-2'
   | 'plant-mixed';
 
 /**
@@ -29,9 +30,11 @@ export type OnboardingStepId =
  * or closing) via `notifyOnboardingUiEvent`, rather than by store actions.
  * The open/close events are tick-notified from observed panel state, so a
  * panel already in the required state when its step begins still counts.
- * `check-orders` completes when the order board opens (like `open-orders`)
- * and `review-order` when it closes (like `close-orders`), unconditionally -
- * the step can never wedge on the card's contents.
+ * `check-orders` completes when the order board opens (like `open-orders`);
+ * `review-order` also completes the moment the board closes (an early close,
+ * before its read-dwell elapses - see `REVIEW_ORDER_DWELL_MS`), and
+ * `close-orders-2` completes on the same board-closed observation, like
+ * `close-orders` - unconditionally, so neither step can ever wedge.
  */
 export type OnboardingUiEventId =
   | 'select-sunwheat'
@@ -40,7 +43,8 @@ export type OnboardingUiEventId =
   | 'open-bag'
   | 'close-bag'
   | 'check-orders'
-  | 'review-order';
+  | 'review-order'
+  | 'close-orders-2';
 
 /**
  * Ids in the pulse-target registry (see systems/pulseTargets.ts). SeedBar,
@@ -147,7 +151,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'harvest-rest',
-    instruction: 'Drag across the field to harvest the rest',
+    instruction: 'Once the crops are ready, drag across the field to harvest the rest',
     goal: 9,
     // Drag step: the ghost swipe guide shows instead of the glow highlight.
     pulseTarget: null,
@@ -191,6 +195,12 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     pulseTarget: 'order-card-0',
   },
   {
+    id: 'close-orders-2',
+    instruction: 'Tap outside the window to close it',
+    goal: 1,
+    pulseTarget: null,
+  },
+  {
     id: 'plant-mixed',
     instruction: 'Plant 8 Sunwheat and 4 Carrots',
     goal: 8,
@@ -212,3 +222,12 @@ export const DELIVER_PROGRESS_INSTRUCTION = 'Grow more Sunwheat';
  * soonest-ready plot. The moment one ripens the chip flips to the step copy.
  */
 export const HARVEST_COUNTDOWN_INSTRUCTION = 'Sunwheat growing...';
+
+/**
+ * How long the `review-order` step's board must stay open before
+ * `GameStateStore.autoAdvanceOnboarding` advances it on its own, giving the
+ * player time to read the order. An early close still advances the step
+ * immediately via the ordinary `review-order` UI event, whichever comes
+ * first.
+ */
+export const REVIEW_ORDER_DWELL_MS = 3000;

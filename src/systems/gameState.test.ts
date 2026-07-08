@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type CropId, CROPS } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
-import { ONBOARDING_ORDER_A, ONBOARDING_ORDER_B, ONBOARDING_STEPS } from '../data/onboarding';
+import {
+  ONBOARDING_ORDER_A,
+  ONBOARDING_ORDER_B,
+  ONBOARDING_STEPS,
+  REVIEW_ORDER_DWELL_MS,
+} from '../data/onboarding';
 import { type Order, ORDER_SLOTS, SKIP_COOLDOWN_MS } from '../data/orders';
 import {
   createDefaultState,
@@ -647,7 +652,7 @@ describe('onboarding', () => {
     return { ...saved, ...overrides };
   }
 
-  it('walks the full 14-step chain with the exact first-session economy', () => {
+  it('walks the full 15-step chain with the exact first-session economy', () => {
     const store = new GameStateStore({ storage: makeStorage(), rng: seededRng(1) });
     store.ensureOrders(); // as the scene does on create
     const onboarding = () => store.getState().onboarding;
@@ -736,13 +741,23 @@ describe('onboarding', () => {
     store.notifyOnboardingUiEvent('check-orders');
     expect(onboarding().step).toBe(stepIndex('review-order'));
 
-    // 13 review-order: ORDER B still sits in slot 0 for the player to read;
-    // closing the board advances unconditionally.
+    // 13 review-order: ORDER B still sits in slot 0 for the player to read.
+    // Too early: the dwell guard does not advance it yet.
     expect(store.getState().orders[0]).toEqual({ state: 'open', order: ONBOARDING_ORDER_B });
-    store.notifyOnboardingUiEvent('review-order');
+    store.autoAdvanceOnboarding();
+    expect(onboarding().step).toBe(stepIndex('review-order'));
+    // Once the board has been open for the full read-dwell, it self-advances
+    // even though the board is still open.
+    advanceTime(REVIEW_ORDER_DWELL_MS);
+    store.autoAdvanceOnboarding();
+    expect(onboarding().step).toBe(stepIndex('close-orders-2'));
+
+    // 14 close-orders-2: closing the board (still open from the dwell path)
+    // advances unconditionally, identically to close-orders.
+    store.notifyOnboardingUiEvent('close-orders-2');
     expect(onboarding().step).toBe(stepIndex('plant-mixed'));
 
-    // 14 plant-mixed: 8 sunwheat then 4 carrots -> exactly 7 coins left,
+    // 15 plant-mixed: 8 sunwheat then 4 carrots -> exactly 7 coins left,
     // and the tutorial completes permanently.
     for (let i = 0; i < 8; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
     expect(onboarding()).toEqual({
@@ -771,9 +786,45 @@ describe('onboarding', () => {
     store.notifyOnboardingUiEvent('close-orders');
     store.notifyOnboardingUiEvent('close-bag');
     store.notifyOnboardingUiEvent('review-order');
+    store.notifyOnboardingUiEvent('close-orders-2');
     expect(store.getState().onboarding.step).toBe(8);
     store.notifyOnboardingUiEvent('open-bag');
     expect(store.getState().onboarding.step).toBe(9);
+  });
+
+  it('review-order advances immediately on an early board close, without waiting out the dwell', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedAtStep(stepIndex('review-order'))),
+    });
+    const store = new GameStateStore({ storage });
+    store.load();
+    // Well under the dwell: the guard alone must not advance it.
+    store.autoAdvanceOnboarding();
+    expect(store.getState().onboarding.step).toBe(stepIndex('review-order'));
+    // The board closes early - the ordinary UI event advances it right away.
+    store.notifyOnboardingUiEvent('review-order');
+    expect(store.getState().onboarding.step).toBe(stepIndex('close-orders-2'));
+    // close-orders-2 completes on the same board-closed observation.
+    store.notifyOnboardingUiEvent('close-orders-2');
+    expect(store.getState().onboarding.step).toBe(stepIndex('plant-mixed'));
+  });
+
+  it('a reload mid-review-order restarts the read-dwell', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedAtStep(stepIndex('review-order'))),
+    });
+    const store = new GameStateStore({ storage });
+    store.load();
+    advanceTime(REVIEW_ORDER_DWELL_MS - 1);
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    // The in-memory step-entered timestamp reset on load, so the almost-
+    // elapsed dwell from before the reload does not carry over.
+    reloaded.autoAdvanceOnboarding();
+    expect(reloaded.getState().onboarding.step).toBe(stepIndex('review-order'));
+    advanceTime(REVIEW_ORDER_DWELL_MS);
+    reloaded.autoAdvanceOnboarding();
+    expect(reloaded.getState().onboarding.step).toBe(stepIndex('close-orders-2'));
   });
 
   it('sell-rest advances on a sunwheat sale but not on other crops', () => {
@@ -812,7 +863,7 @@ describe('onboarding', () => {
   });
 
   it('plant-mixed ignores wrong crops and caps each counter at its goal', () => {
-    const saved = savedAtStep(13 /* plant-mixed */, { coins: 10_000 });
+    const saved = savedAtStep(14 /* plant-mixed */, { coins: 10_000 });
     saved.level = 3; // glowberry plantable - the "wrong crop" for this step
     saved.xp = xpForLevel(3);
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -821,16 +872,16 @@ describe('onboarding', () => {
     const onboarding = () => store.getState().onboarding;
 
     expect(store.plantCrop(0, 'glowberry')).toBe(true);
-    expect(onboarding()).toEqual({ completed: false, step: 13, progress: 0, progressB: 0 });
+    expect(onboarding()).toEqual({ completed: false, step: 14, progress: 0, progressB: 0 });
 
     // A 9th sunwheat plants fine but the counter holds at the 8 goal.
     for (let i = 1; i <= 9; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
-    expect(onboarding()).toEqual({ completed: false, step: 13, progress: 8, progressB: 0 });
+    expect(onboarding()).toEqual({ completed: false, step: 14, progress: 8, progressB: 0 });
 
     // Carrots still short: not completed until BOTH goals are met.
     expect(store.plantCrop(10, 'carrot')).toBe(true);
     expect(store.plantCrop(11, 'carrot')).toBe(true);
-    expect(onboarding()).toEqual({ completed: false, step: 13, progress: 8, progressB: 2 });
+    expect(onboarding()).toEqual({ completed: false, step: 14, progress: 8, progressB: 2 });
   });
 
   it('plant steps before the mix only count sunwheat', () => {
@@ -871,7 +922,7 @@ describe('onboarding', () => {
 
   it('resumes mid-plant-mixed with both counters intact', () => {
     const storage = makeStorage();
-    const saved = savedAtStep(13 /* plant-mixed */, { coins: 10_000 });
+    const saved = savedAtStep(14 /* plant-mixed */, { coins: 10_000 });
     saved.level = 2;
     saved.xp = xpForLevel(2);
     storage.setItem(SAVE_KEY, JSON.stringify(saved));
@@ -883,7 +934,7 @@ describe('onboarding', () => {
     reloaded.load();
     expect(reloaded.getState().onboarding).toEqual({
       completed: false,
-      step: 13,
+      step: 14,
       progress: 1,
       progressB: 1,
     });
@@ -913,6 +964,7 @@ describe('onboarding', () => {
     store.notifyOnboardingUiEvent('close-bag');
     store.notifyOnboardingUiEvent('check-orders');
     store.notifyOnboardingUiEvent('review-order');
+    store.notifyOnboardingUiEvent('close-orders-2');
     store.autoAdvanceOnboarding();
     expect(store.plantCrop(0, 'sunwheat')).toBe(true);
     advanceTime(CROPS.sunwheat.growMs);
@@ -928,7 +980,7 @@ describe('onboarding', () => {
   it('suppresses teaser orders while onboarding is active', () => {
     // Mid-tutorial at level 2 (the plant-mixed step after the scripted
     // level-up): suppression follows the flag, not the level.
-    const saved = savedAtStep(13 /* plant-mixed */);
+    const saved = savedAtStep(14 /* plant-mixed */);
     saved.level = 2;
     saved.xp = xpForLevel(2);
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });

@@ -8,6 +8,7 @@ import {
   type OnboardingStep,
   type OnboardingStepId,
   type OnboardingUiEventId,
+  REVIEW_ORDER_DWELL_MS,
 } from '../data/onboarding';
 import {
   generateOrder,
@@ -308,12 +309,20 @@ export class GameStateStore {
   private autosaveTimer: number | null = null;
   /** Pending level-ups for the scene to celebrate. Transient - never saved. */
   private levelUpQueue: LevelUpEvent[] = [];
+  /**
+   * Game-clock timestamp when the active onboarding step became active.
+   * Drives the `review-order` read-dwell in `autoAdvanceOnboarding`.
+   * Deliberately in-memory only, not part of `GameStateData` - a reload
+   * mid-review just restarts the read, which is fine.
+   */
+  private stepEnteredAt = 0;
 
   constructor(options: GameStateStoreOptions = {}) {
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
     this.migrations = options.migrations ?? MIGRATIONS;
     this.rng = options.rng ?? Math.random;
     this.state = createDefaultState(this.currentVersion);
+    this.stepEnteredAt = now();
   }
 
   /** Current schema version, derived from the migration list. */
@@ -564,6 +573,7 @@ export class GameStateStore {
     onboarding.step++;
     onboarding.progress = 0;
     onboarding.progressB = 0;
+    this.stepEnteredAt = now();
     if (onboarding.step >= ONBOARDING_STEPS.length) {
       onboarding.completed = true;
       return;
@@ -577,15 +587,24 @@ export class GameStateStore {
   }
 
   /**
-   * Anti-stuck guard, called on the scene's refresh tick: if sell-rest is
-   * active but no sunwheat is left to sell (it was all delivered some other
-   * way), the step self-advances so the tutorial can never park on an
-   * impossible instruction. Store-side by design - scenes stay logic-free.
+   * Anti-stuck / read-dwell guard, called on the scene's refresh tick.
+   * `sell-rest` self-advances if no sunwheat is left to sell (it was all
+   * delivered some other way), so the tutorial can never park on an
+   * impossible instruction. `review-order` self-advances once its board has
+   * been open for `REVIEW_ORDER_DWELL_MS`, giving the player time to read the
+   * order even if they never close the board; an early close still advances
+   * it sooner via the ordinary `review-order` UI event. Store-side by
+   * design - scenes stay logic-free.
    */
   autoAdvanceOnboarding(): void {
     const step = this.currentOnboardingStep();
-    if (step?.id !== 'sell-rest') return;
-    if ((this.state.inventory.sunwheat ?? 0) > 0) return;
+    if (step?.id === 'sell-rest') {
+      if ((this.state.inventory.sunwheat ?? 0) > 0) return;
+    } else if (step?.id === 'review-order') {
+      if (now() - this.stepEnteredAt < REVIEW_ORDER_DWELL_MS) return;
+    } else {
+      return;
+    }
     this.advanceOnboardingStep();
     this.save();
   }
@@ -614,6 +633,7 @@ export class GameStateStore {
     }
     if (raw === null) {
       this.state = createDefaultState(this.currentVersion);
+      this.stepEnteredAt = now();
       return;
     }
     const restored = this.parseAndMigrate(raw);
@@ -624,6 +644,7 @@ export class GameStateStore {
     }
     this.state = restored;
     this.reconcileLevelSilently();
+    this.stepEnteredAt = now();
   }
 
   /**
@@ -667,6 +688,7 @@ export class GameStateStore {
   reset(): void {
     this.levelUpQueue = [];
     this.state = createDefaultState(this.currentVersion);
+    this.stepEnteredAt = now();
     this.save();
   }
 
@@ -688,6 +710,7 @@ export class GameStateStore {
     this.levelUpQueue = [];
     this.state = restored;
     this.reconcileLevelSilently();
+    this.stepEnteredAt = now();
     this.save();
     return true;
   }

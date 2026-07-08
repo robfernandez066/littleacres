@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import type { OnboardingStepId } from '../data/onboarding';
 import { gridToIso } from '../systems/iso';
 import { isModalOpen } from '../systems/modalPanels';
 import { ensureGlowTexture } from './glowTexture';
@@ -8,14 +9,17 @@ import { ensureGlowTexture } from './glowTexture';
 /**
  * Ghost-swipe drag indicator for the onboarding drag steps (plant-rest,
  * harvest-rest): a gold lead dot with a soft under-glow glides a serpentine
- * path through every plot tile center - row 0 left to right, row 1 right to
- * left, row 2 left to right - trailed by staggered smaller, fainter dots so
- * the motion reads as a finger path.
+ * path through every plot tile center - column 3 (rightmost) top to bottom,
+ * column 2 bottom to top, column 1 top to bottom, column 0 bottom to top -
+ * trailed by staggered smaller, fainter dots so the motion reads as a finger
+ * path.
  *
  * Every object is pre-created; steady-state work is position/alpha updates
  * only, driven by one perpetual tween. Dots are plain images that are never
  * made interactive. The whole guide hides per frame while a modal panel is
- * open (same occlusion rule as the pulse-target providers).
+ * open (same occlusion rule as the pulse-target providers), and it demos at
+ * most `MAX_DEMO_LOOPS` complete loops per step before hiding itself for the
+ * rest of that step - see `setStep`.
  */
 
 /** Above the panels (2100), same layer as the onboarding halo. */
@@ -24,15 +28,17 @@ const SWIPE_DEPTH = 2150;
 const LOOP_MS = 2500;
 /** Fade window at each end of the path, so the loop wrap never teleports. */
 const WRAP_FADE_MS = 300;
+/** Complete demonstrations shown per step before the guide hides itself. */
+const MAX_DEMO_LOOPS = 2;
 const DOT_TINT = 0xffe27a;
 const LEAD_SIZE = 26;
-const LEAD_ALPHA = 0.95;
+const LEAD_ALPHA = 0.48;
 const LEAD_GLOW_SIZE = 72;
-const LEAD_GLOW_ALPHA = 0.35;
+const LEAD_GLOW_ALPHA = 0.18;
 /** Trail dots stagger behind the lead by this much each, shrinking and fading. */
 const TRAIL_SPACING_MS = 110;
 const TRAIL_SIZES = [22, 19, 16, 13, 10] as const;
-const TRAIL_ALPHAS = [0.5, 0.4, 0.32, 0.24, 0.16] as const;
+const TRAIL_ALPHAS = [0.25, 0.2, 0.16, 0.12, 0.08] as const;
 
 interface GuideDot {
   image: Phaser.GameObjects.Image;
@@ -52,6 +58,18 @@ export class SwipeGuide {
   private shown = false;
   /** Last visibility actually applied to the dot images. */
   private applied = false;
+  /** The step this guide is currently demoing for; resets the loop count on change. */
+  private stepId: OnboardingStepId | null = null;
+  /** Complete demo loops shown so far for `stepId`. */
+  private loopCount = 0;
+  /** Once true, the guide stays hidden for the rest of `stepId`. */
+  private demoExhausted = false;
+  /**
+   * Whether the loop in progress has been shown, uninterrupted, since it
+   * started - the condition for counting it on completion. Reset at the
+   * start of every loop.
+   */
+  private loopClean = true;
 
   constructor(scene: Phaser.Scene) {
     this.buildPath();
@@ -81,23 +99,58 @@ export class SwipeGuide {
       repeat: -1,
       ease: 'Linear',
       onUpdate: () => this.apply(),
+      onRepeat: () => this.onLoopComplete(),
     });
   }
 
-  /** Show/hide the guide; modal occlusion is applied on top of this per frame. */
-  setShown(shown: boolean): void {
-    this.shown = shown;
+  /**
+   * Show/hide the guide for the given step; modal occlusion is applied on
+   * top of this per frame. Changing `stepId` resets the demo loop count, so
+   * every step gets its own `MAX_DEMO_LOOPS` allowance regardless of how the
+   * shared perpetual tween happens to be phased. Once that allowance is used
+   * up the guide stays hidden - even if `active` is still true - until the
+   * step changes again.
+   */
+  setStep(stepId: OnboardingStepId | null, active: boolean): void {
+    if (stepId !== this.stepId) {
+      this.stepId = stepId;
+      this.loopCount = 0;
+      this.demoExhausted = false;
+      this.loopClean = true;
+    }
+    this.shown = active && !this.demoExhausted;
+  }
+
+  /**
+   * Called each time the perpetual tween wraps back to the start of a loop.
+   * The loop that just finished counts toward the step's demo allowance only
+   * if it was shown, uninterrupted, for its entire duration - a loop that
+   * starts mid-flight (the step just became active) or crosses a modal panel
+   * opening does not count.
+   */
+  private onLoopComplete(): void {
+    if (this.loopClean && this.shown) {
+      this.loopCount++;
+      if (this.loopCount >= MAX_DEMO_LOOPS) {
+        this.demoExhausted = true;
+        this.shown = false;
+      }
+    }
+    this.loopClean = true;
   }
 
   /**
    * The serpentine polyline through all plot tile centers, with cumulative
-   * segment lengths for constant-speed traversal. Built once.
+   * segment lengths for constant-speed traversal. Built once. Column-major,
+   * starting at the rightmost column: col 3 top to bottom, col 2 bottom to
+   * top, col 1 top to bottom, col 0 bottom to top.
    */
   private buildPath(): void {
     let total = 0;
-    for (let row = 0; row < FARM_ROWS; row++) {
-      for (let step = 0; step < FARM_COLS; step++) {
-        const col = row % 2 === 0 ? step : FARM_COLS - 1 - step;
+    for (let step = 0; step < FARM_COLS; step++) {
+      const col = FARM_COLS - 1 - step;
+      for (let r = 0; r < FARM_ROWS; r++) {
+        const row = step % 2 === 0 ? r : FARM_ROWS - 1 - r;
         const { x, y } = gridToIso(col, row);
         const last = this.pathX.length - 1;
         if (last >= 0) total += Math.hypot(x - this.pathX[last]!, y - this.pathY[last]!);
@@ -111,6 +164,7 @@ export class SwipeGuide {
   /** Per-frame update: resolve effective visibility, then place every dot. */
   private apply(): void {
     const visible = this.shown && !isModalOpen();
+    if (!visible) this.loopClean = false;
     if (visible !== this.applied) {
       this.applied = visible;
       for (const dot of this.dots) dot.image.setVisible(visible);

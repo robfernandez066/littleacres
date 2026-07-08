@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest';
 import { ONBOARDING_ORDER_B, ONBOARDING_STEPS, orderItemsText } from './onboarding';
 
 describe('onboarding step chain', () => {
-  it('is 14 steps with the order-review pair between close-bag and plant-mixed', () => {
-    expect(ONBOARDING_STEPS).toHaveLength(14);
+  it('is 15 steps with the order-review chain between close-bag and plant-mixed', () => {
+    expect(ONBOARDING_STEPS).toHaveLength(15);
     const ids = ONBOARDING_STEPS.map((step) => step.id);
     expect(ids.indexOf('check-orders')).toBe(ids.indexOf('close-bag') + 1);
     expect(ids.indexOf('review-order')).toBe(ids.indexOf('check-orders') + 1);
-    expect(ids.indexOf('plant-mixed')).toBe(ids.indexOf('review-order') + 1);
+    expect(ids.indexOf('close-orders-2')).toBe(ids.indexOf('review-order') + 1);
+    expect(ids.indexOf('plant-mixed')).toBe(ids.indexOf('close-orders-2') + 1);
   });
 
   it('derives the review-order chip copy from the ORDER B config', () => {

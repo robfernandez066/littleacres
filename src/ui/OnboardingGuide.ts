@@ -52,8 +52,8 @@ const HALO_SIZE_FACTOR = 1.4;
  * Continuous breathing, no rest gap: the halo's alpha and the attached
  * object's scale ride one shared 0..1 phase so they always move together.
  */
-const HALO_MIN_ALPHA = 0.25;
-const HALO_MAX_ALPHA = 0.6;
+const HALO_MIN_ALPHA = 0.12;
+const HALO_MAX_ALPHA = 0.32;
 const TARGET_BREATH_SCALE = 1.06;
 const BREATH_HALF_DURATION_MS = 900;
 
@@ -130,7 +130,7 @@ export class OnboardingGuide {
       : (ONBOARDING_STEPS[state.onboarding.step] ?? null);
     if (step === null) {
       this.chipContainer.setVisible(false);
-      this.swipeGuide.setShown(false);
+      this.swipeGuide.setStep(null, false);
       this.hideHighlight();
       return;
     }
@@ -147,7 +147,7 @@ export class OnboardingGuide {
     // Drag steps show the ghost swipe instead of the glow highlight; the
     // swipe hides itself per frame while a modal panel is open.
     const isDragStep = step.id === 'plant-rest' || step.id === 'harvest-rest';
-    this.swipeGuide.setShown(isDragStep);
+    this.swipeGuide.setStep(step.id, isDragStep);
     if (isDragStep) {
       this.hideHighlight();
       return;
@@ -205,7 +205,9 @@ export class OnboardingGuide {
    * Seed and field providers return null once unavailable (seed selected, or
    * a modal panel open and occluding them), so the plant-shaped steps
    * naturally walk the highlight from the seed bar onto the field. The drag
-   * steps never reach here - they show the swipe guide instead.
+   * steps never reach here - they show the swipe guide instead. From
+   * `deliver-sunwheat` onward the player has already been taught the plot
+   * drag, so plots are never glowed again - only seed buttons (or nothing).
    */
   private resolveTarget(step: OnboardingStep, state: GameStateData): PulseTarget | null {
     switch (step.id) {
@@ -214,25 +216,20 @@ export class OnboardingGuide {
       case 'deliver-sunwheat': {
         if (!this.isDeliveryCovered(state)) {
           // The board's close (X) is only a valid target while it's open -
-          // closing it IS the next action then. Otherwise walk the
-          // plant-harvest loop again: harvest anything ready first,
-          // otherwise select the seed / plant a plot.
-          return (
-            resolvePulseTarget('orders-close') ??
-            resolvePulseTarget('ready-plot') ??
-            resolvePulseTarget('seed-sunwheat') ??
-            resolvePulseTarget('empty-plot')
-          );
+          // closing it IS the next action then. Otherwise glow the sunwheat
+          // seed button while more is needed and it isn't selected yet; no
+          // plot fallback (no highlight once it's selected).
+          return resolvePulseTarget('orders-close') ?? resolvePulseTarget('seed-sunwheat');
         }
         // Enough sunwheat: the board's Fulfill button if it is open, else the
         // Orders button to get there.
         return resolvePulseTarget('fulfill-slot-0') ?? resolvePulseTarget('orders-button');
       }
       case 'plant-mixed': {
-        // Walk sunwheat first, then carrots: highlight the needed crop's seed
-        // button until it is selected, then the field.
+        // Walk sunwheat first, then carrots: highlight the needed crop's
+        // seed button only, until it is selected - never a plot.
         const needed = state.onboarding.progress < step.goal ? 'seed-sunwheat' : 'seed-carrot';
-        return resolvePulseTarget(needed) ?? resolvePulseTarget('empty-plot');
+        return resolvePulseTarget(needed);
       }
       default:
         // 'ready-plot' resolves to null while everything is still growing -

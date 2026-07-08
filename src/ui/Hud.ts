@@ -255,15 +255,17 @@ export class Hud {
     // (not just on the tap), so a panel already in the required state when
     // its step begins still counts - including one closed via the X button
     // during a "tap outside" step. Cheap no-ops whenever the step is not
-    // active. The board drives two step pairs: open-orders/close-orders and
-    // the later check-orders/review-order revisit (review-order completes on
-    // board close, unconditionally, so it can never wedge).
+    // active. The board drives three step pairs: open-orders/close-orders,
+    // check-orders/review-order (review-order also completes on an early
+    // board close, ahead of its read-dwell - see REVIEW_ORDER_DWELL_MS), and
+    // the explicit close-orders-2 revisit after that dwell.
     if (this.orderBoard.isVisible()) {
       gameState.notifyOnboardingUiEvent('open-orders');
       gameState.notifyOnboardingUiEvent('check-orders');
     } else {
       gameState.notifyOnboardingUiEvent('close-orders');
       gameState.notifyOnboardingUiEvent('review-order');
+      gameState.notifyOnboardingUiEvent('close-orders-2');
     }
     if (this.inventoryPanel.isVisible()) {
       gameState.notifyOnboardingUiEvent('open-bag');
