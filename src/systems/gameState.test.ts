@@ -159,8 +159,7 @@ describe('migrations', () => {
 describe('real migration v1 -> v2 (moondust)', () => {
   it('loads a v1 save with no moondust field, migrating it to v2 with moondust 0', () => {
     expect(MIGRATIONS).toHaveLength(1);
-    const fullSave: Record<string, unknown> = createDefaultState(1);
-    const { moondust, ...v1Save } = fullSave;
+    const { moondust, ...v1Save } = createDefaultState(1);
     void moondust;
     const raw = { ...v1Save, coins: 250, xp: 42, level: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
