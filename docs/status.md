@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.6 - HUD + inventory + selling (prompt out; Sonnet)
+**Active task:** T1.7 - XP + farm level system (prompt out; Sonnet)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -17,7 +17,8 @@
 - T1.3 Seed bar + paint planting - DONE (committed, deploy green, phone thumb-feel test passed). PlotPointerTracker is the shared gesture pattern
 - T1.4 Sweep harvesting - DONE incl. T1.4a gesture mode latch (user feel test passed, committed)
 - T1.5 Pooled juice systems - DONE (user phone test passed incl. haptics, committed). Pool<T> pattern + stats registry is the standard for all future effects
-- T1.6 HUD + inventory + selling - committed; live v1->v2 migration confirmed on user's real save (coins intact, moondust 0). User UI feedback -> T1.6a: inventory row overlap bug, sunwheat unit value not rendering, and new juice: harvested crops fly to the bag with an arrival bounce
+- T1.6 HUD + inventory + selling - DONE after four follow-ups: T1.6a (layout + crop-to-bag flights), T1.6b (CI type error, PM fix), T1.6c (spacing/moondust/font polish, PM fixes). Live v1->v2 migration confirmed on user's real save. All green
+- T1.7 XP + farm level - IN PROGRESS (prompt handed to coder). Level-up event queue drained by scene; celebration + unlock reveal cards; level only ever increases; silent reconcile on load
 
 ## Blockers
 - None.

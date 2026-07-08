@@ -13,6 +13,7 @@ import { now } from '../systems/time';
 import { CoinArc } from '../ui/CoinArc';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
+import { LevelUpCelebration } from '../ui/LevelUpCelebration';
 import { ParticleBurst } from '../ui/ParticleBurst';
 import { SeedBar } from '../ui/SeedBar';
 
@@ -81,6 +82,7 @@ export class FarmScene extends Phaser.Scene {
   private particles!: ParticleBurst;
   private coinArc!: CoinArc;
   private hud!: Hud;
+  private levelUpCelebration!: LevelUpCelebration;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -107,6 +109,7 @@ export class FarmScene extends Phaser.Scene {
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this);
     this.hud = new Hud(this, this.coinArc, this.floatingText);
+    this.levelUpCelebration = new LevelUpCelebration(this, this.particles);
     this.setupFieldInput();
     this.refreshCrops();
 
@@ -122,6 +125,7 @@ export class FarmScene extends Phaser.Scene {
     this.refreshCrops();
     this.seedBar.refresh();
     this.hud.refresh();
+    this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
   }
 
   /**
@@ -154,10 +158,12 @@ export class FarmScene extends Phaser.Scene {
    * Growing-but-not-ready plots and empty plots with no seed selected fail
    * both silently. A gesture locks to whichever action first succeeds
    * (`gestureMode`), so a harvest sweep cannot plant empty plots it crosses
-   * and a plant sweep cannot harvest ready crops it crosses.
+   * and a plant sweep cannot harvest ready crops it crosses. A level-up
+   * celebration blocks the field entirely - its full-screen backdrop already
+   * eats the tap, this just guards the scene-wide pointer listeners too.
    */
   private handlePlotEntered(plotIndex: number | null): void {
-    if (plotIndex === null) return;
+    if (plotIndex === null || this.levelUpCelebration.isActive()) return;
     if (this.gestureMode !== 'plant') {
       // The crop id must be read before the harvest empties the plot - the
       // floating xp label needs it.

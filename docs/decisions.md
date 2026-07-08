@@ -37,6 +37,16 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-08 - T1.6 closed; T1.7 design calls
+**Context:** T1.6 finally green end to end (base + a/b/c follow-ups). T1.7 needs leveling rules the roadmap leaves open.
+**Decision:** (1) Level derives from xp via thresholds but is STORED and only ever increases (dev.setLevel can jump ahead; xp catching up later must not re-trigger or down-level). (2) Level-ups produce events in a store-side queue the scene drains on its refresh tick - store stays UI-free. (3) Loading/importing a save where xp implies a higher level reconciles silently (no celebration spam on import). (4) Multi-level jumps celebrate sequentially. (5) Celebration overlay swallows field input while visible (tap-to-dismiss must not plant). (6) Chime is a comment hook until the T1.12 audio task; medium buzz now. Model: Sonnet.
+**Trigger:** T1.7 prompt writing.
+
+## 2026-07-08 - T1.6c: PM-direct spacing tune after T1.6a still read as overlapping
+**Context:** T1.6a removed the literal overlap but left an 18px design-space gap between unit value and sell button (~5px at phone scale - reads as touching). User also flagged the moondust count hugging the Bag button and being mistaken for a bag item count.
+**Decision:** PM-direct constant tuning (cosmetic, no logic): inventory bands widened (value-to-button gap 18 -> 50px, count-to-coin 26 -> 36px, sell button 230 -> 210); moondust moved from above the bag (940,90) to stacked under the coin counter top-left (140,200) - currencies grouped left, bag isolated right. Lesson: acceptance criteria for layout should specify minimum design-space gaps, not just "no overlap".
+**Trigger:** User screenshot review after T1.6a.
+
 ## 2026-07-08 - T1.6b: CI build red on T1.6 commit; PM-direct fix
 **Context:** CI failed on the T1.6 commit: TS2322 in gameState.test.ts line 162 - `GameStateData` annotated as `Record<string, unknown>` (interfaces get no implicit index signature). The T1.6 report had claimed build MET, so the coder most likely ran the build before its final test-file edit. Second report claim contradicted by CI (first was the T0.2/T0.4 lockfile).
 **Decision:** PM-direct one-line fix (destructure the interface directly, drop the annotation), verified against real tsc in a clean env using the committed tree; committed as T1.6b. CLAUDE.md "Verify last" rule added (user approved): run test/build/lint as the FINAL step before reporting, after the last file edit.

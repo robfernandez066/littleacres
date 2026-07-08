@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type CropId, CROPS } from '../data/crops';
+import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
   createDefaultState,
   GameStateStore,
@@ -339,6 +340,85 @@ describe('sellCrop', () => {
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.sellCrop('sunwheat')).toBe(0);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('leveling', () => {
+  it('queues one event on a single-level gain, and clears on consume', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addXp(xpForLevel(2));
+    expect(store.getState().level).toBe(2);
+    const events = store.consumeLevelUpEvents();
+    expect(events).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+    expect(store.consumeLevelUpEvents()).toEqual([]);
+  });
+
+  it('queues one event per level, in order, on a multi-level jump', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addXp(xpForLevel(3));
+    expect(store.getState().level).toBe(3);
+    expect(store.consumeLevelUpEvents()).toEqual([
+      { level: 2, unlockedCropIds: ['carrot'] },
+      { level: 3, unlockedCropIds: ['glowberry'] },
+    ]);
+  });
+
+  it('queues an event even for levels with no crop unlock', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addXp(xpForLevel(MAX_LEVEL));
+    expect(store.getState().level).toBe(MAX_LEVEL);
+    const events = store.consumeLevelUpEvents();
+    expect(events.map((e) => e.level)).toEqual([2, 3, 4, 5]);
+    expect(events.find((e) => e.level === 4)?.unlockedCropIds).toEqual([]);
+    expect(events.find((e) => e.level === 5)?.unlockedCropIds).toEqual([]);
+  });
+
+  it('harvesting queues the same kind of event as addXp', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addCoins(1000); // enough seed cost for many plantings
+    // sunwheat xp is small; plant/warp/harvest enough to cross the level-2 threshold.
+    let harvested = 0;
+    while (store.getState().level < 2 && harvested < 100) {
+      store.plantCrop(0, 'sunwheat');
+      advanceTime(CROPS.sunwheat.growMs);
+      store.harvestPlot(0);
+      harvested++;
+    }
+    expect(store.getState().level).toBe(2);
+    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+  });
+
+  it('level never decreases, and xp catching up after a setLevel jump-ahead queues nothing', () => {
+    const store = new GameStateStore({ storage: null });
+    store.setLevel(4);
+    expect(store.getState().level).toBe(4);
+    // This would be a level-2 gain from scratch, well below the level-4 floor.
+    store.addXp(xpForLevel(2));
+    expect(store.getState().level).toBe(4);
+    expect(store.consumeLevelUpEvents()).toEqual([]);
+  });
+
+  it('reconciles level silently on load when xp implies a higher level than stored', () => {
+    const saved = { ...createDefaultState(2), xp: xpForLevel(3), level: 1 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().level).toBe(3);
+    expect(store.getState().xp).toBe(xpForLevel(3));
+    expect(store.consumeLevelUpEvents()).toEqual([]);
+  });
+
+  it('reconciles level silently on import when xp implies a higher level than stored', () => {
+    const saved = { ...createDefaultState(2), xp: xpForLevel(3), level: 1 };
+    const store = new GameStateStore({ storage: makeStorage() });
+    expect(store.importSave(JSON.stringify(saved))).toBe(true);
+    expect(store.getState().level).toBe(3);
+    expect(store.consumeLevelUpEvents()).toEqual([]);
+  });
+
+  it('a fresh store never has pending events', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.consumeLevelUpEvents()).toEqual([]);
   });
 });
 

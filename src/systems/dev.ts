@@ -9,6 +9,7 @@ export interface DevTools {
   importSave(json: string): boolean;
   reset(): void;
   addCoins(n: number): void;
+  addXp(n: number): void;
   setLevel(n: number): void;
   advanceTime(ms: number): void;
   getTimeOffsetMs(): number;
@@ -32,6 +33,10 @@ export function installDevTools(store: GameStateStore): void {
     reset: () => store.reset(),
     addCoins: (n) => {
       store.addCoins(n);
+      store.save();
+    },
+    addXp: (n) => {
+      store.addXp(n);
       store.save();
     },
     setLevel: (n) => {
