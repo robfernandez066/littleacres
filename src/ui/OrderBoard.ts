@@ -40,7 +40,8 @@ const CARD_SPACING = 300;
 const ITEM_ROW_YS = [-85, -20] as const;
 const ITEM_ICON_X = -360;
 const ITEM_ICON_SCALE = 0.4;
-const ITEM_TEXT_X = -300;
+const ITEM_NAME_X = -310;
+const ITEM_COUNT_X = -100;
 
 const REWARD_ROW_Y = 60;
 const REWARD_COIN_X = -360;
@@ -90,7 +91,16 @@ const CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
-const ITEM_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+/** Crop names stay in the panel's dark brown - always readable on the cream
+ * card; only the have/need count carries the coverage color. */
+const ITEM_NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '36px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+const ITEM_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '36px',
   fontStyle: 'bold',
@@ -140,7 +150,8 @@ const STAMP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 
 interface ItemRow {
   icon: Phaser.GameObjects.Image;
-  text: Phaser.GameObjects.Text;
+  nameText: Phaser.GameObjects.Text;
+  countText: Phaser.GameObjects.Text;
 }
 
 interface OrderCard {
@@ -234,8 +245,12 @@ export class OrderBoard {
         .image(ITEM_ICON_X, y + rowY, ATLAS_KEY, CROPS.sunwheat.stageFrames[2])
         .setScale(ITEM_ICON_SCALE)
         .setVisible(false),
-      text: this.scene.add
-        .text(ITEM_TEXT_X, y + rowY, '', ITEM_STYLE)
+      nameText: this.scene.add
+        .text(ITEM_NAME_X, y + rowY, '', ITEM_NAME_STYLE)
+        .setOrigin(0, 0.5)
+        .setVisible(false),
+      countText: this.scene.add
+        .text(ITEM_COUNT_X, y + rowY, '', ITEM_COUNT_STYLE)
         .setOrigin(0, 0.5)
         .setVisible(false),
     }));
@@ -304,7 +319,7 @@ export class OrderBoard {
 
     this.container.add([
       cardBg,
-      ...itemRows.flatMap((row) => [row.icon, row.text]),
+      ...itemRows.flatMap((row) => [row.icon, row.nameText, row.countText]),
       rewardCoin,
       rewardCoinText,
       rewardXpText,
@@ -367,14 +382,16 @@ export class OrderBoard {
       const item = order.items[row];
       if (item === undefined) {
         itemRow.icon.setVisible(false);
-        itemRow.text.setVisible(false);
+        itemRow.nameText.setVisible(false);
+        itemRow.countText.setVisible(false);
         continue;
       }
       const have = state.inventory[item.cropId] ?? 0;
       const covered = have >= item.count;
       if (!covered) allCovered = false;
       itemRow.icon.setFrame(CROPS[item.cropId].stageFrames[2]).setVisible(true);
-      itemRow.text
+      itemRow.nameText.setText(CROPS[item.cropId].name).setVisible(true);
+      itemRow.countText
         .setText(`${have}/${item.count}`)
         .setColor(covered ? COVERED_COLOR : SHORT_COLOR)
         .setVisible(true);
@@ -396,7 +413,8 @@ export class OrderBoard {
   private setOrderElementsVisible(card: OrderCard, visible: boolean): void {
     for (const row of card.itemRows) {
       row.icon.setVisible(visible);
-      row.text.setVisible(visible);
+      row.nameText.setVisible(visible);
+      row.countText.setVisible(visible);
     }
     card.rewardCoin.setVisible(visible);
     card.rewardCoinText.setVisible(visible);
