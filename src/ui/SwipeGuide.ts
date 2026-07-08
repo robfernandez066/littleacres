@@ -32,13 +32,13 @@ const WRAP_FADE_MS = 300;
 const MAX_DEMO_LOOPS = 2;
 const DOT_TINT = 0xffe27a;
 const LEAD_SIZE = 26;
-const LEAD_ALPHA = 0.48;
+const LEAD_ALPHA = 0.28;
 const LEAD_GLOW_SIZE = 72;
-const LEAD_GLOW_ALPHA = 0.18;
+const LEAD_GLOW_ALPHA = 0.1;
 /** Trail dots stagger behind the lead by this much each, shrinking and fading. */
 const TRAIL_SPACING_MS = 110;
 const TRAIL_SIZES = [22, 19, 16, 13, 10] as const;
-const TRAIL_ALPHAS = [0.25, 0.2, 0.16, 0.12, 0.08] as const;
+const TRAIL_ALPHAS = [0.14, 0.11, 0.09, 0.07, 0.05] as const;
 
 interface GuideDot {
   image: Phaser.GameObjects.Image;
@@ -48,6 +48,7 @@ interface GuideDot {
 }
 
 export class SwipeGuide {
+  private loopTween!: Phaser.Tweens.Tween;
   private readonly dots: GuideDot[] = [];
   private readonly pathX: number[] = [];
   private readonly pathY: number[] = [];
@@ -92,7 +93,7 @@ export class SwipeGuide {
     makeDot(LEAD_GLOW_SIZE, LEAD_GLOW_ALPHA, 0);
     makeDot(LEAD_SIZE, LEAD_ALPHA, 0);
 
-    scene.tweens.add({
+    this.loopTween = scene.tweens.add({
       targets: this.progress,
       t: 1,
       duration: LOOP_MS,
@@ -101,6 +102,18 @@ export class SwipeGuide {
       onUpdate: () => this.apply(),
       onRepeat: () => this.onLoopComplete(),
     });
+  }
+
+  /**
+   * Rewind the playhead so a demonstration always begins at the start of the
+   * path. Without this, the perpetual tween is mid-loop whenever a step (or
+   * a post-interruption reveal) begins, and the first stroke the player sees
+   * starts somewhere random.
+   */
+  private restartLoop(): void {
+    this.progress.t = 0;
+    this.loopTween.restart();
+    this.loopClean = true;
   }
 
   /**
@@ -116,7 +129,7 @@ export class SwipeGuide {
       this.stepId = stepId;
       this.loopCount = 0;
       this.demoExhausted = false;
-      this.loopClean = true;
+      this.restartLoop();
     }
     this.shown = active && !this.demoExhausted;
   }
@@ -168,13 +181,17 @@ export class SwipeGuide {
     if (visible !== this.applied) {
       this.applied = visible;
       for (const dot of this.dots) dot.image.setVisible(visible);
+      // A reveal (step start or post-interruption) always demos from the
+      // start of the path - never from wherever the playhead happened to be.
+      if (visible) this.restartLoop();
     }
     if (!visible) return;
     for (const dot of this.dots) {
-      // Wrapped playhead: a trail dot keeps finishing the previous stroke
-      // while the lead has already restarted; the per-dot end fades make the
-      // wrap read as the finger lifting and starting a new swipe.
-      this.placeDot(dot, (this.progress.t - dot.offset + 1) % 1);
+      // Clamped (not wrapped) playhead: at the start of a stroke the trail
+      // bunches at the start point and stretches out as the finger moves -
+      // wrapping instead would leave the trail strung across the END of the
+      // path at loop start, which reads as a phantom stroke.
+      this.placeDot(dot, Math.max(0, this.progress.t - dot.offset));
     }
   }
 

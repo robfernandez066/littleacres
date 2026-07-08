@@ -52,8 +52,8 @@ const HALO_SIZE_FACTOR = 1.4;
  * Continuous breathing, no rest gap: the halo's alpha and the attached
  * object's scale ride one shared 0..1 phase so they always move together.
  */
-const HALO_MIN_ALPHA = 0.12;
-const HALO_MAX_ALPHA = 0.32;
+const HALO_MIN_ALPHA = 0.06;
+const HALO_MAX_ALPHA = 0.16;
 const TARGET_BREATH_SCALE = 1.06;
 const BREATH_HALF_DURATION_MS = 900;
 
