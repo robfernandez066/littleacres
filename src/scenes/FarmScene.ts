@@ -173,13 +173,14 @@ export class FarmScene extends Phaser.Scene {
     this.tryPlant(plotIndex);
   }
 
-  /** Leaf burst + floating "+N xp" + light buzz at a just-harvested plot. */
+  /** Leaf burst + floating "+N xp" + light buzz + a crop flight to the bag. */
   private playHarvestJuice(plotIndex: number, cropId: CropId): void {
     const pos = this.plotPositions[plotIndex];
     if (pos === undefined) return;
     this.particles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
     this.floatingText.show(pos.x, pos.y + XP_LABEL_OFFSET_Y, XP_LABELS[cropId], XP_TEXT_OPTIONS);
     buzz(HAPTIC_LIGHT_MS);
+    this.hud.flyCropToBag(pos.x, pos.y + BURST_OFFSET_Y, cropId);
   }
 
   /**

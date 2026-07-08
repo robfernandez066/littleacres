@@ -10,7 +10,7 @@ import type { GameStateData } from '../systems/gameState';
  * bag button; renders purely from the `GameStateData` passed to `refresh`.
  */
 
-const PANEL_WIDTH = 760;
+const PANEL_WIDTH = 960;
 const PANEL_HEIGHT = 700;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = 780;
@@ -21,17 +21,24 @@ const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
 const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
 const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 
+/**
+ * Row columns are fixed, non-overlapping x bands (icon, name, count, unit
+ * value, sell button) laid out left to right. Count and unit value are
+ * RIGHT-aligned into their band so they grow leftward, away from the sell
+ * button, and stay legible up to "x9999" / "999" without colliding with it -
+ * regardless of digit count, not just the values the MVP crops happen to use.
+ */
 const ROW_START_Y = -140;
 const ROW_SPACING = 170;
-const ROW_ICON_X = -PANEL_WIDTH / 2 + 90;
+const ROW_ICON_X = -405;
 const ROW_ICON_SCALE = 0.5;
-const ROW_NAME_X = -190;
-const ROW_COUNT_X = 30;
-const ROW_UNIT_COIN_X = 110;
+const ROW_NAME_X = -352;
+const ROW_COUNT_RIGHT_X = 16;
+const ROW_UNIT_COIN_X = 61;
 const ROW_UNIT_COIN_SCALE = 0.4;
-const ROW_UNIT_TEXT_X = 140;
-const ROW_SELL_BUTTON_X = PANEL_WIDTH / 2 - 130;
-const SELL_BUTTON_WIDTH = 220;
+const ROW_UNIT_TEXT_RIGHT_X = 164;
+const ROW_SELL_BUTTON_X = 297;
+const SELL_BUTTON_WIDTH = 230;
 const SELL_BUTTON_HEIGHT = 100;
 
 const SELL_BUTTON_ENABLED_ALPHA = 1;
@@ -133,13 +140,15 @@ export class InventoryPanel {
       .image(ROW_ICON_X, y, ATLAS_KEY, crop.stageFrames[2])
       .setScale(ROW_ICON_SCALE);
     const nameText = this.scene.add.text(ROW_NAME_X, y, crop.name, NAME_STYLE).setOrigin(0, 0.5);
-    const countText = this.scene.add.text(ROW_COUNT_X, y, 'x0', COUNT_STYLE).setOrigin(0, 0.5);
+    const countText = this.scene.add
+      .text(ROW_COUNT_RIGHT_X, y, 'x0', COUNT_STYLE)
+      .setOrigin(1, 0.5);
     const unitCoin = this.scene.add
       .image(ROW_UNIT_COIN_X, y, ATLAS_KEY, 'coin')
       .setScale(ROW_UNIT_COIN_SCALE);
     const unitText = this.scene.add
-      .text(ROW_UNIT_TEXT_X, y, String(crop.sellValue), UNIT_VALUE_STYLE)
-      .setOrigin(0, 0.5);
+      .text(ROW_UNIT_TEXT_RIGHT_X, y, String(crop.sellValue), UNIT_VALUE_STYLE)
+      .setOrigin(1, 0.5);
 
     const sellButton = this.scene.add.nineslice(
       ROW_SELL_BUTTON_X,

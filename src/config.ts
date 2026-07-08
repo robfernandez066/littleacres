@@ -10,3 +10,6 @@ export const ATLAS_KEY = 'atlas';
  * the counter itself renders here starting next task.
  */
 export const HUD_COIN_POSITION = { x: 140, y: 120 } as const;
+
+/** Screen position of the HUD bag button (design space); harvested crops fly here. */
+export const BAG_POSITION = { x: 940, y: 190 } as const;

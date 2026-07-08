@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH, HUD_COIN_POSITION } from '../config';
-import type { CropId } from '../data/crops';
+import { ATLAS_KEY, BAG_POSITION, DESIGN_WIDTH, HUD_COIN_POSITION } from '../config';
+import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { gameState } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
+import { CropArc } from './CropArc';
 import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
 
@@ -37,10 +38,11 @@ const MOONDUST_TEXT_OFFSET_X = 40;
 /** Placeholder tint for the moondust icon - no dedicated frame yet. */
 const MOONDUST_TINT = 0x8f7ffb;
 
-const BAG_BUTTON_X = 940;
-const BAG_BUTTON_Y = 190;
 const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
+/** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
+const BAG_BOUNCE_SCALE = 1.12;
+const BAG_BOUNCE_MS = 150;
 
 const SELL_HAPTIC_MS = 12;
 const SELL_LABEL_OFFSET_Y = -70;
@@ -80,6 +82,8 @@ export class Hud {
   private readonly levelText: Phaser.GameObjects.Text;
   private readonly xpBarFill: Phaser.GameObjects.Rectangle;
   private readonly moondustText: Phaser.GameObjects.Text;
+  private readonly bagContainer: Phaser.GameObjects.Container;
+  private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
 
   /** Animated display value; ticks toward `gameState`'s true coin count. */
@@ -87,6 +91,7 @@ export class Hud {
   private coinTween: Phaser.Tweens.Tween | null = null;
   /** While true, the periodic refresh leaves the coin ticker to the sell animation. */
   private sellAnimating = false;
+  private bagBounceTween: Phaser.Tweens.Tween | null = null;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -135,34 +140,47 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
-    const bagPanel = this.scene.add
-      .nineslice(
-        BAG_BUTTON_X,
-        BAG_BUTTON_Y,
-        ATLAS_KEY,
-        'panel',
-        BAG_BUTTON_WIDTH,
-        BAG_BUTTON_HEIGHT,
-        24,
-        24,
-        24,
-        24,
-      )
-      .setDepth(HUD_DEPTH)
-      .setInteractive({ useHandCursor: true });
-    this.scene.add
-      .text(BAG_BUTTON_X, BAG_BUTTON_Y, 'Bag', BAG_STYLE)
-      .setOrigin(0.5)
+    this.bagContainer = this.scene.add
+      .container(BAG_POSITION.x, BAG_POSITION.y)
       .setDepth(HUD_DEPTH);
+    const bagPanel = this.scene.add
+      .nineslice(0, 0, ATLAS_KEY, 'panel', BAG_BUTTON_WIDTH, BAG_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .setInteractive({ useHandCursor: true });
+    const bagText = this.scene.add.text(0, 0, 'Bag', BAG_STYLE).setOrigin(0.5);
+    this.bagContainer.add([bagPanel, bagText]);
     bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.inventoryPanel.toggle(gameState.getState());
     });
+
+    this.cropArc = new CropArc(this.scene);
 
     this.inventoryPanel = new InventoryPanel(this.scene, (cropId, worldX, worldY) =>
       this.sellCrop(cropId, worldX, worldY),
     );
 
     this.refresh();
+  }
+
+  /**
+   * Fly a harvested crop's mature sprite from its plot to the bag. The bag's
+   * arrival bounce is driven exclusively by this flight landing - never by
+   * the harvest itself or a timer, and never by coin arcs.
+   */
+  flyCropToBag(fromX: number, fromY: number, cropId: CropId): void {
+    this.cropArc.fly(fromX, fromY, CROPS[cropId].stageFrames[2], () => this.bounceBag());
+  }
+
+  /** Small scale bounce on the bag button; restart-safe so rapid arrivals never compound. */
+  private bounceBag(): void {
+    this.bagBounceTween?.stop();
+    this.bagContainer.setScale(1);
+    this.bagBounceTween = this.scene.tweens.add({
+      targets: this.bagContainer,
+      scale: BAG_BOUNCE_SCALE,
+      duration: BAG_BOUNCE_MS / 2,
+      yoyo: true,
+      ease: 'Sine.easeOut',
+    });
   }
 
   /** Re-derive every HUD element from state; called on the scene's refresh tick. */
