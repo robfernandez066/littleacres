@@ -30,11 +30,15 @@ const CROP_REFRESH_INTERVAL_MS = 250;
 /** Tint applied to a ready-to-harvest crop, on top of its normal frame. */
 const READY_TINT = 0xfff59d;
 
+/** Harvest pop: quick scale-up + fade-out on the reaped sprite. */
+const HARVEST_POP_SCALE = 1.25;
+const HARVEST_POP_DURATION_MS = 150;
+
 /**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
- * a grass field, rendered live from `gameState`, plus the seed bar. With a
- * seed selected, tapping or dragging across the field paint-plants empty
- * plots. Harvest input arrives in a later task; `dev.harvest` drives it.
+ * a grass field, rendered live from `gameState`, plus the seed bar. One
+ * unified field gesture: tapping or sweeping harvests every ready crop the
+ * pointer enters, and (with a seed selected) paint-plants empty plots.
  *
  * Plot index convention (matches `gameState.plots`): index = row * FARM_COLS
  * + col. Any future code mapping a tile tap to a plot must use the same
@@ -45,6 +49,11 @@ export class FarmScene extends Phaser.Scene {
   private cropSprites: Phaser.GameObjects.Image[] = [];
   /** Whether the ready-state bounce/glow is currently active, per plot. */
   private readyActive: boolean[] = [];
+  /**
+   * Whether a harvest pop is mid-flight, per plot. Keeps `refreshCrops` from
+   * hiding the sprite the moment state says the plot is empty again.
+   */
+  private popActive: boolean[] = [];
   private refreshAccumulatorMs = 0;
   private seedBar!: SeedBar;
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -61,7 +70,7 @@ export class FarmScene extends Phaser.Scene {
     this.layPlots();
     this.createCropSprites();
     this.seedBar = new SeedBar(this);
-    this.setupPlantingInput();
+    this.setupFieldInput();
     this.refreshCrops();
   }
 
@@ -74,19 +83,19 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Paint planting: with a seed selected, pointerdown/drag over the field
-   * attempts to plant every plot the pointer newly enters (once per gesture,
-   * courtesy of PlotPointerTracker). With no seed selected, field input is
-   * inert - harvest taps arrive in a later task.
+   * Unified field gesture: every plot the pointer newly enters (tap or drag,
+   * at most once per gesture courtesy of PlotPointerTracker) is offered to
+   * harvest first, then to plant. Harvesting never requires deselecting a
+   * seed, and the per-gesture dedup guarantees a just-harvested plot cannot
+   * be replanted within the same sweep.
    */
-  private setupPlantingInput(): void {
+  private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
-      if (this.seedBar.getSelected() === null) return;
-      this.tryPlant(this.plotTracker.begin(pointer.worldX, pointer.worldY));
+      this.handlePlotEntered(this.plotTracker.begin(pointer.worldX, pointer.worldY));
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown || this.seedBar.getSelected() === null) return;
-      this.tryPlant(this.plotTracker.move(pointer.worldX, pointer.worldY));
+      if (!pointer.isDown) return;
+      this.handlePlotEntered(this.plotTracker.move(pointer.worldX, pointer.worldY));
     });
     const endGesture = (): void => {
       this.plotTracker.end();
@@ -96,13 +105,28 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * All harvest/plant rules live in the store: try the harvest first (only a
+   * growing-and-ready plot succeeds), otherwise fall through to planting.
+   * Growing-but-not-ready plots and empty plots with no seed selected fail
+   * both silently.
+   */
+  private handlePlotEntered(plotIndex: number | null): void {
+    if (plotIndex === null) return;
+    if (gameState.harvestPlot(plotIndex)) {
+      this.playHarvestPop(plotIndex);
+      return;
+    }
+    this.tryPlant(plotIndex);
+  }
+
+  /**
    * Attempt to plant the selected crop on a plot. All planting rules live in
    * `gameState.plantCrop`; on failure this only picks the feedback cue -
    * occupied plots stay silent, an unaffordable seed gets a gentle nudge.
    */
-  private tryPlant(plotIndex: number | null): void {
+  private tryPlant(plotIndex: number): void {
     const cropId = this.seedBar.getSelected();
-    if (plotIndex === null || cropId === null) return;
+    if (cropId === null) return;
     if (gameState.plantCrop(plotIndex, cropId)) {
       this.refreshCrops();
       this.playPlantPop(plotIndex);
@@ -117,9 +141,37 @@ export class FarmScene extends Phaser.Scene {
   private playPlantPop(plotIndex: number): void {
     const sprite = this.cropSprites[plotIndex];
     if (sprite === undefined) return;
+    // A replant can land while the previous harvest pop is still mid-flight
+    // (next gesture within its 150ms); cancel that pop cleanly first.
     this.tweens.killTweensOf(sprite);
-    sprite.setScale(0.5);
+    this.popActive[plotIndex] = false;
+    sprite.setAlpha(1).setScale(0.5);
     this.tweens.add({ targets: sprite, scale: 1, duration: 120, ease: 'Back.easeOut' });
+  }
+
+  /**
+   * Placeholder harvest pop: scale up while fading out, then fully reset the
+   * pooled sprite (alpha 1, scale 1, hidden, tint cleared). The ready effect
+   * stops immediately so nothing glows during the pop; `popActive` keeps the
+   * refresh tick from hiding the sprite before the pop finishes.
+   */
+  private playHarvestPop(plotIndex: number): void {
+    const sprite = this.cropSprites[plotIndex];
+    if (sprite === undefined) return;
+    this.stopReadyEffect(plotIndex, sprite);
+    this.tweens.killTweensOf(sprite);
+    this.popActive[plotIndex] = true;
+    this.tweens.add({
+      targets: sprite,
+      scale: HARVEST_POP_SCALE,
+      alpha: 0,
+      duration: HARVEST_POP_DURATION_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.popActive[plotIndex] = false;
+        sprite.setVisible(false).setAlpha(1).setScale(1).clearTint();
+      },
+    });
   }
 
   /** Cover the field band with grass tiles (they also run under the plots). */
@@ -165,6 +217,7 @@ export class FarmScene extends Phaser.Scene {
         .setVisible(false);
       this.cropSprites[index] = sprite;
       this.readyActive[index] = false;
+      this.popActive[index] = false;
     }
   }
 
@@ -183,8 +236,12 @@ export class FarmScene extends Phaser.Scene {
       if (plot === undefined || sprite === undefined) continue;
 
       if (plot.state === 'empty') {
-        sprite.setVisible(false);
-        this.stopReadyEffect(index, sprite);
+        // A mid-pop sprite is already reset-and-hidden by the pop's own
+        // completion callback; touching it here would cut the animation.
+        if (!this.popActive[index]) {
+          sprite.setVisible(false);
+          this.stopReadyEffect(index, sprite);
+        }
         continue;
       }
 
