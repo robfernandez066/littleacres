@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, BAG_POSITION, DESIGN_WIDTH, HUD_COIN_POSITION } from '../config';
+import {
+  ATLAS_KEY,
+  BAG_POSITION,
+  DESIGN_WIDTH,
+  HUD_COIN_POSITION,
+  ORDERS_BUTTON_POSITION,
+} from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { gameState } from '../systems/gameState';
@@ -9,6 +15,7 @@ import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
 import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
+import { OrderBoard } from './OrderBoard';
 
 /**
  * Top HUD: coins (top-left), level + xp bar (top-center), moondust
@@ -56,6 +63,10 @@ const BAG_BOUNCE_MS = 150;
 const SELL_HAPTIC_MS = 12;
 const SELL_LABEL_OFFSET_Y = -70;
 
+/** Medium buzz for the order-fulfill beat; heavier than the light sell tap. */
+const FULFILL_HAPTIC_MS = 24;
+const FULFILL_XP_LABEL_OFFSET_Y = -100;
+
 /** Shared by the coin and moondust counters so the two always match. */
 const CURRENCY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -88,12 +99,13 @@ export class Hud {
   private readonly bagContainer: Phaser.GameObjects.Container;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
+  private readonly orderBoard: OrderBoard;
 
   /** Animated display value; ticks toward `gameState`'s true coin count. */
   private readonly coinDisplay = { value: 0 };
   private coinTween: Phaser.Tweens.Tween | null = null;
-  /** While true, the periodic refresh leaves the coin ticker to the sell animation. */
-  private sellAnimating = false;
+  /** While true, the periodic refresh leaves the coin ticker to in-flight coin arcs. */
+  private coinArcsAnimating = false;
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
 
   constructor(
@@ -152,13 +164,34 @@ export class Hud {
     const bagText = this.scene.add.text(0, 0, 'Bag', BAG_STYLE).setOrigin(0.5);
     this.bagContainer.add([bagPanel, bagText]);
     bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.orderBoard.hide();
       this.inventoryPanel.toggle(gameState.getState());
+    });
+
+    // Orders button: same styling as the bag, stacked directly below it.
+    const ordersContainer = this.scene.add
+      .container(ORDERS_BUTTON_POSITION.x, ORDERS_BUTTON_POSITION.y)
+      .setDepth(HUD_DEPTH);
+    const ordersPanel = this.scene.add
+      .nineslice(0, 0, ATLAS_KEY, 'panel', BAG_BUTTON_WIDTH, BAG_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .setInteractive({ useHandCursor: true });
+    const ordersText = this.scene.add.text(0, 0, 'Orders', BAG_STYLE).setOrigin(0.5);
+    ordersContainer.add([ordersPanel, ordersText]);
+    ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.inventoryPanel.hide();
+      this.orderBoard.toggle(gameState.getState());
     });
 
     this.cropArc = new CropArc(this.scene);
 
     this.inventoryPanel = new InventoryPanel(this.scene, (cropId, worldX, worldY) =>
       this.sellCrop(cropId, worldX, worldY),
+    );
+
+    this.orderBoard = new OrderBoard(
+      this.scene,
+      (slotIndex, worldX, worldY) => this.fulfillOrder(slotIndex, worldX, worldY),
+      (slotIndex) => this.skipOrder(slotIndex),
     );
 
     this.refresh();
@@ -194,9 +227,10 @@ export class Hud {
     this.updateXpBar(state.level, state.xp);
     this.moondustText.setText(String(state.moondust));
 
-    if (!this.sellAnimating) this.driftCoinsTo(state.coins);
+    if (!this.coinArcsAnimating) this.driftCoinsTo(state.coins);
 
     this.inventoryPanel.refresh(state);
+    this.orderBoard.refresh(state);
   }
 
   private updateXpBar(level: number, xp: number): void {
@@ -224,17 +258,13 @@ export class Hud {
   }
 
   /**
-   * Sell an entire crop stack: batched coin arcs from the sell button to the
-   * HUD coin, an equal per-arrival ticker bump with a final true-up, a
-   * floating "+N" label, and a light haptic buzz.
+   * Batched coin arcs from a world point to the HUD coin, with the equal
+   * per-arrival ticker bump and a final true-up to `before + gained`. Shared
+   * choreography between selling a stack and fulfilling an order.
    */
-  private sellCrop(cropId: CropId, worldX: number, worldY: number): void {
-    const before = gameState.getState().coins;
-    const gained = gameState.sellCrop(cropId);
-    if (gained <= 0) return;
-
+  private flyCoinsToCounter(worldX: number, worldY: number, before: number, gained: number): void {
     this.coinTween?.stop();
-    this.sellAnimating = true;
+    this.coinArcsAnimating = true;
     const target = before + gained;
     const arrivals = Math.min(gained, MAX_COINS_PER_FLY);
     const share = Math.floor(gained / arrivals);
@@ -244,8 +274,21 @@ export class Hud {
       arrived++;
       this.coinDisplay.value = arrived >= arrivals ? target : this.coinDisplay.value + share;
       this.coinText.setText(String(Math.round(this.coinDisplay.value)));
-      if (arrived >= arrivals) this.sellAnimating = false;
+      if (arrived >= arrivals) this.coinArcsAnimating = false;
     });
+  }
+
+  /**
+   * Sell an entire crop stack: batched coin arcs from the sell button to the
+   * HUD coin, an equal per-arrival ticker bump with a final true-up, a
+   * floating "+N" label, and a light haptic buzz.
+   */
+  private sellCrop(cropId: CropId, worldX: number, worldY: number): void {
+    const before = gameState.getState().coins;
+    const gained = gameState.sellCrop(cropId);
+    if (gained <= 0) return;
+
+    this.flyCoinsToCounter(worldX, worldY, before, gained);
 
     this.floatingText.show(worldX, worldY + SELL_LABEL_OFFSET_Y, `+${gained}`, {
       color: '#ffe27a',
@@ -254,5 +297,36 @@ export class Hud {
     buzz(SELL_HAPTIC_MS);
 
     this.inventoryPanel.refresh(gameState.getState());
+  }
+
+  /**
+   * Fulfill an order: the store validates and pays out, then one beat of
+   * juice - goods arc from the card to the villager and the card stamps
+   * (both board-owned), coins arc to the HUD counter with the usual ticker
+   * choreography, a floating "+N xp" label, and a medium buzz. Level-ups
+   * queued by the payout ride the existing celebration flow on the next
+   * refresh tick.
+   */
+  private fulfillOrder(slotIndex: number, worldX: number, worldY: number): void {
+    const slot = gameState.getState().orders[slotIndex];
+    if (slot === undefined || slot.state !== 'open') return;
+    const { order } = slot;
+    const before = gameState.getState().coins;
+    if (!gameState.fulfillOrder(slotIndex)) return;
+
+    this.orderBoard.playFulfillJuice(slotIndex, order);
+    this.flyCoinsToCounter(worldX, worldY, before, order.coinReward);
+    this.floatingText.show(worldX, worldY + FULFILL_XP_LABEL_OFFSET_Y, `+${order.xpReward} xp`, {
+      color: '#fff3c4',
+      fontSize: 44,
+    });
+    buzz(FULFILL_HAPTIC_MS);
+
+    this.orderBoard.refresh(gameState.getState());
+  }
+
+  /** Skip an order: the slot goes on cooldown and the card re-renders at once. */
+  private skipOrder(slotIndex: number): void {
+    if (gameState.skipOrder(slotIndex)) this.orderBoard.refresh(gameState.getState());
   }
 }

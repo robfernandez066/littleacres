@@ -1,6 +1,7 @@
 import { CROPS, type CropId } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
 import { levelForXp } from '../data/levels';
+import { generateOrder, type Order, ORDER_SLOTS, SKIP_COOLDOWN_MS } from '../data/orders';
 import { isReady } from './growth';
 import { now } from './time';
 
@@ -36,6 +37,25 @@ export interface GrowingPlot {
  */
 export type PlotState = EmptyPlot | GrowingPlot;
 
+export interface OpenOrderSlot {
+  state: 'open';
+  order: Order;
+}
+
+export interface CooldownOrderSlot {
+  state: 'cooldown';
+  /** Game-clock timestamp (see systems/time.ts) when a new order may appear. */
+  readyAt: number;
+}
+
+/** Needs generation; `ensureOrders` fills it. The migration default. */
+export interface PendingOrderSlot {
+  state: 'pending';
+}
+
+/** Discriminated union over `state`, like `PlotState`. */
+export type OrderSlot = OpenOrderSlot | CooldownOrderSlot | PendingOrderSlot;
+
 export interface GameSettings {
   musicOn: boolean;
   sfxOn: boolean;
@@ -58,6 +78,8 @@ export interface GameStateData {
   seeds: Partial<Record<CropId, number>>;
   /** Reserved currency slot; nothing earns or spends it yet. */
   moondust: number;
+  /** The order board, always exactly ORDER_SLOTS entries. */
+  orders: OrderSlot[];
   settings: GameSettings;
   createdAt: number;
   lastSavedAt: number;
@@ -73,8 +95,15 @@ export type Migration = (raw: Record<string, unknown>) => Record<string, unknown
 /** v1 -> v2: adds the moondust currency slot, defaulted to 0. */
 const v1ToV2: Migration = (raw) => ({ ...raw, moondust: 0 });
 
+function createPendingOrderSlots(): OrderSlot[] {
+  return Array.from({ length: ORDER_SLOTS }, (): OrderSlot => ({ state: 'pending' }));
+}
+
+/** v2 -> v3: adds the order board, all slots pending generation. */
+const v2ToV3: Migration = (raw) => ({ ...raw, orders: createPendingOrderSlots() });
+
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2];
+export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -87,6 +116,7 @@ export function createDefaultState(version: number): GameStateData {
     inventory: {},
     seeds: {},
     moondust: 0,
+    orders: createPendingOrderSlots(),
     settings: { musicOn: true, sfxOn: true },
     createdAt: now,
     lastSavedAt: now,
@@ -120,6 +150,34 @@ function isCropCountMap(value: unknown): value is Partial<Record<CropId, number>
   );
 }
 
+function isOrderItem(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.cropId === 'string' &&
+    value.cropId in CROPS &&
+    isFiniteNumber(value.count)
+  );
+}
+
+function isOrder(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    Array.isArray(value.items) &&
+    value.items.length >= 1 &&
+    value.items.length <= 2 &&
+    value.items.every(isOrderItem) &&
+    isFiniteNumber(value.coinReward) &&
+    isFiniteNumber(value.xpReward)
+  );
+}
+
+function isOrderSlot(value: unknown): value is OrderSlot {
+  if (!isRecord(value)) return false;
+  if (value.state === 'pending') return true;
+  if (value.state === 'cooldown') return isFiniteNumber(value.readyAt);
+  return value.state === 'open' && isOrder(value.order);
+}
+
 /** Structural validation of a (migrated) save against the current schema. */
 export function isValidState(raw: unknown, expectedVersion: number): raw is GameStateData {
   if (!isRecord(raw)) return false;
@@ -134,6 +192,9 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
     isFiniteNumber(raw.moondust) &&
+    Array.isArray(raw.orders) &&
+    raw.orders.length === ORDER_SLOTS &&
+    raw.orders.every(isOrderSlot) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
     typeof raw.settings.sfxOn === 'boolean' &&
@@ -163,12 +224,15 @@ export interface GameStateStoreOptions {
   storage?: SaveStorage | null;
   /** Migration list override, for tests. Defaults to MIGRATIONS. */
   migrations?: readonly Migration[];
+  /** Randomness source for order generation; injectable for tests. */
+  rng?: () => number;
 }
 
 export class GameStateStore {
   private state: GameStateData;
   private readonly storage: SaveStorage | null;
   private readonly migrations: readonly Migration[];
+  private readonly rng: () => number;
   private autosaveTimer: number | null = null;
   /** Pending level-ups for the scene to celebrate. Transient - never saved. */
   private levelUpQueue: LevelUpEvent[] = [];
@@ -176,6 +240,7 @@ export class GameStateStore {
   constructor(options: GameStateStoreOptions = {}) {
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
     this.migrations = options.migrations ?? MIGRATIONS;
+    this.rng = options.rng ?? Math.random;
     this.state = createDefaultState(this.currentVersion);
   }
 
@@ -285,6 +350,64 @@ export class GameStateStore {
     this.state.inventory[cropId] = 0;
     this.save();
     return gained;
+  }
+
+  /**
+   * Bring the order board up to date: fill every pending slot with a freshly
+   * generated order and reopen cooldown slots whose readyAt has passed.
+   * Called on scene create and on the scene's refresh tick - idempotent, and
+   * a cheap no-op (no save) when nothing needs generating.
+   */
+  ensureOrders(): void {
+    let changed = false;
+    const nowMs = now();
+    for (let i = 0; i < this.state.orders.length; i++) {
+      const slot = this.state.orders[i]!;
+      if (slot.state === 'pending' || (slot.state === 'cooldown' && slot.readyAt <= nowMs)) {
+        this.state.orders[i] = { state: 'open', order: generateOrder(this.state.level, this.rng) };
+        changed = true;
+      }
+    }
+    if (changed) this.save();
+  }
+
+  /**
+   * Fulfill an open order: every requested item leaves the inventory, coins
+   * gain the order's stored coinReward, xp gains its stored xpReward through
+   * the applyXp choke point (so level-ups ride the celebration queue), and
+   * the slot returns to pending for the next `ensureOrders` to refill.
+   * Returns false without mutating anything if the slot is not open or the
+   * inventory does not cover every item.
+   */
+  fulfillOrder(slotIndex: number): boolean {
+    const slot = this.state.orders[slotIndex];
+    if (slot === undefined || slot.state !== 'open') return false;
+    const { order } = slot;
+    const covered = order.items.every(
+      (item) => (this.state.inventory[item.cropId] ?? 0) >= item.count,
+    );
+    if (!covered) return false;
+    for (const item of order.items) {
+      this.state.inventory[item.cropId] = (this.state.inventory[item.cropId] ?? 0) - item.count;
+    }
+    this.state.coins += order.coinReward;
+    this.applyXp(order.xpReward);
+    this.state.orders[slotIndex] = { state: 'pending' };
+    this.save();
+    return true;
+  }
+
+  /**
+   * Skip an open order: the slot goes on cooldown until now() +
+   * SKIP_COOLDOWN_MS, when `ensureOrders` will refill it. Returns false
+   * without mutating anything if the slot is not open.
+   */
+  skipOrder(slotIndex: number): boolean {
+    const slot = this.state.orders[slotIndex];
+    if (slot === undefined || slot.state !== 'open') return false;
+    this.state.orders[slotIndex] = { state: 'cooldown', readyAt: now() + SKIP_COOLDOWN_MS };
+    this.save();
+    return true;
   }
 
   /**

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.7 - XP + farm level system (prompt out; Sonnet)
+**Active task:** T1.8 - Order board (prompt out; Fable5/Opus). Schema v3 (orders slots), injectable-rng generator, teaser orders ~15%, build stamp rider in dev overlay
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -18,7 +18,7 @@
 - T1.4 Sweep harvesting - DONE incl. T1.4a gesture mode latch (user feel test passed, committed)
 - T1.5 Pooled juice systems - DONE (user phone test passed incl. haptics, committed). Pool<T> pattern + stats registry is the standard for all future effects
 - T1.6 HUD + inventory + selling - DONE after four follow-ups: T1.6a (layout + crop-to-bag flights), T1.6b (CI type error, PM fix), T1.6c (spacing/moondust/font polish, PM fixes). Live v1->v2 migration confirmed on user's real save. All green
-- T1.7 XP + farm level - IN PROGRESS (prompt handed to coder). Level-up event queue drained by scene; celebration + unlock reveal cards; level only ever increases; silent reconcile on load
+- T1.7 XP + farm level - DONE (committed, deploy green, user played 1->3 with celebrations after clearing SW cache). "Stuck at level 1" report was the stale service-worker build - third SW-cache incident; build stamp in dev overlay queued as a small backlog item
 
 ## Blockers
 - None.

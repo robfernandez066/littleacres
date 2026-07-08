@@ -108,6 +108,8 @@ export class FarmScene extends Phaser.Scene {
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this);
+    // Fill pending/expired order slots before the HUD's first render.
+    gameState.ensureOrders();
     this.hud = new Hud(this, this.coinArc, this.floatingText);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles);
     this.setupFieldInput();
@@ -122,6 +124,7 @@ export class FarmScene extends Phaser.Scene {
     this.refreshAccumulatorMs += delta;
     if (this.refreshAccumulatorMs < CROP_REFRESH_INTERVAL_MS) return;
     this.refreshAccumulatorMs = 0;
+    gameState.ensureOrders();
     this.refreshCrops();
     this.seedBar.refresh();
     this.hud.refresh();

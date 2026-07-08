@@ -37,6 +37,11 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-08 - T1.7 closed; SW-cache testing rule
+**Context:** T1.7 verified in PM review and committed. User reported "stuck at level 1, bar full" - diagnosis: the service worker was serving the previous build (leveling didn't exist in it). Third stale-SW test incident (T0.5 overlay, T1.6a panel, now T1.7).
+**Decision:** T1.7 DONE. Standing test procedure: after every deploy, fully close and reopen the app twice before judging behavior. Backlog item queued: a build stamp (commit hash or build time) in the dev overlay so the running build is always identifiable - fold into the next convenient task's prompt rather than a dedicated task.
+**Trigger:** T1.7 user test.
+
 ## 2026-07-08 - T1.6 closed; T1.7 design calls
 **Context:** T1.6 finally green end to end (base + a/b/c follow-ups). T1.7 needs leveling rules the roadmap leaves open.
 **Decision:** (1) Level derives from xp via thresholds but is STORED and only ever increases (dev.setLevel can jump ahead; xp catching up later must not re-trigger or down-level). (2) Level-ups produce events in a store-side queue the scene drains on its refresh tick - store stays UI-free. (3) Loading/importing a save where xp implies a higher level reconciles silently (no celebration spam on import). (4) Multi-level jumps celebrate sequentially. (5) Celebration overlay swallows field input while visible (tap-to-dismiss must not plant). (6) Chime is a comment hook until the T1.12 audio task; medium buzz now. Model: Sonnet.

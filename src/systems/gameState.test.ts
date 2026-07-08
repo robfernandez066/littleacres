@@ -2,8 +2,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type CropId, CROPS } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
+import { type Order, ORDER_SLOTS, SKIP_COOLDOWN_MS } from '../data/orders';
 import {
   createDefaultState,
+  type GameStateData,
   GameStateStore,
   MIGRATIONS,
   type Migration,
@@ -30,6 +32,15 @@ function makeStorage(initial: Record<string, string> = {}): SaveStorage & {
   };
 }
 
+/** Deterministic Math.random stand-in (32-bit LCG) for order generation. */
+function seededRng(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+    return s / 2 ** 32;
+  };
+}
+
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
 });
@@ -51,6 +62,7 @@ describe('fresh default state', () => {
     expect(state.inventory).toEqual({});
     expect(state.seeds).toEqual({});
     expect(state.moondust).toBe(0);
+    expect(state.orders).toEqual(Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' })));
     expect(state.settings).toEqual({ musicOn: true, sfxOn: true });
     expect(state.createdAt).toBeLessThanOrEqual(Date.now());
     expect(state.lastSavedAt).toBeLessThanOrEqual(Date.now());
@@ -157,18 +169,22 @@ describe('migrations', () => {
   });
 });
 
-describe('real migration v1 -> v2 (moondust)', () => {
-  it('loads a v1 save with no moondust field, migrating it to v2 with moondust 0', () => {
-    expect(MIGRATIONS).toHaveLength(1);
-    const { moondust, ...v1Save } = createDefaultState(1);
+describe('real migrations (v1 -> v2 moondust, v2 -> v3 orders)', () => {
+  const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
+
+  it('migrates a v1 save (no moondust, no orders) through the whole chain to v3', () => {
+    expect(MIGRATIONS).toHaveLength(2);
+    const { moondust, orders, ...v1Save } = createDefaultState(1);
     void moondust;
+    void orders;
     const raw = { ...v1Save, coins: 250, xp: 42, level: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(3);
     expect(state.moondust).toBe(0);
+    expect(state.orders).toEqual(PENDING_SLOTS);
     // Nothing else was lost in the migration.
     expect(state.coins).toBe(250);
     expect(state.xp).toBe(42);
@@ -176,11 +192,46 @@ describe('real migration v1 -> v2 (moondust)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a fresh save is created at v2 with moondust 0', () => {
+  it('migrates a v2 save (no orders) to v3 with three pending slots', () => {
+    const { orders, ...v2Save } = createDefaultState(2);
+    void orders;
+    const raw = { ...v2Save, coins: 99, moondust: 5 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(3);
+    expect(state.orders).toEqual(PENDING_SLOTS);
+    // The v1 -> v2 migration did not re-run: moondust kept its value.
+    expect(state.moondust).toBe(5);
+    expect(state.coins).toBe(99);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a fresh save is created at v3 with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(2);
-    expect(store.getState().version).toBe(2);
+    expect(store.currentVersion).toBe(3);
+    expect(store.getState().version).toBe(3);
     expect(store.getState().moondust).toBe(0);
+    expect(store.getState().orders).toEqual(PENDING_SLOTS);
+  });
+
+  it('resets cleanly on a save with structurally invalid orders', () => {
+    const bad = {
+      ...createDefaultState(3),
+      orders: [
+        // An open order must request 1-2 items; an empty list is invalid.
+        { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
+        { state: 'pending' },
+        { state: 'pending' },
+      ],
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().orders).toEqual(PENDING_SLOTS);
+    expect(store.getState().coins).toBe(50);
+    expect(console.warn).toHaveBeenCalled();
   });
 });
 
@@ -340,6 +391,158 @@ describe('sellCrop', () => {
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.sellCrop('sunwheat')).toBe(0);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('orders', () => {
+  /** A hand-built two-crop order with arbitrary stored rewards - fulfillment
+   * must pay exactly these, not anything recomputed from crop data. */
+  const TEST_ORDER: Order = {
+    items: [
+      { cropId: 'sunwheat', count: 3 },
+      { cropId: 'carrot', count: 2 },
+    ],
+    coinReward: 123,
+    xpReward: 9,
+  };
+
+  /** A current-version save with a chosen inventory and TEST_ORDER open in slot 0. */
+  function savedStateWithOrder(
+    order: Order,
+    inventory: Partial<Record<CropId, number>>,
+  ): GameStateData {
+    const saved = createDefaultState(3);
+    saved.inventory = inventory;
+    saved.orders[0] = { state: 'open', order };
+    return saved;
+  }
+
+  it('ensureOrders fills every pending slot with an open order and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage, rng: seededRng(1) });
+    expect(store.getState().orders.every((slot) => slot.state === 'pending')).toBe(true);
+    store.ensureOrders();
+    const orders = store.getState().orders;
+    expect(orders).toHaveLength(ORDER_SLOTS);
+    expect(orders.every((slot) => slot.state === 'open')).toBe(true);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().orders).toEqual(orders);
+  });
+
+  it('ensureOrders is idempotent - a second call changes nothing', () => {
+    const store = new GameStateStore({ storage: null, rng: seededRng(2) });
+    store.ensureOrders();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    store.ensureOrders();
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('generated orders are deterministic under a fixed rng', () => {
+    const a = new GameStateStore({ storage: null, rng: seededRng(3) });
+    const b = new GameStateStore({ storage: null, rng: seededRng(3) });
+    a.ensureOrders();
+    b.ensureOrders();
+    expect(a.getState().orders).toEqual(b.getState().orders);
+  });
+
+  it('fulfillOrder pays exactly the stored rewards, deducts items, and persists', () => {
+    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, carrot: 2 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const coinsBefore = store.getState().coins;
+    const xpBefore = store.getState().xp;
+
+    expect(store.fulfillOrder(0)).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore + TEST_ORDER.coinReward);
+    expect(state.xp).toBe(xpBefore + TEST_ORDER.xpReward);
+    expect(state.inventory.sunwheat).toBe(2);
+    expect(state.inventory.carrot).toBe(0);
+    expect(state.orders[0]).toEqual({ state: 'pending' });
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().coins).toBe(state.coins);
+    expect(reloaded.getState().orders[0]).toEqual({ state: 'pending' });
+  });
+
+  it('fulfillOrder fails without mutation when inventory is short on any item', () => {
+    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, carrot: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.fulfillOrder(0)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fulfillOrder fails on non-open slots and bad indices', () => {
+    const store = new GameStateStore({ storage: null });
+    // All slots are still pending on a fresh store.
+    expect(store.fulfillOrder(0)).toBe(false);
+    expect(store.fulfillOrder(-1)).toBe(false);
+    expect(store.fulfillOrder(ORDER_SLOTS)).toBe(false);
+  });
+
+  it('a fulfillment whose xp crosses a threshold queues a level-up event', () => {
+    const order: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: xpForLevel(2),
+    };
+    const saved = savedStateWithOrder(order, { sunwheat: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().level).toBe(2);
+    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+  });
+
+  it('skipOrder puts an open slot on a now()-based cooldown and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage, rng: seededRng(4) });
+    store.ensureOrders();
+    const before = now();
+    expect(store.skipOrder(0)).toBe(true);
+    const slot = store.getState().orders[0];
+    expect(slot?.state).toBe('cooldown');
+    if (slot?.state === 'cooldown') {
+      expect(slot.readyAt).toBeGreaterThanOrEqual(before + SKIP_COOLDOWN_MS);
+      expect(slot.readyAt).toBeLessThanOrEqual(now() + SKIP_COOLDOWN_MS);
+    }
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().orders[0]).toEqual(slot);
+  });
+
+  it('skipOrder fails on non-open slots and bad indices without mutation', () => {
+    const store = new GameStateStore({ storage: null, rng: seededRng(5) });
+    // Pending slot: nothing to skip yet.
+    expect(store.skipOrder(0)).toBe(false);
+    store.ensureOrders();
+    expect(store.skipOrder(1)).toBe(true);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    // Already on cooldown, and out-of-range indices.
+    expect(store.skipOrder(1)).toBe(false);
+    expect(store.skipOrder(-1)).toBe(false);
+    expect(store.skipOrder(ORDER_SLOTS)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('ensureOrders reopens a skipped slot only after the cooldown elapses', () => {
+    const store = new GameStateStore({ storage: null, rng: seededRng(6) });
+    store.ensureOrders();
+    expect(store.skipOrder(0)).toBe(true);
+    store.ensureOrders();
+    expect(store.getState().orders[0]?.state).toBe('cooldown');
+    advanceTime(SKIP_COOLDOWN_MS + 1);
+    store.ensureOrders();
+    expect(store.getState().orders[0]?.state).toBe('open');
   });
 });
 
