@@ -32,11 +32,20 @@ const XP_BAR_WIDTH = 340;
 const XP_BAR_HEIGHT = 28;
 const XP_BAR_PADDING = 4;
 
-const MOONDUST_X = 940;
-const MOONDUST_Y = 90;
-const MOONDUST_TEXT_OFFSET_X = 40;
-/** Placeholder tint for the moondust icon - no dedicated frame yet. */
-const MOONDUST_TINT = 0x8f7ffb;
+/**
+ * Stacked under the coin counter, top-left; keeps the bag isolated top-right.
+ * Icons are 96px, so y must differ from the coin's (120) by > 96 + a gap.
+ */
+const MOONDUST_X = 140;
+const MOONDUST_Y = 230;
+/** Matches COIN_TEXT_OFFSET_X so both counts left-align on their first digit. */
+const MOONDUST_TEXT_OFFSET_X = 60;
+/**
+ * Placeholder moondust look: flat blue via setTintFill - a multiplicative
+ * setTint can only darken the gold coin (reads brown, never blue). Real
+ * moondust icon frame arrives with the T2.6 asset pack.
+ */
+const MOONDUST_TINT_FILL = 0x5b8bf5;
 
 const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
@@ -47,7 +56,8 @@ const BAG_BOUNCE_MS = 150;
 const SELL_HAPTIC_MS = 12;
 const SELL_LABEL_OFFSET_Y = -70;
 
-const COIN_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+/** Shared by the coin and moondust counters so the two always match. */
+const CURRENCY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '44px',
   fontStyle: 'bold',
@@ -59,13 +69,6 @@ const COIN_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 const LEVEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '36px',
-  fontStyle: 'bold',
-  color: '#4a3218',
-};
-
-const MOONDUST_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '38px',
   fontStyle: 'bold',
   color: '#4a3218',
 };
@@ -108,7 +111,7 @@ export class Hud {
         HUD_COIN_POSITION.x + COIN_TEXT_OFFSET_X,
         HUD_COIN_POSITION.y,
         String(this.coinDisplay.value),
-        COIN_STYLE,
+        CURRENCY_STYLE,
       )
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
@@ -133,10 +136,10 @@ export class Hud {
 
     this.scene.add
       .image(MOONDUST_X, MOONDUST_Y, ATLAS_KEY, 'coin')
-      .setTint(MOONDUST_TINT)
+      .setTintFill(MOONDUST_TINT_FILL)
       .setDepth(HUD_DEPTH);
     this.moondustText = this.scene.add
-      .text(MOONDUST_X + MOONDUST_TEXT_OFFSET_X, MOONDUST_Y, '0', MOONDUST_STYLE)
+      .text(MOONDUST_X + MOONDUST_TEXT_OFFSET_X, MOONDUST_Y, '0', CURRENCY_STYLE)
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
