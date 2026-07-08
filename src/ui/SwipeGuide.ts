@@ -9,10 +9,9 @@ import { ensureGlowTexture } from './glowTexture';
 /**
  * Ghost-swipe drag indicator for the onboarding drag steps (plant-rest,
  * harvest-rest): a gold lead dot with a soft under-glow glides a serpentine
- * path through every plot tile center - column 3 (rightmost) top to bottom,
- * column 2 bottom to top, column 1 top to bottom, column 0 bottom to top -
- * trailed by staggered smaller, fainter dots so the motion reads as a finger
- * path.
+ * path through every plot tile center - starting at the TOP corner plot,
+ * row 0 out to the right corner, row 1 back, row 2 out again - trailed by
+ * staggered smaller, fainter dots so the motion reads as a finger path.
  *
  * Every object is pre-created; steady-state work is position/alpha updates
  * only, driven by one perpetual tween. Dots are plain images that are never
@@ -154,16 +153,16 @@ export class SwipeGuide {
 
   /**
    * The serpentine polyline through all plot tile centers, with cumulative
-   * segment lengths for constant-speed traversal. Built once. Column-major,
-   * starting at the rightmost column: col 3 top to bottom, col 2 bottom to
-   * top, col 1 top to bottom, col 0 bottom to top.
+   * segment lengths for constant-speed traversal. Built once. Row-major,
+   * starting at the TOP corner plot (col 0, row 0): row 0 runs along the
+   * upper-right edge to the right corner, row 1 comes back, row 2 runs out
+   * again, descending to the bottom - user-picked path (Option A).
    */
   private buildPath(): void {
     let total = 0;
-    for (let step = 0; step < FARM_COLS; step++) {
-      const col = FARM_COLS - 1 - step;
-      for (let r = 0; r < FARM_ROWS; r++) {
-        const row = step % 2 === 0 ? r : FARM_ROWS - 1 - r;
+    for (let row = 0; row < FARM_ROWS; row++) {
+      for (let c = 0; c < FARM_COLS; c++) {
+        const col = row % 2 === 0 ? c : FARM_COLS - 1 - c;
         const { x, y } = gridToIso(col, row);
         const last = this.pathX.length - 1;
         if (last >= 0) total += Math.hypot(x - this.pathX[last]!, y - this.pathY[last]!);

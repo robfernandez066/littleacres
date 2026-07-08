@@ -379,11 +379,16 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Onboarding pulse target on the field: the first empty (or first
-   * harvest-ready) plot, or null when none qualifies - a null for 'ready'
-   * while everything is mid-growth means no highlight, by design. Also null
-   * while a modal panel is open: the field is occluded and untappable then,
-   * so it is never a valid pulse target. Targets the tile image (safe to
-   * scale-breathe), never the crop sprite - ready crops run their own bounce.
+   * harvest-ready) plot by index, or null when none qualifies - a null for
+   * 'ready' while everything is mid-growth means no highlight, by design.
+   * Also null while a modal panel is open: the field is occluded and
+   * untappable then, so it is never a valid pulse target. Targets the tile
+   * image (safe to scale-breathe), never the crop sprite - ready crops run
+   * their own bounce.
+   *
+   * Index 0 is the TOP corner plot, which is also where the ghost-swipe
+   * serpentine begins - so the tutorial's tap steps naturally put the
+   * player's finger at the drag demo's start point.
    */
   private plotPulseTarget(kind: 'empty' | 'ready'): PulseTarget | null {
     if (isModalOpen()) return null;
