@@ -1,0 +1,200 @@
+import Phaser from 'phaser';
+
+import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
+import { CROPS, type CropDef, type CropId } from '../data/crops';
+import type { GameStateData } from '../systems/gameState';
+
+/**
+ * Modal-style inventory panel: one row per crop showing its icon, name,
+ * held count, unit sell value, and a "Sell all" button. Toggled by the HUD's
+ * bag button; renders purely from the `GameStateData` passed to `refresh`.
+ */
+
+const PANEL_WIDTH = 760;
+const PANEL_HEIGHT = 700;
+const PANEL_CENTER_X = DESIGN_WIDTH / 2;
+const PANEL_CENTER_Y = 780;
+/** Above the seed bar (2000), below flying coins (2200). */
+const PANEL_DEPTH = 2100;
+
+const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
+const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
+const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
+
+const ROW_START_Y = -140;
+const ROW_SPACING = 170;
+const ROW_ICON_X = -PANEL_WIDTH / 2 + 90;
+const ROW_ICON_SCALE = 0.5;
+const ROW_NAME_X = -190;
+const ROW_COUNT_X = 30;
+const ROW_UNIT_COIN_X = 110;
+const ROW_UNIT_COIN_SCALE = 0.4;
+const ROW_UNIT_TEXT_X = 140;
+const ROW_SELL_BUTTON_X = PANEL_WIDTH / 2 - 130;
+const SELL_BUTTON_WIDTH = 220;
+const SELL_BUTTON_HEIGHT = 100;
+
+const SELL_BUTTON_ENABLED_ALPHA = 1;
+const SELL_BUTTON_DISABLED_ALPHA = 0.4;
+
+const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '48px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+const CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '40px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '36px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+const COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '34px',
+  color: '#4a3218',
+};
+
+const UNIT_VALUE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  color: '#7a5518',
+};
+
+const SELL_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '32px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+interface InventoryRow {
+  cropId: CropId;
+  countText: Phaser.GameObjects.Text;
+  sellButton: Phaser.GameObjects.NineSlice;
+  /** Static world position of the sell button, for the coin-arc origin. */
+  worldX: number;
+  worldY: number;
+}
+
+export class InventoryPanel {
+  private readonly container: Phaser.GameObjects.Container;
+  private readonly rows: InventoryRow[] = [];
+  private visible = false;
+
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly onSell: (cropId: CropId, worldX: number, worldY: number) => void,
+  ) {
+    this.container = scene.add
+      .container(PANEL_CENTER_X, PANEL_CENTER_Y)
+      .setDepth(PANEL_DEPTH)
+      .setVisible(false);
+
+    const bg = scene.add.nineslice(
+      0,
+      0,
+      ATLAS_KEY,
+      'panel',
+      PANEL_WIDTH,
+      PANEL_HEIGHT,
+      32,
+      32,
+      32,
+      32,
+    );
+    const title = scene.add.text(0, TITLE_Y, 'Inventory', TITLE_STYLE).setOrigin(0.5);
+    const closeButton = scene.add
+      .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
+      .setOrigin(0.5)
+      .setPadding(16)
+      .setInteractive({ useHandCursor: true });
+    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
+    this.container.add([bg, title, closeButton]);
+
+    Object.values(CROPS).forEach((crop, index) => {
+      this.rows.push(this.buildRow(crop, index));
+    });
+  }
+
+  private buildRow(crop: CropDef, index: number): InventoryRow {
+    const y = ROW_START_Y + index * ROW_SPACING;
+
+    const icon = this.scene.add
+      .image(ROW_ICON_X, y, ATLAS_KEY, crop.stageFrames[2])
+      .setScale(ROW_ICON_SCALE);
+    const nameText = this.scene.add.text(ROW_NAME_X, y, crop.name, NAME_STYLE).setOrigin(0, 0.5);
+    const countText = this.scene.add.text(ROW_COUNT_X, y, 'x0', COUNT_STYLE).setOrigin(0, 0.5);
+    const unitCoin = this.scene.add
+      .image(ROW_UNIT_COIN_X, y, ATLAS_KEY, 'coin')
+      .setScale(ROW_UNIT_COIN_SCALE);
+    const unitText = this.scene.add
+      .text(ROW_UNIT_TEXT_X, y, String(crop.sellValue), UNIT_VALUE_STYLE)
+      .setOrigin(0, 0.5);
+
+    const sellButton = this.scene.add.nineslice(
+      ROW_SELL_BUTTON_X,
+      y,
+      ATLAS_KEY,
+      'panel',
+      SELL_BUTTON_WIDTH,
+      SELL_BUTTON_HEIGHT,
+      24,
+      24,
+      24,
+      24,
+    );
+    const sellText = this.scene.add
+      .text(ROW_SELL_BUTTON_X, y, 'Sell all', SELL_BUTTON_STYLE)
+      .setOrigin(0.5);
+
+    sellButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.onSell(crop.id, PANEL_CENTER_X + ROW_SELL_BUTTON_X, PANEL_CENTER_Y + y);
+    });
+
+    this.container.add([icon, nameText, countText, unitCoin, unitText, sellButton, sellText]);
+
+    return {
+      cropId: crop.id,
+      countText,
+      sellButton,
+      worldX: PANEL_CENTER_X + ROW_SELL_BUTTON_X,
+      worldY: PANEL_CENTER_Y + y,
+    };
+  }
+
+  /** Re-derive row counts and sell-button enabled state from state. */
+  refresh(state: GameStateData): void {
+    for (const row of this.rows) {
+      const count = state.inventory[row.cropId] ?? 0;
+      row.countText.setText(`x${count}`);
+      const enabled = count > 0;
+      row.sellButton.setAlpha(enabled ? SELL_BUTTON_ENABLED_ALPHA : SELL_BUTTON_DISABLED_ALPHA);
+      if (enabled) {
+        row.sellButton.setInteractive({ useHandCursor: true });
+      } else {
+        row.sellButton.disableInteractive();
+      }
+    }
+  }
+
+  toggle(state: GameStateData): void {
+    this.visible = !this.visible;
+    this.container.setVisible(this.visible);
+    if (this.visible) this.refresh(state);
+  }
+
+  hide(): void {
+    this.visible = false;
+    this.container.setVisible(false);
+  }
+}

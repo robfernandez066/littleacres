@@ -12,6 +12,7 @@ import { PlotPointerTracker } from '../systems/plotPointer';
 import { now } from '../systems/time';
 import { CoinArc } from '../ui/CoinArc';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
+import { Hud } from '../ui/Hud';
 import { ParticleBurst } from '../ui/ParticleBurst';
 import { SeedBar } from '../ui/SeedBar';
 
@@ -79,6 +80,7 @@ export class FarmScene extends Phaser.Scene {
   private floatingText!: FloatingText;
   private particles!: ParticleBurst;
   private coinArc!: CoinArc;
+  private hud!: Hud;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -104,6 +106,7 @@ export class FarmScene extends Phaser.Scene {
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this);
+    this.hud = new Hud(this, this.coinArc, this.floatingText);
     this.setupFieldInput();
     this.refreshCrops();
 
@@ -118,6 +121,7 @@ export class FarmScene extends Phaser.Scene {
     this.refreshAccumulatorMs = 0;
     this.refreshCrops();
     this.seedBar.refresh();
+    this.hud.refresh();
   }
 
   /**

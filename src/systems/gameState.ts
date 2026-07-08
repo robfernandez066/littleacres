@@ -49,6 +49,8 @@ export interface GameStateData {
   plots: PlotState[];
   inventory: Partial<Record<CropId, number>>;
   seeds: Partial<Record<CropId, number>>;
+  /** Reserved currency slot; nothing earns or spends it yet. */
+  moondust: number;
   settings: GameSettings;
   createdAt: number;
   lastSavedAt: number;
@@ -61,8 +63,11 @@ export interface GameStateData {
  */
 export type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
 
-/** The real migration list. Empty while the schema is at version 1. */
-export const MIGRATIONS: readonly Migration[] = [];
+/** v1 -> v2: adds the moondust currency slot, defaulted to 0. */
+const v1ToV2: Migration = (raw) => ({ ...raw, moondust: 0 });
+
+/** The real migration list. */
+export const MIGRATIONS: readonly Migration[] = [v1ToV2];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -74,6 +79,7 @@ export function createDefaultState(version: number): GameStateData {
     plots: Array.from({ length: PLOT_COUNT }, (): PlotState => ({ state: 'empty' })),
     inventory: {},
     seeds: {},
+    moondust: 0,
     settings: { musicOn: true, sfxOn: true },
     createdAt: now,
     lastSavedAt: now,
@@ -120,6 +126,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     raw.plots.every(isPlotState) &&
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
+    isFiniteNumber(raw.moondust) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
     typeof raw.settings.sfxOn === 'boolean' &&
@@ -220,6 +227,21 @@ export class GameStateStore {
     this.state.xp += CROPS[plot.cropId].xp;
     this.save();
     return true;
+  }
+
+  /**
+   * Sell the entire stack of one crop: coins gain count * sellValue, the
+   * stack empties, and the change persists. Returns the coins gained (0
+   * without mutating anything if the stack is already empty).
+   */
+  sellCrop(cropId: CropId): number {
+    const count = this.state.inventory[cropId] ?? 0;
+    if (count <= 0) return 0;
+    const gained = count * CROPS[cropId].sellValue;
+    this.state.coins += gained;
+    this.state.inventory[cropId] = 0;
+    this.save();
+    return gained;
   }
 
   /**

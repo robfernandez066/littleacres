@@ -4,6 +4,7 @@ import { type CropId, CROPS } from '../data/crops';
 import {
   createDefaultState,
   GameStateStore,
+  MIGRATIONS,
   type Migration,
   PLOT_COUNT,
   SAVE_KEY,
@@ -40,7 +41,7 @@ describe('fresh default state', () => {
   it('creates a valid new-player state', () => {
     const store = new GameStateStore({ storage: null });
     const state = store.getState();
-    expect(state.version).toBe(1);
+    expect(state.version).toBe(store.currentVersion);
     expect(state.coins).toBe(50);
     expect(state.xp).toBe(0);
     expect(state.level).toBe(1);
@@ -48,6 +49,7 @@ describe('fresh default state', () => {
     expect(state.plots.every((p) => p.state === 'empty')).toBe(true);
     expect(state.inventory).toEqual({});
     expect(state.seeds).toEqual({});
+    expect(state.moondust).toBe(0);
     expect(state.settings).toEqual({ musicOn: true, sfxOn: true });
     expect(state.createdAt).toBeLessThanOrEqual(Date.now());
     expect(state.lastSavedAt).toBeLessThanOrEqual(Date.now());
@@ -113,7 +115,7 @@ describe('corrupt or invalid saves', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(future) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(1);
+    expect(store.getState().version).toBe(store.currentVersion);
     expect(console.warn).toHaveBeenCalled();
   });
 });
@@ -151,6 +153,34 @@ describe('migrations', () => {
     expect(store.getState().version).toBe(2);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).toHaveBeenCalled();
+  });
+});
+
+describe('real migration v1 -> v2 (moondust)', () => {
+  it('loads a v1 save with no moondust field, migrating it to v2 with moondust 0', () => {
+    expect(MIGRATIONS).toHaveLength(1);
+    const fullSave: Record<string, unknown> = createDefaultState(1);
+    const { moondust, ...v1Save } = fullSave;
+    void moondust;
+    const raw = { ...v1Save, coins: 250, xp: 42, level: 3 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(2);
+    expect(state.moondust).toBe(0);
+    // Nothing else was lost in the migration.
+    expect(state.coins).toBe(250);
+    expect(state.xp).toBe(42);
+    expect(state.level).toBe(3);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a fresh save is created at v2 with moondust 0', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.currentVersion).toBe(2);
+    expect(store.getState().version).toBe(2);
+    expect(store.getState().moondust).toBe(0);
   });
 });
 
@@ -280,6 +310,36 @@ describe('harvestPlot', () => {
     }
     expect(store.getState().inventory.sunwheat).toBe(2);
     expect(store.getState().xp).toBe(2 * CROPS.sunwheat.xp);
+  });
+});
+
+describe('sellCrop', () => {
+  it('sells the entire stack, adds coins, empties the stack, and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    for (let i = 0; i < 3; i++) {
+      store.plantCrop(i, 'sunwheat');
+      advanceTime(CROPS.sunwheat.growMs);
+      store.harvestPlot(i);
+    }
+    const coinsBefore = store.getState().coins;
+    const gained = store.sellCrop('sunwheat');
+    expect(gained).toBe(3 * CROPS.sunwheat.sellValue);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore + gained);
+    expect(state.inventory.sunwheat).toBe(0);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().coins).toBe(state.coins);
+    expect(reloaded.getState().inventory.sunwheat).toBe(0);
+  });
+
+  it('returns 0 without mutating anything when the stack is empty', () => {
+    const store = new GameStateStore({ storage: null });
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.sellCrop('sunwheat')).toBe(0);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 });
 

@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.5 - Pooled juice systems + basic haptics (prompt out; Fable5/Opus)
+**Active task:** T1.6 - HUD + inventory + selling (prompt out; Sonnet)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -16,7 +16,8 @@
 - T1.2 Grid rendering + growth visuals - DONE (user visual test passed, committed). Deferred T0.5 time-warp check closed. Art-pass note: occupied plots need a distinct tile variant (see roadmap T2.6)
 - T1.3 Seed bar + paint planting - DONE (committed, deploy green, phone thumb-feel test passed). PlotPointerTracker is the shared gesture pattern
 - T1.4 Sweep harvesting - DONE incl. T1.4a gesture mode latch (user feel test passed, committed)
-- T1.5 Pooled juice systems - IN PROGRESS (prompt handed to coder). FloatingText + ParticleBurst + CoinArc (pooled), basic haptics (pulled from T2.1), pool stats in dev overlay. CoinArc targets HUD_COIN_POSITION constant; real sell wiring lands with the T1.6 HUD
+- T1.5 Pooled juice systems - DONE (user phone test passed incl. haptics, committed). Pool<T> pattern + stats registry is the standard for all future effects
+- T1.6 HUD + inventory + selling - IN PROGRESS (prompt handed to coder). First REAL schema migration (v1->v2, adds moondust). Levels config (src/data/levels.ts) added here for the XP bar; leveling LOGIC stays T1.7
 
 ## Blockers
 - None.

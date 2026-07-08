@@ -21,7 +21,7 @@ import { Pool, registerPoolStats } from '../systems/pool';
  * one satisfying batch, not 50 sprites - `onArrive` still fires once per
  * sprite, so callers count arrivals, not crops.
  */
-const MAX_COINS_PER_FLY = 8;
+export const MAX_COINS_PER_FLY = 8;
 
 const STAGGER_MS = 50;
 const FLIGHT_MS = 550;
