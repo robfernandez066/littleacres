@@ -1,13 +1,18 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
-import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS } from '../data/crops';
+import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { registerCoinArcTest } from '../systems/dev';
 import { gameState, PLOT_COUNT } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
+import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_WIDTH } from '../systems/iso';
 import { PlotPointerTracker } from '../systems/plotPointer';
 import { now } from '../systems/time';
+import { CoinArc } from '../ui/CoinArc';
+import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
+import { ParticleBurst } from '../ui/ParticleBurst';
 import { SeedBar } from '../ui/SeedBar';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
@@ -34,6 +39,21 @@ const READY_TINT = 0xfff59d;
 const HARVEST_POP_SCALE = 1.25;
 const HARVEST_POP_DURATION_MS = 150;
 
+/** Light haptic pulse on a successful harvest or plant. */
+const HAPTIC_LIGHT_MS = 12;
+
+/** Where the floating xp label spawns relative to a plot's tile center. */
+const XP_LABEL_OFFSET_Y = -70;
+/** Where bursts spawn relative to a plot's tile center (at the plant, not the dirt). */
+const BURST_OFFSET_Y = -30;
+
+/** Pre-built "+N xp" labels and a shared options object - the harvest path
+ * allocates no strings or option objects in steady state. */
+const XP_LABELS = Object.fromEntries(
+  Object.values(CROPS).map((crop) => [crop.id, `+${crop.xp} xp`]),
+) as Record<CropId, string>;
+const XP_TEXT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 44 };
+
 /**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
  * a grass field, rendered live from `gameState`, plus the seed bar. One
@@ -56,6 +76,11 @@ export class FarmScene extends Phaser.Scene {
   private popActive: boolean[] = [];
   private refreshAccumulatorMs = 0;
   private seedBar!: SeedBar;
+  private floatingText!: FloatingText;
+  private particles!: ParticleBurst;
+  private coinArc!: CoinArc;
+  /** Static screen position of each plot's tile center, precomputed once. */
+  private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
   private readonly plotTracker = new PlotPointerTracker();
   /**
@@ -75,9 +100,16 @@ export class FarmScene extends Phaser.Scene {
     this.layGrassField();
     this.layPlots();
     this.createCropSprites();
+    this.floatingText = new FloatingText(this);
+    this.particles = new ParticleBurst(this);
+    this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this);
     this.setupFieldInput();
     this.refreshCrops();
+
+    // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
+    // console hook so curved flights can be verified now.
+    registerCoinArcTest((n) => this.coinArc.fly(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, n));
   }
 
   override update(_time: number, delta: number): void {
@@ -123,14 +155,27 @@ export class FarmScene extends Phaser.Scene {
   private handlePlotEntered(plotIndex: number | null): void {
     if (plotIndex === null) return;
     if (this.gestureMode !== 'plant') {
+      // The crop id must be read before the harvest empties the plot - the
+      // floating xp label needs it.
+      const plot = gameState.getState().plots[plotIndex];
       if (gameState.harvestPlot(plotIndex)) {
         this.gestureMode = 'harvest';
         this.playHarvestPop(plotIndex);
+        if (plot?.state === 'growing') this.playHarvestJuice(plotIndex, plot.cropId);
         return;
       }
       if (this.gestureMode === 'harvest') return;
     }
     this.tryPlant(plotIndex);
+  }
+
+  /** Leaf burst + floating "+N xp" + light buzz at a just-harvested plot. */
+  private playHarvestJuice(plotIndex: number, cropId: CropId): void {
+    const pos = this.plotPositions[plotIndex];
+    if (pos === undefined) return;
+    this.particles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
+    this.floatingText.show(pos.x, pos.y + XP_LABEL_OFFSET_Y, XP_LABELS[cropId], XP_TEXT_OPTIONS);
+    buzz(HAPTIC_LIGHT_MS);
   }
 
   /**
@@ -145,6 +190,9 @@ export class FarmScene extends Phaser.Scene {
       this.gestureMode = 'plant';
       this.refreshCrops();
       this.playPlantPop(plotIndex);
+      const pos = this.plotPositions[plotIndex];
+      if (pos !== undefined) this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+      buzz(HAPTIC_LIGHT_MS);
       return;
     }
     const state = gameState.getState();
@@ -231,6 +279,7 @@ export class FarmScene extends Phaser.Scene {
         .setDepth(y)
         .setVisible(false);
       this.cropSprites[index] = sprite;
+      this.plotPositions[index] = { x, y };
       this.readyActive[index] = false;
       this.popActive[index] = false;
     }

@@ -14,6 +14,8 @@ export interface DevTools {
   getTimeOffsetMs(): number;
   plant(plotIndex: number, cropId: CropId): boolean;
   harvest(plotIndex: number): boolean;
+  /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
+  testCoinArc?(n: number): void;
 }
 
 declare global {
@@ -41,4 +43,12 @@ export function installDevTools(store: GameStateStore): void {
     plant: (plotIndex, cropId) => store.plantCrop(plotIndex, cropId),
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
   };
+}
+
+/**
+ * Late-bind `dev.testCoinArc` once the scene owning the CoinArc effect
+ * exists (installDevTools runs before any scene is created).
+ */
+export function registerCoinArcTest(test: (n: number) => void): void {
+  if (window.dev !== undefined) window.dev.testCoinArc = test;
 }

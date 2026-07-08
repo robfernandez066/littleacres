@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 
 import { gameState } from '../systems/gameState';
+import { getPoolStatsRegistry } from '../systems/pool';
 import { advanceTime, getTimeOffsetMs } from '../systems/time';
 
 /** Top-left square (px) that the hidden reveal gesture watches. */
@@ -10,6 +11,15 @@ const REVEAL_TAP_COUNT = 5;
 const REVEAL_WINDOW_MS = 1_500;
 /** Cadence for the FPS/state readouts while the overlay is open. */
 const REFRESH_INTERVAL_MS = 500;
+
+/** One "name inUse/size hw highWater" segment per registered effect pool. */
+function formatPoolStats(): string {
+  const parts: string[] = [];
+  for (const [name, pool] of getPoolStatsRegistry()) {
+    parts.push(`${name} ${pool.inUse}/${pool.size} hw ${pool.highWater}`);
+  }
+  return parts.length > 0 ? `pools: ${parts.join(' | ')}` : 'pools: (none registered)';
+}
 
 /**
  * Hidden dev overlay: a plain DOM layer (not a Phaser scene) for inspecting
@@ -21,6 +31,7 @@ export class DevOverlay {
   private readonly root: HTMLDivElement;
   private readonly fpsEl: HTMLDivElement;
   private readonly clockEl: HTMLDivElement;
+  private readonly poolsEl: HTMLDivElement;
   private readonly stateEl: HTMLPreElement;
   private visible = false;
   private refreshTimer: number | null = null;
@@ -45,8 +56,9 @@ export class DevOverlay {
 
     this.fpsEl = document.createElement('div');
     this.clockEl = document.createElement('div');
+    this.poolsEl = document.createElement('div');
     const readouts = document.createElement('div');
-    readouts.append(this.fpsEl, this.clockEl);
+    readouts.append(this.fpsEl, this.clockEl, this.poolsEl);
     this.root.appendChild(readouts);
 
     this.root.appendChild(this.buildButtons());
@@ -145,6 +157,7 @@ export class DevOverlay {
   private refresh(): void {
     this.fpsEl.textContent = `FPS: ${Math.round(this.game.loop.actualFps)}`;
     this.clockEl.textContent = `clock +${Math.round(getTimeOffsetMs() / 60_000)}m`;
+    this.poolsEl.textContent = formatPoolStats();
     this.stateEl.textContent = JSON.stringify(gameState.getState(), null, 2);
   }
 }

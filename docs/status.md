@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.4a - Gesture mode latch fix (prompt out; Sonnet). Then T1.5 with haptics folded in
+**Active task:** T1.5 - Pooled juice systems + basic haptics (prompt out; Fable5/Opus)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
@@ -15,7 +15,8 @@
 - T1.1 Crop data + plot state machine - DONE, committed + pushed, deploy green. 42 tests; ready is derived, never stored; provisional economy numbers (placeholder until balancing spreadsheet)
 - T1.2 Grid rendering + growth visuals - DONE (user visual test passed, committed). Deferred T0.5 time-warp check closed. Art-pass note: occupied plots need a distinct tile variant (see roadmap T2.6)
 - T1.3 Seed bar + paint planting - DONE (committed, deploy green, phone thumb-feel test passed). PlotPointerTracker is the shared gesture pattern
-- T1.4 Sweep harvesting - committed; feel test found accidental planting during harvest sweeps. T1.4a fix in progress (gesture mode latch). Floating labels/fly-to-inventory remain T1.5; basic haptics pulled into T1.5
+- T1.4 Sweep harvesting - DONE incl. T1.4a gesture mode latch (user feel test passed, committed)
+- T1.5 Pooled juice systems - IN PROGRESS (prompt handed to coder). FloatingText + ParticleBurst + CoinArc (pooled), basic haptics (pulled from T2.1), pool stats in dev overlay. CoinArc targets HUD_COIN_POSITION constant; real sell wiring lands with the T1.6 HUD
 
 ## Blockers
 - None.
