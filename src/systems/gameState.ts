@@ -1,7 +1,20 @@
 import { CROPS, type CropId } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
 import { levelForXp } from '../data/levels';
-import { generateOrder, type Order, ORDER_SLOTS, SKIP_COOLDOWN_MS } from '../data/orders';
+import {
+  ONBOARDING_DELIVERY_ORDER,
+  ONBOARDING_STEPS,
+  type OnboardingStep,
+  type OnboardingStepId,
+  type OnboardingUiEventId,
+} from '../data/onboarding';
+import {
+  generateOrder,
+  type Order,
+  ORDER_SLOTS,
+  SKIP_COOLDOWN_MS,
+  TEASER_CHANCE,
+} from '../data/orders';
 import { isReady } from './growth';
 import { now } from './time';
 
@@ -61,6 +74,17 @@ export interface GameSettings {
   sfxOn: boolean;
 }
 
+/**
+ * First-session tutorial progress. `step` indexes ONBOARDING_STEPS and
+ * `progress` counts matching actions within the current step (reset to 0 on
+ * every advance). Once `completed` is true it never flips back.
+ */
+export interface OnboardingState {
+  completed: boolean;
+  step: number;
+  progress: number;
+}
+
 /** One level gained, and any crops newly unlocked at exactly that level. */
 export interface LevelUpEvent {
   level: number;
@@ -80,6 +104,7 @@ export interface GameStateData {
   moondust: number;
   /** The order board, always exactly ORDER_SLOTS entries. */
   orders: OrderSlot[];
+  onboarding: OnboardingState;
   settings: GameSettings;
   createdAt: number;
   lastSavedAt: number;
@@ -102,8 +127,23 @@ function createPendingOrderSlots(): OrderSlot[] {
 /** v2 -> v3: adds the order board, all slots pending generation. */
 const v2ToV3: Migration = (raw) => ({ ...raw, orders: createPendingOrderSlots() });
 
+/**
+ * v3 -> v4: adds onboarding. Anyone with any progress (level above 1 or any
+ * xp) is a veteran and skips the tutorial permanently.
+ */
+const v3ToV4: Migration = (raw) => ({
+  ...raw,
+  onboarding: {
+    completed:
+      (typeof raw.level === 'number' && raw.level > 1) ||
+      (typeof raw.xp === 'number' && raw.xp > 0),
+    step: 0,
+    progress: 0,
+  },
+});
+
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3];
+export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -117,6 +157,7 @@ export function createDefaultState(version: number): GameStateData {
     seeds: {},
     moondust: 0,
     orders: createPendingOrderSlots(),
+    onboarding: { completed: false, step: 0, progress: 0 },
     settings: { musicOn: true, sfxOn: true },
     createdAt: now,
     lastSavedAt: now,
@@ -178,6 +219,15 @@ function isOrderSlot(value: unknown): value is OrderSlot {
   return value.state === 'open' && isOrder(value.order);
 }
 
+function isOnboardingState(value: unknown): value is OnboardingState {
+  return (
+    isRecord(value) &&
+    typeof value.completed === 'boolean' &&
+    isFiniteNumber(value.step) &&
+    isFiniteNumber(value.progress)
+  );
+}
+
 /** Structural validation of a (migrated) save against the current schema. */
 export function isValidState(raw: unknown, expectedVersion: number): raw is GameStateData {
   if (!isRecord(raw)) return false;
@@ -195,6 +245,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     Array.isArray(raw.orders) &&
     raw.orders.length === ORDER_SLOTS &&
     raw.orders.every(isOrderSlot) &&
+    isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
     typeof raw.settings.sfxOn === 'boolean' &&
@@ -317,6 +368,8 @@ export class GameStateStore {
     if (this.state.coins < crop.seedCost) return false;
     this.state.coins -= crop.seedCost;
     this.state.plots[plotIndex] = { state: 'growing', cropId, plantedAt: now() };
+    if (cropId === 'sunwheat') this.trackOnboarding('plant-sunwheat');
+    else if (cropId === 'carrot') this.trackOnboarding('plant-carrot');
     this.save();
     return true;
   }
@@ -333,6 +386,7 @@ export class GameStateStore {
     this.state.plots[plotIndex] = { state: 'empty' };
     this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + 1;
     this.applyXp(CROPS[plot.cropId].xp);
+    if (plot.cropId === 'sunwheat') this.trackOnboarding('harvest-sunwheat');
     this.save();
     return true;
   }
@@ -361,10 +415,16 @@ export class GameStateStore {
   ensureOrders(): void {
     let changed = false;
     const nowMs = now();
+    // No stretch (teaser) orders while the tutorial is running - the first
+    // session must never see a request it cannot fulfill.
+    const teaserChance = this.state.onboarding.completed ? TEASER_CHANCE : 0;
     for (let i = 0; i < this.state.orders.length; i++) {
       const slot = this.state.orders[i]!;
       if (slot.state === 'pending' || (slot.state === 'cooldown' && slot.readyAt <= nowMs)) {
-        this.state.orders[i] = { state: 'open', order: generateOrder(this.state.level, this.rng) };
+        this.state.orders[i] = {
+          state: 'open',
+          order: generateOrder(this.state.level, this.rng, teaserChance),
+        };
         changed = true;
       }
     }
@@ -393,6 +453,9 @@ export class GameStateStore {
     this.state.coins += order.coinReward;
     this.applyXp(order.xpReward);
     this.state.orders[slotIndex] = { state: 'pending' };
+    // Any successful delivery during the deliver step counts - the mechanic
+    // is learned even if the player fulfills a non-scripted order.
+    this.trackOnboarding('deliver-sunwheat');
     this.save();
     return true;
   }
@@ -408,6 +471,53 @@ export class GameStateStore {
     this.state.orders[slotIndex] = { state: 'cooldown', readyAt: now() + SKIP_COOLDOWN_MS };
     this.save();
     return true;
+  }
+
+  /** The active onboarding step, or null once completed. */
+  private currentOnboardingStep(): OnboardingStep | null {
+    if (this.state.onboarding.completed) return null;
+    return ONBOARDING_STEPS[this.state.onboarding.step] ?? null;
+  }
+
+  /**
+   * Count one action toward the active onboarding step. No-op unless the
+   * event matches the step. Reaching the goal advances the chain (resetting
+   * progress), entering `deliver-sunwheat` scripts the tutorial order into
+   * slot 0, and passing the last step sets `completed` - permanently: every
+   * entry point checks `completed` first, so nothing ever tracks again.
+   * Returns whether state changed; callers own the save.
+   */
+  private trackOnboarding(eventId: OnboardingStepId): boolean {
+    const step = this.currentOnboardingStep();
+    if (step === null || step.id !== eventId) return false;
+    const onboarding = this.state.onboarding;
+    onboarding.progress++;
+    if (onboarding.progress < step.goal) return true;
+
+    onboarding.step++;
+    onboarding.progress = 0;
+    if (onboarding.step >= ONBOARDING_STEPS.length) {
+      onboarding.completed = true;
+    } else if (ONBOARDING_STEPS[onboarding.step]?.id === 'deliver-sunwheat') {
+      // Deep copy so later slot mutation can never touch the config object.
+      this.state.orders[0] = {
+        state: 'open',
+        order: {
+          ...ONBOARDING_DELIVERY_ORDER,
+          items: ONBOARDING_DELIVERY_ORDER.items.map((item) => ({ ...item })),
+        },
+      };
+    }
+    return true;
+  }
+
+  /**
+   * UI-driven onboarding events (seed selection, opening the order board).
+   * Safe to call every refresh tick: it saves only when the event actually
+   * advanced the chain, and is a cheap no-op otherwise.
+   */
+  notifyOnboardingUiEvent(eventId: OnboardingUiEventId): void {
+    if (this.trackOnboarding(eventId)) this.save();
   }
 
   /**

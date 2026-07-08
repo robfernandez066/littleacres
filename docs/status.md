@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.8 - Order board (prompt out; Fable5/Opus). Schema v3 (orders slots), injectable-rng generator, teaser orders ~15%, build stamp rider in dev overlay
+**Active task:** T1.9 - Quest-driven onboarding (prompt out; Fable5/Opus). Schema v4, scripted order chain to level 2, pulse-highlight registry
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed

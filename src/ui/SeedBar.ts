@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import { gameState } from '../systems/gameState';
+import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 
 /**
  * Layout: primary actions live in the bottom third of the screen (design
@@ -35,6 +36,9 @@ const FLASH_DURATION_MS = 300;
 const SHAKE_DISTANCE = 10;
 /** Min gap between insufficient-coins nudges so a drag cannot spam them. */
 const SHAKE_THROTTLE_MS = 400;
+
+/** Onboarding pulse ring radius around a seed button (300x280). */
+const SEED_PULSE_RADIUS = 165;
 
 const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -83,12 +87,25 @@ export class SeedBar {
     crops.forEach((crop, index) => {
       this.buttons.push(this.buildButton(crop, index, crops.length));
     });
+    registerPulseTarget('seed-sunwheat', () => this.seedPulseTarget('sunwheat'));
+    registerPulseTarget('seed-carrot', () => this.seedPulseTarget('carrot'));
     this.refresh();
   }
 
   /** The currently selected crop, or null when nothing is selected. */
   getSelected(): CropId | null {
     return this.selected;
+  }
+
+  /**
+   * Onboarding pulse target for a seed button - null once that seed is
+   * already selected, so the guide moves the pulse on to the field.
+   */
+  private seedPulseTarget(cropId: CropId): PulseTarget | null {
+    if (this.selected === cropId) return null;
+    const button = this.buttons.find((b) => b.crop.id === cropId);
+    if (button === undefined) return null;
+    return { x: button.baseX, y: BAR_CENTER_Y, radius: SEED_PULSE_RADIUS };
   }
 
   /**

@@ -9,11 +9,13 @@ import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_WIDTH } from '../systems/iso';
 import { PlotPointerTracker } from '../systems/plotPointer';
+import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { CoinArc } from '../ui/CoinArc';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
+import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { ParticleBurst } from '../ui/ParticleBurst';
 import { SeedBar } from '../ui/SeedBar';
 
@@ -49,6 +51,9 @@ const XP_LABEL_OFFSET_Y = -70;
 /** Where bursts spawn relative to a plot's tile center (at the plant, not the dirt). */
 const BURST_OFFSET_Y = -30;
 
+/** Onboarding pulse ring radius on a plot tile (fits the 256x128 diamond). */
+const PLOT_PULSE_RADIUS = 90;
+
 /** Pre-built "+N xp" labels and a shared options object - the harvest path
  * allocates no strings or option objects in steady state. */
 const XP_LABELS = Object.fromEntries(
@@ -83,6 +88,7 @@ export class FarmScene extends Phaser.Scene {
   private coinArc!: CoinArc;
   private hud!: Hud;
   private levelUpCelebration!: LevelUpCelebration;
+  private onboardingGuide!: OnboardingGuide;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -111,9 +117,13 @@ export class FarmScene extends Phaser.Scene {
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
     this.hud = new Hud(this, this.coinArc, this.floatingText);
+    registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
+    registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
+    this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles);
     this.setupFieldInput();
     this.refreshCrops();
+    this.onboardingGuide.refresh(gameState.getState());
 
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
@@ -128,6 +138,13 @@ export class FarmScene extends Phaser.Scene {
     this.refreshCrops();
     this.seedBar.refresh();
     this.hud.refresh();
+    // Onboarding's select-sunwheat step: checked every tick (not just on the
+    // tap) so a selection made before the step began still counts. Cheap
+    // no-op whenever the step is not active.
+    if (this.seedBar.getSelected() === 'sunwheat') {
+      gameState.notifyOnboardingUiEvent('select-sunwheat');
+    }
+    this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
   }
 
@@ -349,6 +366,27 @@ export class FarmScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+  }
+
+  /**
+   * Onboarding pulse target on the field: the first empty (or first
+   * harvest-ready) plot, or null when none qualifies - a null for 'ready'
+   * while everything is mid-growth means no pulse, by design.
+   */
+  private plotPulseTarget(kind: 'empty' | 'ready'): PulseTarget | null {
+    const plots = gameState.getState().plots;
+    const nowMs = now();
+    for (let index = 0; index < PLOT_COUNT; index++) {
+      const plot = plots[index];
+      const pos = this.plotPositions[index];
+      if (plot === undefined || pos === undefined) continue;
+      const matches =
+        kind === 'empty'
+          ? plot.state === 'empty'
+          : plot.state === 'growing' && isReady(plot, nowMs);
+      if (matches) return { x: pos.x, y: pos.y, radius: PLOT_PULSE_RADIUS };
+    }
+    return null;
   }
 
   /** Stop the idle bounce + glow tint and restore defaults; idempotent. */

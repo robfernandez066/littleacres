@@ -5,6 +5,7 @@ import { CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
 import type { GameStateData } from '../systems/gameState';
 import { registerPoolStats } from '../systems/pool';
+import { registerPulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { PooledArc } from './PooledArc';
 
@@ -60,6 +61,9 @@ const SKIP_BUTTON_HEIGHT = 80;
 
 const BUTTON_ENABLED_ALPHA = 1;
 const BUTTON_DISABLED_ALPHA = 0.4;
+
+/** Onboarding pulse ring radius around slot 0's Fulfill button (240x100). */
+const FULFILL_PULSE_RADIUS = 100;
 
 /** Item count colors: covered by inventory vs still short. */
 const COVERED_COLOR = '#2e7d32';
@@ -210,6 +214,18 @@ export class OrderBoard {
     for (let i = 0; i < ORDER_SLOTS; i++) {
       this.cards.push(this.buildCard(i));
     }
+
+    // Onboarding pulse over slot 0's Fulfill button - only while the board
+    // is open and that card is showing an open (fulfillable) order.
+    registerPulseTarget('fulfill-slot-0', () => {
+      const card = this.cards[0];
+      if (!this.visible || card === undefined || !card.fulfillButton.visible) return null;
+      return {
+        x: PANEL_CENTER_X + FULFILL_BUTTON_X,
+        y: PANEL_CENTER_Y + CARD_START_Y + FULFILL_BUTTON_Y,
+        radius: FULFILL_PULSE_RADIUS,
+      };
+    });
 
     this.villagerArc = new PooledArc(scene, {
       targetX: VILLAGER_POSITION.x,
@@ -464,6 +480,10 @@ export class OrderBoard {
         });
       },
     });
+  }
+
+  isVisible(): boolean {
+    return this.visible;
   }
 
   toggle(state: GameStateData): void {

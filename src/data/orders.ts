@@ -62,15 +62,21 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
  * yields a fixed order.
  *
  * Shape rules:
- * - Teaser roll first: with TEASER_CHANCE (and only when a crop unlocks at
+ * - Teaser roll first: with `teaserChance` (and only when a crop unlocks at
  *   exactly level + 1) the order pairs one unlocked crop with that teaser
- *   crop - a stretch order previewing the next unlock.
+ *   crop - a stretch order previewing the next unlock. Callers may override
+ *   the chance (onboarding passes 0 so the first session never sees an
+ *   unfulfillable stretch order).
  * - Otherwise items come from unlocked crops only: two distinct ones with
  *   SECOND_ITEM_CHANCE (when two exist), else one.
  * - Total units are ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level, split
  *   randomly across the items with every item getting at least 1.
  */
-export function generateOrder(level: number, rng: () => number = Math.random): Order {
+export function generateOrder(
+  level: number,
+  rng: () => number = Math.random,
+  teaserChance: number = TEASER_CHANCE,
+): Order {
   // Level 1 always unlocks at least one crop, so `unlocked` is never empty.
   const effectiveLevel = Math.max(1, Math.floor(level));
   const allCrops = Object.values(CROPS);
@@ -78,7 +84,7 @@ export function generateOrder(level: number, rng: () => number = Math.random): O
   const teasers = allCrops.filter((crop) => crop.unlockLevel === effectiveLevel + 1);
 
   const chosen: CropDef[] = [];
-  if (teasers.length > 0 && rng() < TEASER_CHANCE) {
+  if (teasers.length > 0 && rng() < teaserChance) {
     chosen.push(pick(unlocked, rng), pick(teasers, rng));
   } else if (unlocked.length >= 2 && rng() < SECOND_ITEM_CHANCE) {
     const first = pick(unlocked, rng);

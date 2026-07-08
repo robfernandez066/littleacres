@@ -11,6 +11,7 @@ import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { gameState } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
+import { registerPulseTarget } from '../systems/pulseTargets';
 import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
 import { FloatingText } from './FloatingText';
@@ -66,6 +67,9 @@ const SELL_LABEL_OFFSET_Y = -70;
 /** Medium buzz for the order-fulfill beat; heavier than the light sell tap. */
 const FULFILL_HAPTIC_MS = 24;
 const FULFILL_XP_LABEL_OFFSET_Y = -100;
+
+/** Onboarding pulse ring radius around the Orders button (200x90). */
+const ORDERS_PULSE_RADIUS = 95;
 
 /** Shared by the coin and moondust counters so the two always match. */
 const CURRENCY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -181,6 +185,11 @@ export class Hud {
       this.inventoryPanel.hide();
       this.orderBoard.toggle(gameState.getState());
     });
+    registerPulseTarget('orders-button', () => ({
+      x: ORDERS_BUTTON_POSITION.x,
+      y: ORDERS_BUTTON_POSITION.y,
+      radius: ORDERS_PULSE_RADIUS,
+    }));
 
     this.cropArc = new CropArc(this.scene);
 
@@ -231,6 +240,11 @@ export class Hud {
 
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
+
+    // Onboarding's open-orders step: checked every tick (not just on the
+    // button tap) so a board already open when the step begins still counts.
+    // Cheap no-op whenever the step is not active.
+    if (this.orderBoard.isVisible()) gameState.notifyOnboardingUiEvent('open-orders');
   }
 
   private updateXpBar(level: number, xp: number): void {

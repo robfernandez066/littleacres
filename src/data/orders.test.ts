@@ -140,6 +140,19 @@ describe('generateOrder', () => {
     }
   });
 
+  it('a teaserChance of 0 suppresses stretch orders even when the roll would hit', () => {
+    // At level 2 the teaser is glowberry; rng stuck at 0 always passes a
+    // nonzero teaser roll.
+    const withTeaser = generateOrder(2, () => 0);
+    expect(withTeaser.items.some((item) => item.cropId === 'glowberry')).toBe(true);
+
+    const suppressed = generateOrder(2, () => 0, 0);
+    expect(suppressed.items.some((item) => item.cropId === 'glowberry')).toBe(false);
+    for (const item of suppressed.items) {
+      expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(2);
+    }
+  });
+
   it('clamps a sub-1 level to level 1 rules', () => {
     const order = generateOrder(0, () => 0.99);
     expect(order.items).toEqual([
