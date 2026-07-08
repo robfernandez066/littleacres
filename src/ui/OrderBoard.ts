@@ -4,6 +4,7 @@ import { ATLAS_KEY, DESIGN_WIDTH, VILLAGER_POSITION } from '../config';
 import { CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
 import type { GameStateData } from '../systems/gameState';
+import { setPanelOpen } from '../systems/modalPanels';
 import { registerPoolStats } from '../systems/pool';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
@@ -64,6 +65,8 @@ const BUTTON_DISABLED_ALPHA = 0.4;
 
 /** Onboarding pulse ring radius around slot 0's Fulfill button (240x100). */
 const FULFILL_PULSE_RADIUS = 100;
+/** Onboarding pulse ring radius around the close (X) control. */
+const CLOSE_PULSE_RADIUS = 60;
 
 /** Item count colors: covered by inventory vs still short. */
 const COVERED_COLOR = '#2e7d32';
@@ -202,6 +205,19 @@ export class OrderBoard {
       32,
       32,
     );
+    // Swallow taps on the panel body so they never fall through to the field
+    // or seed bar beneath - the buttons drawn on top of the bg still receive
+    // their own pointer-down first and keep working.
+    bg.setInteractive();
+    bg.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => event.stopPropagation(),
+    );
     const title = scene.add.text(0, TITLE_Y, 'Orders', TITLE_STYLE).setOrigin(0.5);
     const closeButton = scene.add
       .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
@@ -224,6 +240,17 @@ export class OrderBoard {
         x: PANEL_CENTER_X + FULFILL_BUTTON_X,
         y: PANEL_CENTER_Y + CARD_START_Y + FULFILL_BUTTON_Y,
         radius: FULFILL_PULSE_RADIUS,
+      };
+    });
+    // Onboarding pulse over the close (X) control - only while the board is
+    // open; closing it is the deliver step's next action once the board is
+    // open but the order isn't covered yet.
+    registerPulseTarget('orders-close', () => {
+      if (!this.visible) return null;
+      return {
+        x: PANEL_CENTER_X + CLOSE_OFFSET_X,
+        y: PANEL_CENTER_Y + CLOSE_OFFSET_Y,
+        radius: CLOSE_PULSE_RADIUS,
       };
     });
 
@@ -489,11 +516,13 @@ export class OrderBoard {
   toggle(state: GameStateData): void {
     this.visible = !this.visible;
     this.container.setVisible(this.visible);
+    setPanelOpen('orders', this.visible);
     if (this.visible) this.refresh(state);
   }
 
   hide(): void {
     this.visible = false;
     this.container.setVisible(false);
+    setPanelOpen('orders', false);
   }
 }

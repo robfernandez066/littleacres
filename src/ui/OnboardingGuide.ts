@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import {
+  DELIVER_PROGRESS_INSTRUCTION,
   ONBOARDING_DELIVERY_ORDER,
   ONBOARDING_STEPS,
   type OnboardingStep,
@@ -34,10 +35,12 @@ const CHIP_DEPTH = 2050;
 const RING_DEPTH = 2150;
 const RING_COLOR = 0xffe27a;
 const RING_STROKE_WIDTH = 8;
-/** One soft pulse: grow-and-fade, then rest - a full cycle every ~2s. */
-const PULSE_GROW_SCALE = 1.35;
-const PULSE_GROW_MS = 1100;
-const PULSE_REST_MS = 900;
+/** Continuous breathing pulse: yoyo between these bounds, no rest gap. */
+const PULSE_MIN_SCALE = 1.0;
+const PULSE_MAX_SCALE = 1.18;
+const PULSE_MIN_ALPHA = 0.45;
+const PULSE_MAX_ALPHA = 0.9;
+const PULSE_HALF_DURATION_MS = 900;
 
 const CHIP_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -75,15 +78,17 @@ export class OnboardingGuide {
       .setStrokeStyle(RING_STROKE_WIDTH, RING_COLOR)
       .setDepth(RING_DEPTH)
       .setVisible(false);
-    // One perpetual pulse loop; hiding the ring is enough to "stop" it.
+    // One perpetual breathing loop; hiding the ring is enough to "stop" it.
+    // Never touched on retarget (only position/radius move), so the phase
+    // never resets - the breathing never stutters as the pulse walks targets.
     scene.tweens.add({
       targets: this.ring,
-      scale: { from: 1, to: PULSE_GROW_SCALE },
-      alpha: { from: 0.9, to: 0 },
-      duration: PULSE_GROW_MS,
+      scale: { from: PULSE_MIN_SCALE, to: PULSE_MAX_SCALE },
+      alpha: { from: PULSE_MIN_ALPHA, to: PULSE_MAX_ALPHA },
+      duration: PULSE_HALF_DURATION_MS,
+      yoyo: true,
       repeat: -1,
-      repeatDelay: PULSE_REST_MS,
-      ease: 'Sine.easeOut',
+      ease: 'Sine.easeInOut',
     });
   }
 
@@ -101,10 +106,7 @@ export class OnboardingGuide {
       return;
     }
 
-    const text =
-      step.goal > 1
-        ? `${step.instruction} - ${state.onboarding.progress}/${step.goal}`
-        : step.instruction;
+    const text = this.resolveChipText(step, state);
     if (text !== this.lastChipText) {
       this.lastChipText = text;
       this.chipText.setText(text);
@@ -123,9 +125,10 @@ export class OnboardingGuide {
 
   /**
    * Where the pulse should sit right now. Steps with conditional targets
-   * resolve here; everything else uses the step's nominal target. Seed
-   * providers return null once their seed is selected, so the plant-shaped
-   * steps naturally walk the pulse from the seed bar onto the field.
+   * resolve here; everything else uses the step's nominal target. Seed and
+   * field providers return null once unavailable (seed selected, or a modal
+   * panel open and occluding them), so the plant-shaped steps naturally walk
+   * the pulse from the seed bar onto the field.
    */
   private resolveTarget(step: OnboardingStep, state: GameStateData): PulseTarget | null {
     switch (step.id) {
@@ -134,13 +137,13 @@ export class OnboardingGuide {
       case 'plant-carrot':
         return resolvePulseTarget('seed-carrot') ?? resolvePulseTarget('empty-plot');
       case 'deliver-sunwheat': {
-        const covered = ONBOARDING_DELIVERY_ORDER.items.every(
-          (item) => (state.inventory[item.cropId] ?? 0) >= item.count,
-        );
-        if (!covered) {
-          // Not enough yet: walk the plant-harvest loop again - harvest
-          // anything ready first, otherwise select the seed / plant a plot.
+        if (!this.isDeliveryCovered(state)) {
+          // The board's close (X) is only a valid target while it's open -
+          // closing it IS the next action then. Otherwise walk the
+          // plant-harvest loop again: harvest anything ready first,
+          // otherwise select the seed / plant a plot.
           return (
+            resolvePulseTarget('orders-close') ??
             resolvePulseTarget('ready-plot') ??
             resolvePulseTarget('seed-sunwheat') ??
             resolvePulseTarget('empty-plot')
@@ -155,5 +158,31 @@ export class OnboardingGuide {
         // mid-growth plots are never pulsed.
         return resolvePulseTarget(step.pulseTarget);
     }
+  }
+
+  /** Whether the scripted delivery order is already covered by inventory. */
+  private isDeliveryCovered(state: GameStateData): boolean {
+    return ONBOARDING_DELIVERY_ORDER.items.every(
+      (item) => (state.inventory[item.cropId] ?? 0) >= item.count,
+    );
+  }
+
+  /**
+   * The chip string for the current step. deliver-sunwheat swaps in
+   * `DELIVER_PROGRESS_INSTRUCTION` (config text) with a live n/5 count while
+   * the order isn't covered yet, then falls back to the step's normal
+   * instruction once it is.
+   */
+  private resolveChipText(step: OnboardingStep, state: GameStateData): string {
+    if (step.id === 'deliver-sunwheat' && !this.isDeliveryCovered(state)) {
+      const item = ONBOARDING_DELIVERY_ORDER.items[0];
+      if (item !== undefined) {
+        const have = Math.min(state.inventory[item.cropId] ?? 0, item.count);
+        return `${DELIVER_PROGRESS_INSTRUCTION} - ${have}/${item.count}`;
+      }
+    }
+    return step.goal > 1
+      ? `${step.instruction} - ${state.onboarding.progress}/${step.goal}`
+      : step.instruction;
   }
 }

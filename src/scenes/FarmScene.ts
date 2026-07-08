@@ -8,6 +8,7 @@ import { gameState, PLOT_COUNT } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_WIDTH } from '../systems/iso';
+import { isModalOpen } from '../systems/modalPanels';
 import { PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
@@ -180,10 +181,13 @@ export class FarmScene extends Phaser.Scene {
    * (`gestureMode`), so a harvest sweep cannot plant empty plots it crosses
    * and a plant sweep cannot harvest ready crops it crosses. A level-up
    * celebration blocks the field entirely - its full-screen backdrop already
-   * eats the tap, this just guards the scene-wide pointer listeners too.
+   * eats the tap, this just guards the scene-wide pointer listeners too. An
+   * open modal panel (order board, inventory) blocks it the same way: field
+   * gestures are scene-wide listeners, not per-object hit tests, so panel
+   * hit-testing alone never stops a tap from reaching the field beneath it.
    */
   private handlePlotEntered(plotIndex: number | null): void {
-    if (plotIndex === null || this.levelUpCelebration.isActive()) return;
+    if (plotIndex === null || this.levelUpCelebration.isActive() || isModalOpen()) return;
     if (this.gestureMode !== 'plant') {
       // The crop id must be read before the harvest empties the plot - the
       // floating xp label needs it.
@@ -371,9 +375,12 @@ export class FarmScene extends Phaser.Scene {
   /**
    * Onboarding pulse target on the field: the first empty (or first
    * harvest-ready) plot, or null when none qualifies - a null for 'ready'
-   * while everything is mid-growth means no pulse, by design.
+   * while everything is mid-growth means no pulse, by design. Also null
+   * while a modal panel is open: the field is occluded and untappable then,
+   * so it is never a valid pulse target.
    */
   private plotPulseTarget(kind: 'empty' | 'ready'): PulseTarget | null {
+    if (isModalOpen()) return null;
     const plots = gameState.getState().plots;
     const nowMs = now();
     for (let index = 0; index < PLOT_COUNT; index++) {

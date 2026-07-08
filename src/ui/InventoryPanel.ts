@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { GameStateData } from '../systems/gameState';
+import { setPanelOpen } from '../systems/modalPanels';
 
 /**
  * Modal-style inventory panel: one row per crop showing its icon, name,
@@ -119,6 +120,19 @@ export class InventoryPanel {
       32,
       32,
     );
+    // Swallow taps on the panel body so they never fall through to the field
+    // or seed bar beneath - the buttons drawn on top of the bg still receive
+    // their own pointer-down first and keep working.
+    bg.setInteractive();
+    bg.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => event.stopPropagation(),
+    );
     const title = scene.add.text(0, TITLE_Y, 'Inventory', TITLE_STYLE).setOrigin(0.5);
     const closeButton = scene.add
       .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
@@ -196,14 +210,20 @@ export class InventoryPanel {
     }
   }
 
+  isVisible(): boolean {
+    return this.visible;
+  }
+
   toggle(state: GameStateData): void {
     this.visible = !this.visible;
     this.container.setVisible(this.visible);
+    setPanelOpen('inventory', this.visible);
     if (this.visible) this.refresh(state);
   }
 
   hide(): void {
     this.visible = false;
     this.container.setVisible(false);
+    setPanelOpen('inventory', false);
   }
 }

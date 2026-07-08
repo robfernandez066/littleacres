@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import { gameState } from '../systems/gameState';
+import { isModalOpen } from '../systems/modalPanels';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 
 /**
@@ -99,10 +100,13 @@ export class SeedBar {
 
   /**
    * Onboarding pulse target for a seed button - null once that seed is
-   * already selected, so the guide moves the pulse on to the field.
+   * already selected, so the guide moves the pulse on to the field. Also
+   * null while a modal panel is open: the bar sits below the panels'
+   * vertical extent and any part a panel overlaps is untappable, so it is
+   * never a valid pulse target then.
    */
   private seedPulseTarget(cropId: CropId): PulseTarget | null {
-    if (this.selected === cropId) return null;
+    if (isModalOpen() || this.selected === cropId) return null;
     const button = this.buttons.find((b) => b.crop.id === cropId);
     if (button === undefined) return null;
     return { x: button.baseX, y: BAR_CENTER_Y, radius: SEED_PULSE_RADIUS };

@@ -30,7 +30,8 @@ export type PulseTargetId =
   | 'empty-plot'
   | 'ready-plot'
   | 'orders-button'
-  | 'fulfill-slot-0';
+  | 'fulfill-slot-0'
+  | 'orders-close';
 
 export interface OnboardingStep {
   id: OnboardingStepId;
@@ -69,6 +70,14 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   { id: 'plant-carrot', instruction: 'Plant a Carrot', goal: 1, pulseTarget: 'seed-carrot' },
 ];
+
+/**
+ * Shown instead of the deliver-sunwheat step's `instruction` while the
+ * scripted order is not yet covered by inventory; `OnboardingGuide` appends
+ * " - n/5". Once covered, the chip switches back to the step's normal
+ * "Deliver 5 Sunwheat" instruction.
+ */
+export const DELIVER_PROGRESS_INSTRUCTION = 'Grow more Sunwheat';
 
 /**
  * The scripted order placed into slot 0 when `deliver-sunwheat` begins.
