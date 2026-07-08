@@ -1,5 +1,5 @@
-import { CROP_STAGES, CROPS } from '../data/crops';
-import type { GrowingPlot } from './gameState';
+import { CROP_STAGES, CROPS, type CropId } from '../data/crops';
+import type { GrowingPlot, PlotState } from './gameState';
 
 /**
  * Pure growth math. Readiness is always derived from `plantedAt + growMs`
@@ -23,4 +23,24 @@ export function isReady(plot: GrowingPlot, nowMs: number): boolean {
 /** Visual stage 0..CROP_STAGES-1; a ready crop is always the last stage. */
 export function stageIndex(plot: GrowingPlot, nowMs: number): number {
   return Math.min(CROP_STAGES - 1, Math.floor(growthFraction(plot, nowMs) * CROP_STAGES));
+}
+
+/**
+ * Whole seconds (ceil, floored at 0) until the SOONEST growing plot of
+ * `cropId` is ready, or null when none is growing. 0 means at least one is
+ * already ready. Drives the onboarding chip's "Sunwheat growing... Ns"
+ * countdown.
+ */
+export function secondsUntilNextReady(
+  plots: readonly PlotState[],
+  cropId: CropId,
+  nowMs: number,
+): number | null {
+  let soonestMs: number | null = null;
+  for (const plot of plots) {
+    if (plot.state !== 'growing' || plot.cropId !== cropId) continue;
+    const remaining = plot.plantedAt + CROPS[cropId].growMs - nowMs;
+    if (soonestMs === null || remaining < soonestMs) soonestMs = remaining;
+  }
+  return soonestMs === null ? null : Math.max(0, Math.ceil(soonestMs / 1000));
 }

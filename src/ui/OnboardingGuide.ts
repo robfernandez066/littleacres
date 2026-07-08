@@ -3,12 +3,15 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import {
   DELIVER_PROGRESS_INSTRUCTION,
-  ONBOARDING_DELIVERY_ORDER,
+  HARVEST_COUNTDOWN_INSTRUCTION,
+  ONBOARDING_ORDER_A,
   ONBOARDING_STEPS,
   type OnboardingStep,
 } from '../data/onboarding';
 import type { GameStateData } from '../systems/gameState';
+import { secondsUntilNextReady } from '../systems/growth';
 import { resolvePulseTarget, type PulseTarget } from '../systems/pulseTargets';
+import { now } from '../systems/time';
 
 /**
  * Onboarding overlay: a small instruction chip below the xp bar and a soft
@@ -28,6 +31,8 @@ const CHIP_Y = 320;
 /** Narrow enough to clear the Orders button (left edge x 840) at the same height. */
 const CHIP_WIDTH = 580;
 const CHIP_HEIGHT = 84;
+/** Copy longer than this shrinks to fit rather than spilling off the chip. */
+const CHIP_TEXT_MAX_WIDTH = CHIP_WIDTH - 40;
 /** Above the seed bar (2000), below the panels (2100). */
 const CHIP_DEPTH = 2050;
 
@@ -110,6 +115,8 @@ export class OnboardingGuide {
     if (text !== this.lastChipText) {
       this.lastChipText = text;
       this.chipText.setText(text);
+      // Long copy shrinks to fit the fixed chip width instead of overflowing.
+      this.chipText.setScale(Math.min(1, CHIP_TEXT_MAX_WIDTH / this.chipText.width));
     }
     this.chipContainer.setVisible(true);
 
@@ -125,17 +132,16 @@ export class OnboardingGuide {
 
   /**
    * Where the pulse should sit right now. Steps with conditional targets
-   * resolve here; everything else uses the step's nominal target. Seed and
-   * field providers return null once unavailable (seed selected, or a modal
-   * panel open and occluding them), so the plant-shaped steps naturally walk
-   * the pulse from the seed bar onto the field.
+   * resolve here; everything else uses the step's nominal target (or none).
+   * Seed and field providers return null once unavailable (seed selected, or
+   * a modal panel open and occluding them), so the plant-shaped steps
+   * naturally walk the pulse from the seed bar onto the field.
    */
   private resolveTarget(step: OnboardingStep, state: GameStateData): PulseTarget | null {
     switch (step.id) {
-      case 'plant-sunwheat':
+      case 'plant-first':
+      case 'plant-rest':
         return resolvePulseTarget('seed-sunwheat') ?? resolvePulseTarget('empty-plot');
-      case 'plant-carrot':
-        return resolvePulseTarget('seed-carrot') ?? resolvePulseTarget('empty-plot');
       case 'deliver-sunwheat': {
         if (!this.isDeliveryCovered(state)) {
           // The board's close (X) is only a valid target while it's open -
@@ -153,36 +159,56 @@ export class OnboardingGuide {
         // Orders button to get there.
         return resolvePulseTarget('fulfill-slot-0') ?? resolvePulseTarget('orders-button');
       }
+      case 'plant-mixed': {
+        // Walk sunwheat first, then carrots: pulse the needed crop's seed
+        // button until it is selected, then the field.
+        const needed = state.onboarding.progress < step.goal ? 'seed-sunwheat' : 'seed-carrot';
+        return resolvePulseTarget(needed) ?? resolvePulseTarget('empty-plot');
+      }
       default:
         // 'ready-plot' resolves to null while everything is still growing -
-        // mid-growth plots are never pulsed.
-        return resolvePulseTarget(step.pulseTarget);
+        // mid-growth plots are never pulsed. Null targets never pulse at all.
+        return step.pulseTarget === null ? null : resolvePulseTarget(step.pulseTarget);
     }
   }
 
-  /** Whether the scripted delivery order is already covered by inventory. */
+  /** Whether ORDER A (the scripted delivery) is already covered by inventory. */
   private isDeliveryCovered(state: GameStateData): boolean {
-    return ONBOARDING_DELIVERY_ORDER.items.every(
+    return ONBOARDING_ORDER_A.items.every(
       (item) => (state.inventory[item.cropId] ?? 0) >= item.count,
     );
   }
 
   /**
-   * The chip string for the current step. deliver-sunwheat swaps in
-   * `DELIVER_PROGRESS_INSTRUCTION` (config text) with a live n/5 count while
-   * the order isn't covered yet, then falls back to the step's normal
-   * instruction once it is.
+   * The chip string for the current step. harvest-first counts down to the
+   * soonest-ready sunwheat while none is ripe; deliver-sunwheat swaps in
+   * `DELIVER_PROGRESS_INSTRUCTION` with a live n/6 count while ORDER A isn't
+   * covered yet; plant-mixed shows both live counters. Everything else is
+   * the step's plain instruction.
    */
   private resolveChipText(step: OnboardingStep, state: GameStateData): string {
-    if (step.id === 'deliver-sunwheat' && !this.isDeliveryCovered(state)) {
-      const item = ONBOARDING_DELIVERY_ORDER.items[0];
-      if (item !== undefined) {
-        const have = Math.min(state.inventory[item.cropId] ?? 0, item.count);
-        return `${DELIVER_PROGRESS_INSTRUCTION} - ${have}/${item.count}`;
+    switch (step.id) {
+      case 'harvest-first': {
+        const seconds = secondsUntilNextReady(state.plots, 'sunwheat', now());
+        if (seconds !== null && seconds > 0) {
+          return `${HARVEST_COUNTDOWN_INSTRUCTION} ${seconds}s`;
+        }
+        return step.instruction;
       }
+      case 'deliver-sunwheat': {
+        const item = ONBOARDING_ORDER_A.items[0];
+        if (item !== undefined && !this.isDeliveryCovered(state)) {
+          const have = Math.min(state.inventory[item.cropId] ?? 0, item.count);
+          return `${DELIVER_PROGRESS_INSTRUCTION} - ${have}/${item.count}`;
+        }
+        return step.instruction;
+      }
+      case 'plant-mixed': {
+        const { progress, progressB } = state.onboarding;
+        return `${step.instruction} - ${progress}/${step.goal}, ${progressB}/${step.goalB ?? 0}`;
+      }
+      default:
+        return step.instruction;
     }
-    return step.goal > 1
-      ? `${step.instruction} - ${state.onboarding.progress}/${step.goal}`
-      : step.instruction;
   }
 }

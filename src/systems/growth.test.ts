@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { CROP_STAGES, CROPS } from '../data/crops';
-import type { GrowingPlot } from './gameState';
-import { growthFraction, isReady, stageIndex } from './growth';
+import type { GrowingPlot, PlotState } from './gameState';
+import { growthFraction, isReady, secondsUntilNextReady, stageIndex } from './growth';
 
 /** sunwheat: growMs 30_000, so stage boundaries fall at 10s and 20s. */
 const GROW = CROPS.sunwheat.growMs;
@@ -72,5 +72,35 @@ describe('stageIndex', () => {
   it('is clamped to the last stage at and far past growMs', () => {
     expect(stageIndex(plot(), GROW)).toBe(CROP_STAGES - 1);
     expect(stageIndex(plot(), GROW * 100)).toBe(CROP_STAGES - 1);
+  });
+});
+
+describe('secondsUntilNextReady (onboarding countdown)', () => {
+  it('is null when no plot grows the crop', () => {
+    const plots: PlotState[] = [{ state: 'empty' }, { state: 'empty' }];
+    expect(secondsUntilNextReady(plots, 'sunwheat', 0)).toBeNull();
+    const carrotOnly: PlotState[] = [{ state: 'growing', cropId: 'carrot', plantedAt: 0 }];
+    expect(secondsUntilNextReady(carrotOnly, 'sunwheat', 0)).toBeNull();
+  });
+
+  it('rounds the remaining time up to whole seconds', () => {
+    // 100ms left still reads as 1s - the chip never shows 0s while growing.
+    expect(secondsUntilNextReady([plot(0)], 'sunwheat', GROW - 100)).toBe(1);
+    expect(secondsUntilNextReady([plot(0)], 'sunwheat', 0)).toBe(GROW / 1000);
+  });
+
+  it('tracks the SOONEST growing plot, ignoring other crops', () => {
+    const plots: PlotState[] = [
+      plot(10_000), // 10s late: ready at GROW + 10_000
+      plot(0), // the soonest
+      { state: 'growing', cropId: 'carrot', plantedAt: -CROPS.carrot.growMs }, // ready, wrong crop
+      { state: 'empty' },
+    ];
+    expect(secondsUntilNextReady(plots, 'sunwheat', GROW - 5_000)).toBe(5);
+  });
+
+  it('is 0 (never negative) once the soonest plot is ready', () => {
+    expect(secondsUntilNextReady([plot(0)], 'sunwheat', GROW)).toBe(0);
+    expect(secondsUntilNextReady([plot(0), plot(GROW)], 'sunwheat', GROW * 10)).toBe(0);
   });
 });

@@ -8,6 +8,7 @@ import { setPanelOpen } from '../systems/modalPanels';
 import { registerPoolStats } from '../systems/pool';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
+import { ModalBackdrop } from './ModalBackdrop';
 import { PooledArc } from './PooledArc';
 
 /**
@@ -181,6 +182,7 @@ export class OrderBoard {
   private readonly container: Phaser.GameObjects.Container;
   private readonly cards: OrderCard[] = [];
   private readonly villagerArc: PooledArc;
+  private readonly backdrop: ModalBackdrop;
   private visible = false;
 
   constructor(
@@ -188,6 +190,7 @@ export class OrderBoard {
     private readonly onFulfill: (slotIndex: number, worldX: number, worldY: number) => void,
     private readonly onSkip: (slotIndex: number) => void,
   ) {
+    this.backdrop = new ModalBackdrop(scene, () => this.hide());
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
       .setDepth(PANEL_DEPTH)
@@ -516,6 +519,7 @@ export class OrderBoard {
   toggle(state: GameStateData): void {
     this.visible = !this.visible;
     this.container.setVisible(this.visible);
+    this.backdrop.setActive(this.visible);
     setPanelOpen('orders', this.visible);
     if (this.visible) this.refresh(state);
   }
@@ -523,6 +527,7 @@ export class OrderBoard {
   hide(): void {
     this.visible = false;
     this.container.setVisible(false);
+    this.backdrop.setActive(false);
     setPanelOpen('orders', false);
   }
 }

@@ -68,7 +68,7 @@ const SELL_LABEL_OFFSET_Y = -70;
 const FULFILL_HAPTIC_MS = 24;
 const FULFILL_XP_LABEL_OFFSET_Y = -100;
 
-/** Onboarding pulse ring radius around the Orders button (200x90). */
+/** Onboarding pulse ring radius around the Orders and Bag buttons (200x90). */
 const ORDERS_PULSE_RADIUS = 95;
 
 /** Shared by the coin and moondust counters so the two always match. */
@@ -171,6 +171,11 @@ export class Hud {
       this.orderBoard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
+    registerPulseTarget('bag-button', () => ({
+      x: BAG_POSITION.x,
+      y: BAG_POSITION.y,
+      radius: ORDERS_PULSE_RADIUS,
+    }));
 
     // Orders button: same styling as the bag, stacked directly below it.
     const ordersContainer = this.scene.add
@@ -241,10 +246,21 @@ export class Hud {
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
 
-    // Onboarding's open-orders step: checked every tick (not just on the
-    // button tap) so a board already open when the step begins still counts.
-    // Cheap no-op whenever the step is not active.
-    if (this.orderBoard.isVisible()) gameState.notifyOnboardingUiEvent('open-orders');
+    // Onboarding's panel steps: observed panel state is notified every tick
+    // (not just on the tap), so a panel already in the required state when
+    // its step begins still counts - including one closed via the X button
+    // during a "tap outside" step. Cheap no-ops whenever the step is not
+    // active.
+    if (this.orderBoard.isVisible()) {
+      gameState.notifyOnboardingUiEvent('open-orders');
+    } else {
+      gameState.notifyOnboardingUiEvent('close-orders');
+    }
+    if (this.inventoryPanel.isVisible()) {
+      gameState.notifyOnboardingUiEvent('open-bag');
+    } else {
+      gameState.notifyOnboardingUiEvent('close-bag');
+    }
   }
 
   private updateXpBar(level: number, xp: number): void {

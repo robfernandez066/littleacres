@@ -4,6 +4,8 @@ import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
+import { registerPulseTarget } from '../systems/pulseTargets';
+import { ModalBackdrop } from './ModalBackdrop';
 
 /**
  * Modal-style inventory panel: one row per crop showing its icon, name,
@@ -44,6 +46,9 @@ const SELL_BUTTON_HEIGHT = 100;
 
 const SELL_BUTTON_ENABLED_ALPHA = 1;
 const SELL_BUTTON_DISABLED_ALPHA = 0.4;
+
+/** Onboarding pulse ring radius around a Sell all button (210x100). */
+const SELL_PULSE_RADIUS = 95;
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -97,12 +102,16 @@ interface InventoryRow {
 export class InventoryPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly rows: InventoryRow[] = [];
+  private readonly backdrop: ModalBackdrop;
   private visible = false;
+  /** Last rendered sunwheat count, for the sell-sunwheat pulse provider. */
+  private sunwheatCount = 0;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly onSell: (cropId: CropId, worldX: number, worldY: number) => void,
   ) {
+    this.backdrop = new ModalBackdrop(scene, () => this.hide());
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
       .setDepth(PANEL_DEPTH)
@@ -144,6 +153,14 @@ export class InventoryPanel {
 
     Object.values(CROPS).forEach((crop, index) => {
       this.rows.push(this.buildRow(crop, index));
+    });
+
+    // Onboarding pulse over sunwheat's Sell all button - only while the
+    // panel is open and there is actually sunwheat to sell.
+    registerPulseTarget('sell-sunwheat', () => {
+      const row = this.rows.find((r) => r.cropId === 'sunwheat');
+      if (!this.visible || row === undefined || this.sunwheatCount <= 0) return null;
+      return { x: row.worldX, y: row.worldY, radius: SELL_PULSE_RADIUS };
     });
   }
 
@@ -197,6 +214,7 @@ export class InventoryPanel {
 
   /** Re-derive row counts and sell-button enabled state from state. */
   refresh(state: GameStateData): void {
+    this.sunwheatCount = state.inventory.sunwheat ?? 0;
     for (const row of this.rows) {
       const count = state.inventory[row.cropId] ?? 0;
       row.countText.setText(`x${count}`);
@@ -217,6 +235,7 @@ export class InventoryPanel {
   toggle(state: GameStateData): void {
     this.visible = !this.visible;
     this.container.setVisible(this.visible);
+    this.backdrop.setActive(this.visible);
     setPanelOpen('inventory', this.visible);
     if (this.visible) this.refresh(state);
   }
@@ -224,6 +243,7 @@ export class InventoryPanel {
   hide(): void {
     this.visible = false;
     this.container.setVisible(false);
+    this.backdrop.setActive(false);
     setPanelOpen('inventory', false);
   }
 }

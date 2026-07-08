@@ -2,7 +2,8 @@ import { CROPS, type CropId } from '../data/crops';
 import { FARM_COLS, FARM_ROWS } from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
-  ONBOARDING_DELIVERY_ORDER,
+  ONBOARDING_ORDER_A,
+  ONBOARDING_ORDER_B,
   ONBOARDING_STEPS,
   type OnboardingStep,
   type OnboardingStepId,
@@ -77,12 +78,15 @@ export interface GameSettings {
 /**
  * First-session tutorial progress. `step` indexes ONBOARDING_STEPS and
  * `progress` counts matching actions within the current step (reset to 0 on
- * every advance). Once `completed` is true it never flips back.
+ * every advance). `progressB` is the second counter for the dual-goal
+ * plant-mixed step (progress = sunwheat, progressB = carrots); 0 everywhere
+ * else. Once `completed` is true it never flips back.
  */
 export interface OnboardingState {
   completed: boolean;
   step: number;
   progress: number;
+  progressB: number;
 }
 
 /** One level gained, and any crops newly unlocked at exactly that level. */
@@ -124,6 +128,11 @@ function createPendingOrderSlots(): OrderSlot[] {
   return Array.from({ length: ORDER_SLOTS }, (): OrderSlot => ({ state: 'pending' }));
 }
 
+/** Deep copy so later slot mutation can never touch a scripted config order. */
+function cloneOrder(order: Order): Order {
+  return { ...order, items: order.items.map((item) => ({ ...item })) };
+}
+
 /** v2 -> v3: adds the order board, all slots pending generation. */
 const v2ToV3: Migration = (raw) => ({ ...raw, orders: createPendingOrderSlots() });
 
@@ -142,8 +151,23 @@ const v3ToV4: Migration = (raw) => ({
   },
 });
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * v4 -> v5: adds the plant-mixed step's second progress counter. A save
+ * mid-tutorial keeps its step index; the step chain was redesigned in the
+ * same schema bump, but only fresh first-session saves can be mid-chain and
+ * validation still passes either way.
+ */
+const v4ToV5: Migration = (raw) => ({
+  ...raw,
+  onboarding: isRecord(raw.onboarding) ? { ...raw.onboarding, progressB: 0 } : raw.onboarding,
+});
+
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4];
+export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -157,15 +181,11 @@ export function createDefaultState(version: number): GameStateData {
     seeds: {},
     moondust: 0,
     orders: createPendingOrderSlots(),
-    onboarding: { completed: false, step: 0, progress: 0 },
+    onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: { musicOn: true, sfxOn: true },
     createdAt: now,
     lastSavedAt: now,
   };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -224,7 +244,8 @@ function isOnboardingState(value: unknown): value is OnboardingState {
     isRecord(value) &&
     typeof value.completed === 'boolean' &&
     isFiniteNumber(value.step) &&
-    isFiniteNumber(value.progress)
+    isFiniteNumber(value.progress) &&
+    isFiniteNumber(value.progressB)
   );
 }
 
@@ -368,8 +389,7 @@ export class GameStateStore {
     if (this.state.coins < crop.seedCost) return false;
     this.state.coins -= crop.seedCost;
     this.state.plots[plotIndex] = { state: 'growing', cropId, plantedAt: now() };
-    if (cropId === 'sunwheat') this.trackOnboarding('plant-sunwheat');
-    else if (cropId === 'carrot') this.trackOnboarding('plant-carrot');
+    this.trackOnboardingPlant(cropId);
     this.save();
     return true;
   }
@@ -386,7 +406,12 @@ export class GameStateStore {
     this.state.plots[plotIndex] = { state: 'empty' };
     this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + 1;
     this.applyXp(CROPS[plot.cropId].xp);
-    if (plot.cropId === 'sunwheat') this.trackOnboarding('harvest-sunwheat');
+    if (plot.cropId === 'sunwheat') {
+      // Read the step BEFORE tracking: the harvest that completes
+      // harvest-first must not also count toward harvest-rest.
+      const active = this.currentOnboardingStep()?.id;
+      if (active === 'harvest-first' || active === 'harvest-rest') this.trackOnboarding(active);
+    }
     this.save();
     return true;
   }
@@ -402,6 +427,8 @@ export class GameStateStore {
     const gained = count * CROPS[cropId].sellValue;
     this.state.coins += gained;
     this.state.inventory[cropId] = 0;
+    // A sunwheat sale is the sell-rest step's action; a no-op otherwise.
+    if (cropId === 'sunwheat') this.trackOnboarding('sell-rest');
     this.save();
     return gained;
   }
@@ -481,34 +508,86 @@ export class GameStateStore {
 
   /**
    * Count one action toward the active onboarding step. No-op unless the
-   * event matches the step. Reaching the goal advances the chain (resetting
-   * progress), entering `deliver-sunwheat` scripts the tutorial order into
-   * slot 0, and passing the last step sets `completed` - permanently: every
-   * entry point checks `completed` first, so nothing ever tracks again.
-   * Returns whether state changed; callers own the save.
+   * event matches the step. Reaching the goal advances the chain. The
+   * dual-counter plant-mixed step never routes through here - it lives in
+   * `trackOnboardingPlant`. Returns whether state changed; callers own the
+   * save.
    */
   private trackOnboarding(eventId: OnboardingStepId): boolean {
     const step = this.currentOnboardingStep();
     if (step === null || step.id !== eventId) return false;
     const onboarding = this.state.onboarding;
     onboarding.progress++;
-    if (onboarding.progress < step.goal) return true;
+    if (onboarding.progress >= step.goal) this.advanceOnboardingStep();
+    return true;
+  }
 
+  /**
+   * Count one planting toward the active onboarding step. The single-counter
+   * plant steps only accept sunwheat; plant-mixed keeps two capped counters
+   * (progress = sunwheat / goal, progressB = carrots / goalB) and advances
+   * only when BOTH goals are met. Callers own the save.
+   */
+  private trackOnboardingPlant(cropId: CropId): void {
+    const step = this.currentOnboardingStep();
+    if (step === null) return;
+    if (step.id === 'plant-first' || step.id === 'plant-rest') {
+      if (cropId === 'sunwheat') this.trackOnboarding(step.id);
+      return;
+    }
+    if (step.id !== 'plant-mixed') return;
+    const onboarding = this.state.onboarding;
+    const goalB = step.goalB ?? 0;
+    if (cropId === 'sunwheat' && onboarding.progress < step.goal) {
+      onboarding.progress++;
+    } else if (cropId === 'carrot' && onboarding.progressB < goalB) {
+      onboarding.progressB++;
+    } else {
+      return;
+    }
+    if (onboarding.progress >= step.goal && onboarding.progressB >= goalB) {
+      this.advanceOnboardingStep();
+    }
+  }
+
+  /**
+   * Advance to the next step (resetting both counters) and apply on-enter
+   * side effects: entering `deliver-sunwheat` scripts ORDER A into slot 0;
+   * leaving it (entering `close-orders`, which only fulfillment can do)
+   * replaces the just-vacated slot 0 with ORDER B, so the board immediately
+   * shows what the plant-mixed step grows toward. Passing the last step sets
+   * `completed` - permanently: every entry point checks `completed` first,
+   * so nothing ever tracks again.
+   */
+  private advanceOnboardingStep(): void {
+    const onboarding = this.state.onboarding;
     onboarding.step++;
     onboarding.progress = 0;
+    onboarding.progressB = 0;
     if (onboarding.step >= ONBOARDING_STEPS.length) {
       onboarding.completed = true;
-    } else if (ONBOARDING_STEPS[onboarding.step]?.id === 'deliver-sunwheat') {
-      // Deep copy so later slot mutation can never touch the config object.
-      this.state.orders[0] = {
-        state: 'open',
-        order: {
-          ...ONBOARDING_DELIVERY_ORDER,
-          items: ONBOARDING_DELIVERY_ORDER.items.map((item) => ({ ...item })),
-        },
-      };
+      return;
     }
-    return true;
+    const enteredId = ONBOARDING_STEPS[onboarding.step]?.id;
+    if (enteredId === 'deliver-sunwheat') {
+      this.state.orders[0] = { state: 'open', order: cloneOrder(ONBOARDING_ORDER_A) };
+    } else if (enteredId === 'close-orders') {
+      this.state.orders[0] = { state: 'open', order: cloneOrder(ONBOARDING_ORDER_B) };
+    }
+  }
+
+  /**
+   * Anti-stuck guard, called on the scene's refresh tick: if sell-rest is
+   * active but no sunwheat is left to sell (it was all delivered some other
+   * way), the step self-advances so the tutorial can never park on an
+   * impossible instruction. Store-side by design - scenes stay logic-free.
+   */
+  autoAdvanceOnboarding(): void {
+    const step = this.currentOnboardingStep();
+    if (step?.id !== 'sell-rest') return;
+    if ((this.state.inventory.sunwheat ?? 0) > 0) return;
+    this.advanceOnboardingStep();
+    this.save();
   }
 
   /**

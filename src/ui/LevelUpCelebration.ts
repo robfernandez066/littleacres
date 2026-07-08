@@ -83,7 +83,20 @@ export class LevelUpCelebration {
       .setDepth(CELEBRATION_DEPTH)
       .setVisible(false)
       .setInteractive();
-    this.backdrop.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.onTap());
+    this.backdrop.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        // Swallow the dismiss tap: interactive objects below (e.g. a modal
+        // panel's tap-outside backdrop) must never react to it.
+        event.stopPropagation();
+        this.onTap();
+      },
+    );
 
     this.bannerText = this.scene.add
       .text(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, '', BANNER_STYLE)
