@@ -58,6 +58,12 @@ export class FarmScene extends Phaser.Scene {
   private seedBar!: SeedBar;
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
   private readonly plotTracker = new PlotPointerTracker();
+  /**
+   * Locks the current gesture to whichever action first succeeds, so a sweep
+   * cannot both harvest and plant. Null while unlocked (no successful action
+   * yet this gesture); reset on gesture start/end.
+   */
+  private gestureMode: 'harvest' | 'plant' | null = null;
 
   constructor() {
     super('Farm');
@@ -91,6 +97,7 @@ export class FarmScene extends Phaser.Scene {
    */
   private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+      this.gestureMode = null;
       this.handlePlotEntered(this.plotTracker.begin(pointer.worldX, pointer.worldY));
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
@@ -99,6 +106,7 @@ export class FarmScene extends Phaser.Scene {
     });
     const endGesture = (): void => {
       this.plotTracker.end();
+      this.gestureMode = null;
     };
     this.input.on(Phaser.Input.Events.POINTER_UP, endGesture);
     this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, endGesture);
@@ -108,13 +116,19 @@ export class FarmScene extends Phaser.Scene {
    * All harvest/plant rules live in the store: try the harvest first (only a
    * growing-and-ready plot succeeds), otherwise fall through to planting.
    * Growing-but-not-ready plots and empty plots with no seed selected fail
-   * both silently.
+   * both silently. A gesture locks to whichever action first succeeds
+   * (`gestureMode`), so a harvest sweep cannot plant empty plots it crosses
+   * and a plant sweep cannot harvest ready crops it crosses.
    */
   private handlePlotEntered(plotIndex: number | null): void {
     if (plotIndex === null) return;
-    if (gameState.harvestPlot(plotIndex)) {
-      this.playHarvestPop(plotIndex);
-      return;
+    if (this.gestureMode !== 'plant') {
+      if (gameState.harvestPlot(plotIndex)) {
+        this.gestureMode = 'harvest';
+        this.playHarvestPop(plotIndex);
+        return;
+      }
+      if (this.gestureMode === 'harvest') return;
     }
     this.tryPlant(plotIndex);
   }
@@ -128,6 +142,7 @@ export class FarmScene extends Phaser.Scene {
     const cropId = this.seedBar.getSelected();
     if (cropId === null) return;
     if (gameState.plantCrop(plotIndex, cropId)) {
+      this.gestureMode = 'plant';
       this.refreshCrops();
       this.playPlantPop(plotIndex);
       return;

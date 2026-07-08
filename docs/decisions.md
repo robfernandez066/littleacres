@@ -37,6 +37,11 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-08 - T1.4 feel test: mixed harvest/plant gesture rejected; haptics pulled forward
+**Context:** User phone-tested sweep harvesting (committed as T1.4). Verdict: mechanics work but (1) a harvest sweep must NOT plant empty plots it crosses - the mixed gesture from the T1.4 scope decision fails in practice (accidental seed spending while harvesting); (2) the interaction needs juice and per-action haptic feedback to feel right.
+**Decision:** (1) T1.4a CODER FIX: per-gesture mode latch - the first successful action (harvest or plant) locks the gesture to that mode; neutral plots never lock; tap behavior unchanged. (2) Basic haptics (Vibration API, light pulse on harvest/plant) pulled forward from T2.1 into T1.5 alongside the pooled juice systems; T2.1 remains for the full haptics pass (patterns, settings toggle).
+**Trigger:** User feel test of T1.4.
+
 ## 2026-07-07 - T1.3 closed; T1.4 scope trimmed to respect pooling rule
 **Context:** T1.3 passed PM code review and the user's phone thumb-feel test (committed, deploy green). Roadmap T1.4 text includes floating "+N" labels and items flying to the inventory HUD, but pooled FloatingText arrives in T1.5 and the HUD in T1.6, and the pooling-from-day-one rule forbids throwaway unpooled labels.
 **Decision:** T1.4 = harvest gesture + harvest pop only; floating labels and fly-to-HUD wire up in T1.5 when the pooled systems exist. Gesture priority decided: ready crops always harvest on tap/sweep regardless of seed selection (players should never have to deselect to harvest); empty plots plant only when a seed is selected; per-gesture dedup already prevents harvest-then-replant within one gesture. Model: Sonnet (gesture helper and store methods already exist).
