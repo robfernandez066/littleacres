@@ -2,12 +2,12 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
-import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { FARM_COLS } from '../data/farm';
 import { registerCoinArcTest } from '../systems/dev';
 import { gameState, PLOT_COUNT } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
-import { gridToIso, TILE_WIDTH } from '../systems/iso';
+import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
 import { isModalOpen } from '../systems/modalPanels';
 import { PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
@@ -52,9 +52,6 @@ const XP_LABEL_OFFSET_Y = -70;
 /** Where bursts spawn relative to a plot's tile center (at the plant, not the dirt). */
 const BURST_OFFSET_Y = -30;
 
-/** Onboarding pulse ring radius on a plot tile (fits the 256x128 diamond). */
-const PLOT_PULSE_RADIUS = 90;
-
 /** Pre-built "+N xp" labels and a shared options object - the harvest path
  * allocates no strings or option objects in steady state. */
 const XP_LABELS = Object.fromEntries(
@@ -75,6 +72,12 @@ const XP_TEXT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 44 };
 export class FarmScene extends Phaser.Scene {
   /** One reusable crop sprite per plot, indexed like `gameState.plots`. */
   private cropSprites: Phaser.GameObjects.Image[] = [];
+  /**
+   * One tile image per plot, indexed like `gameState.plots`. Kept so the
+   * onboarding highlight can breathe the TILE - never the crop sprite, which
+   * owns its own ready bounce.
+   */
+  private readonly plotTiles: Phaser.GameObjects.Image[] = [];
   /** Whether the ready-state bounce/glow is currently active, per plot. */
   private readyActive: boolean[] = [];
   /**
@@ -287,13 +290,12 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
-  /** The 4x3 grid of tilled plots, centered by the iso origin. */
+  /** The 4x3 grid of tilled plots, centered by the iso origin; one tile per plot index. */
   private layPlots(): void {
-    for (let col = 0; col < FARM_COLS; col++) {
-      for (let row = 0; row < FARM_ROWS; row++) {
-        const { x, y } = gridToIso(col, row);
-        this.add.image(x, y, ATLAS_KEY, 'plot');
-      }
+    for (let index = 0; index < PLOT_COUNT; index++) {
+      const { col, row } = this.indexToGrid(index);
+      const { x, y } = gridToIso(col, row);
+      this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot');
     }
   }
 
@@ -378,9 +380,10 @@ export class FarmScene extends Phaser.Scene {
   /**
    * Onboarding pulse target on the field: the first empty (or first
    * harvest-ready) plot, or null when none qualifies - a null for 'ready'
-   * while everything is mid-growth means no pulse, by design. Also null
+   * while everything is mid-growth means no highlight, by design. Also null
    * while a modal panel is open: the field is occluded and untappable then,
-   * so it is never a valid pulse target.
+   * so it is never a valid pulse target. Targets the tile image (safe to
+   * scale-breathe), never the crop sprite - ready crops run their own bounce.
    */
   private plotPulseTarget(kind: 'empty' | 'ready'): PulseTarget | null {
     if (isModalOpen()) return null;
@@ -389,12 +392,15 @@ export class FarmScene extends Phaser.Scene {
     for (let index = 0; index < PLOT_COUNT; index++) {
       const plot = plots[index];
       const pos = this.plotPositions[index];
-      if (plot === undefined || pos === undefined) continue;
+      const tile = this.plotTiles[index];
+      if (plot === undefined || pos === undefined || tile === undefined) continue;
       const matches =
         kind === 'empty'
           ? plot.state === 'empty'
           : plot.state === 'growing' && isReady(plot, nowMs);
-      if (matches) return { x: pos.x, y: pos.y, radius: PLOT_PULSE_RADIUS };
+      if (matches) {
+        return { x: pos.x, y: pos.y, width: TILE_WIDTH, height: TILE_HEIGHT, object: tile };
+      }
     }
     return null;
   }

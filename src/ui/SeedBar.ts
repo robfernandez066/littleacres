@@ -38,9 +38,6 @@ const SHAKE_DISTANCE = 10;
 /** Min gap between insufficient-coins nudges so a drag cannot spam them. */
 const SHAKE_THROTTLE_MS = 400;
 
-/** Onboarding pulse ring radius around a seed button (300x280). */
-const SEED_PULSE_RADIUS = 165;
-
 const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '36px',
@@ -100,16 +97,25 @@ export class SeedBar {
 
   /**
    * Onboarding pulse target for a seed button - null once that seed is
-   * already selected, so the guide moves the pulse on to the field. Also
+   * already selected, so the guide moves the highlight on to the field. Also
    * null while a modal panel is open: the bar sits below the panels'
    * vertical extent and any part a panel overlaps is untappable, so it is
-   * never a valid pulse target then.
+   * never a valid pulse target then. The container is safe for the guide to
+   * scale-breathe precisely because of the selected-null rule (the selected
+   * scale state never coexists with the highlight; `refresh` re-asserts it
+   * against the one-tick handoff race).
    */
   private seedPulseTarget(cropId: CropId): PulseTarget | null {
     if (isModalOpen() || this.selected === cropId) return null;
     const button = this.buttons.find((b) => b.crop.id === cropId);
     if (button === undefined) return null;
-    return { x: button.baseX, y: BAR_CENTER_Y, radius: SEED_PULSE_RADIUS };
+    return {
+      x: button.baseX,
+      y: BAR_CENTER_Y,
+      width: BUTTON_WIDTH,
+      height: BUTTON_HEIGHT,
+      object: button.container,
+    };
   }
 
   /**
@@ -118,6 +124,7 @@ export class SeedBar {
    * current seed if it just became locked.
    */
   refresh(): void {
+    this.reassertSelectedScale();
     const level = gameState.getState().level;
     if (level === this.lastLevel) return;
     this.lastLevel = level;
@@ -127,6 +134,19 @@ export class SeedBar {
     }
     const selectedButton = this.buttons.find((b) => b.crop.id === this.selected);
     if (selectedButton?.locked === true) this.setSelected(null);
+  }
+
+  /**
+   * Keep the selected button at its selected scale every tick. The
+   * onboarding guide scale-breathes UNselected seed buttons and restores
+   * their base scale when it moves on; a selection made in the same tick the
+   * guide detaches would otherwise be left at base scale until the next
+   * selection change. The guide never touches a selected button (its
+   * provider returns null then), so this never fights the breathing.
+   */
+  private reassertSelectedScale(): void {
+    const button = this.buttons.find((b) => b.crop.id === this.selected);
+    if (button !== undefined) button.container.setScale(SELECTED_SCALE);
   }
 
   /**

@@ -64,10 +64,8 @@ const SKIP_BUTTON_HEIGHT = 80;
 const BUTTON_ENABLED_ALPHA = 1;
 const BUTTON_DISABLED_ALPHA = 0.4;
 
-/** Onboarding pulse ring radius around slot 0's Fulfill button (240x100). */
-const FULFILL_PULSE_RADIUS = 100;
-/** Onboarding pulse ring radius around the close (X) control. */
-const CLOSE_PULSE_RADIUS = 60;
+/** Onboarding highlight bounds around the close (X) control (padded text). */
+const CLOSE_TARGET_SIZE = 90;
 
 /** Item count colors: covered by inventory vs still short. */
 const COVERED_COLOR = '#2e7d32';
@@ -234,26 +232,44 @@ export class OrderBoard {
       this.cards.push(this.buildCard(i));
     }
 
-    // Onboarding pulse over slot 0's Fulfill button - only while the board
-    // is open and that card is showing an open (fulfillable) order.
+    // Onboarding highlight over slot 0's Fulfill button - only while the
+    // board is open and that card is showing an open (fulfillable) order.
+    // The button nineslice has no owner-managed scale state, so it is safe
+    // for the guide to scale-breathe.
     registerPulseTarget('fulfill-slot-0', () => {
       const card = this.cards[0];
       if (!this.visible || card === undefined || !card.fulfillButton.visible) return null;
       return {
         x: PANEL_CENTER_X + FULFILL_BUTTON_X,
         y: PANEL_CENTER_Y + CARD_START_Y + FULFILL_BUTTON_Y,
-        radius: FULFILL_PULSE_RADIUS,
+        width: FULFILL_BUTTON_WIDTH,
+        height: FULFILL_BUTTON_HEIGHT,
+        object: card.fulfillButton,
       };
     });
-    // Onboarding pulse over the close (X) control - only while the board is
-    // open; closing it is the deliver step's next action once the board is
-    // open but the order isn't covered yet.
+    // Onboarding highlight over the close (X) control - only while the board
+    // is open; closing it is the deliver step's next action once the board
+    // is open but the order isn't covered yet. Halo-only (plain text object).
     registerPulseTarget('orders-close', () => {
       if (!this.visible) return null;
       return {
         x: PANEL_CENTER_X + CLOSE_OFFSET_X,
         y: PANEL_CENTER_Y + CLOSE_OFFSET_Y,
-        radius: CLOSE_PULSE_RADIUS,
+        width: CLOSE_TARGET_SIZE,
+        height: CLOSE_TARGET_SIZE,
+      };
+    });
+    // Onboarding highlight over the whole slot-0 card for the review-order
+    // step - halo-only (the card is a composite of many objects), live for
+    // as long as the board is open regardless of what the slot holds, so the
+    // step can never wedge on a fulfilled or replaced card.
+    registerPulseTarget('order-card-0', () => {
+      if (!this.visible) return null;
+      return {
+        x: PANEL_CENTER_X,
+        y: PANEL_CENTER_Y + CARD_START_Y,
+        width: CARD_WIDTH,
+        height: CARD_HEIGHT,
       };
     });
 

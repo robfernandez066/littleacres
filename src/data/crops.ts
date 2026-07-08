@@ -16,6 +16,8 @@ export interface CropDef {
   id: CropId;
   /** Display name (user-facing). */
   name: string;
+  /** Plural display name for counted UI copy ("4 Carrots", "8 Sunwheat"). */
+  pluralName: string;
   /** Atlas frame per growth stage, index 0 (sprout) to 2 (ready). */
   stageFrames: readonly [string, string, string];
   /** Coins spent to plant one (planting spends coins directly in MVP). */
@@ -35,6 +37,7 @@ export const CROPS: Record<CropId, CropDef> = {
   sunwheat: {
     id: 'sunwheat',
     name: 'Sunwheat',
+    pluralName: 'Sunwheat',
     stageFrames: ['sunwheat_0', 'sunwheat_1', 'sunwheat_2'],
     seedCost: 5,
     sellValue: 8,
@@ -45,6 +48,7 @@ export const CROPS: Record<CropId, CropDef> = {
   carrot: {
     id: 'carrot',
     name: 'Carrot',
+    pluralName: 'Carrots',
     stageFrames: ['carrot_0', 'carrot_1', 'carrot_2'],
     seedCost: 12,
     sellValue: 20,
@@ -55,6 +59,7 @@ export const CROPS: Record<CropId, CropDef> = {
   glowberry: {
     id: 'glowberry',
     name: 'Glowberry',
+    pluralName: 'Glowberries',
     stageFrames: ['glowberry_0', 'glowberry_1', 'glowberry_2'],
     seedCost: 30,
     sellValue: 55,

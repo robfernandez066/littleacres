@@ -47,9 +47,6 @@ const SELL_BUTTON_HEIGHT = 100;
 const SELL_BUTTON_ENABLED_ALPHA = 1;
 const SELL_BUTTON_DISABLED_ALPHA = 0.4;
 
-/** Onboarding pulse ring radius around a Sell all button (210x100). */
-const SELL_PULSE_RADIUS = 95;
-
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '48px',
@@ -155,12 +152,20 @@ export class InventoryPanel {
       this.rows.push(this.buildRow(crop, index));
     });
 
-    // Onboarding pulse over sunwheat's Sell all button - only while the
-    // panel is open and there is actually sunwheat to sell.
+    // Onboarding highlight over sunwheat's Sell all button - only while the
+    // panel is open and there is actually sunwheat to sell. The button
+    // nineslice has no owner-managed scale state, so it is safe for the
+    // guide to scale-breathe.
     registerPulseTarget('sell-sunwheat', () => {
       const row = this.rows.find((r) => r.cropId === 'sunwheat');
       if (!this.visible || row === undefined || this.sunwheatCount <= 0) return null;
-      return { x: row.worldX, y: row.worldY, radius: SELL_PULSE_RADIUS };
+      return {
+        x: row.worldX,
+        y: row.worldY,
+        width: SELL_BUTTON_WIDTH,
+        height: SELL_BUTTON_HEIGHT,
+        object: row.sellButton,
+      };
     });
   }
 

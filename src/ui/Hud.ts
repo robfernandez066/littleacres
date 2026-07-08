@@ -68,9 +68,6 @@ const SELL_LABEL_OFFSET_Y = -70;
 const FULFILL_HAPTIC_MS = 24;
 const FULFILL_XP_LABEL_OFFSET_Y = -100;
 
-/** Onboarding pulse ring radius around the Orders and Bag buttons (200x90). */
-const ORDERS_PULSE_RADIUS = 95;
-
 /** Shared by the coin and moondust counters so the two always match. */
 const CURRENCY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -171,10 +168,15 @@ export class Hud {
       this.orderBoard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
+    // The container is safe for the guide to scale-breathe: its only other
+    // scale state is the short arrival bounce, which cannot overlap the
+    // open-bag step's highlight in the tutorial flow.
     registerPulseTarget('bag-button', () => ({
       x: BAG_POSITION.x,
       y: BAG_POSITION.y,
-      radius: ORDERS_PULSE_RADIUS,
+      width: BAG_BUTTON_WIDTH,
+      height: BAG_BUTTON_HEIGHT,
+      object: this.bagContainer,
     }));
 
     // Orders button: same styling as the bag, stacked directly below it.
@@ -190,10 +192,13 @@ export class Hud {
       this.inventoryPanel.hide();
       this.orderBoard.toggle(gameState.getState());
     });
+    // Nothing else ever scales the orders container, so it is safe to breathe.
     registerPulseTarget('orders-button', () => ({
       x: ORDERS_BUTTON_POSITION.x,
       y: ORDERS_BUTTON_POSITION.y,
-      radius: ORDERS_PULSE_RADIUS,
+      width: BAG_BUTTON_WIDTH,
+      height: BAG_BUTTON_HEIGHT,
+      object: ordersContainer,
     }));
 
     this.cropArc = new CropArc(this.scene);
@@ -250,11 +255,15 @@ export class Hud {
     // (not just on the tap), so a panel already in the required state when
     // its step begins still counts - including one closed via the X button
     // during a "tap outside" step. Cheap no-ops whenever the step is not
-    // active.
+    // active. The board drives two step pairs: open-orders/close-orders and
+    // the later check-orders/review-order revisit (review-order completes on
+    // board close, unconditionally, so it can never wedge).
     if (this.orderBoard.isVisible()) {
       gameState.notifyOnboardingUiEvent('open-orders');
+      gameState.notifyOnboardingUiEvent('check-orders');
     } else {
       gameState.notifyOnboardingUiEvent('close-orders');
+      gameState.notifyOnboardingUiEvent('review-order');
     }
     if (this.inventoryPanel.isVisible()) {
       gameState.notifyOnboardingUiEvent('open-bag');
