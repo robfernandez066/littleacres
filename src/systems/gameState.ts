@@ -1,3 +1,4 @@
+import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
 import { CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
@@ -77,6 +78,10 @@ export type OrderSlot = OpenOrderSlot | CooldownOrderSlot | PendingOrderSlot;
 export interface GameSettings {
   musicOn: boolean;
   sfxOn: boolean;
+  /** Music channel volume, 0..1. */
+  musicVolume: number;
+  /** Sound-effects channel volume, 0..1. */
+  sfxVolume: number;
 }
 
 /**
@@ -181,8 +186,20 @@ const v4ToV5: Migration = (raw) => ({
   onboarding: isRecord(raw.onboarding) ? { ...raw.onboarding, progressB: 0 } : raw.onboarding,
 });
 
+/**
+ * v5 -> v6: adds the channel volume settings. Existing saves get the new
+ * defaults too - the old fixed music level (0.35) was judged too loud, so
+ * everyone lands on 0.2 rather than grandfathering it in.
+ */
+const v5ToV6: Migration = (raw) => ({
+  ...raw,
+  settings: isRecord(raw.settings)
+    ? { ...raw.settings, musicVolume: DEFAULT_MUSIC_VOLUME, sfxVolume: DEFAULT_SFX_VOLUME }
+    : raw.settings,
+});
+
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5];
+export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -197,7 +214,12 @@ export function createDefaultState(version: number): GameStateData {
     moondust: 0,
     orders: createPendingOrderSlots(),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
-    settings: { musicOn: true, sfxOn: true },
+    settings: {
+      musicOn: true,
+      sfxOn: true,
+      musicVolume: DEFAULT_MUSIC_VOLUME,
+      sfxVolume: DEFAULT_SFX_VOLUME,
+    },
     createdAt: now,
     lastSavedAt: now,
   };
@@ -205,6 +227,11 @@ export function createDefaultState(version: number): GameStateData {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** A channel volume: a finite number within 0..1. */
+function isVolume(value: unknown): value is number {
+  return isFiniteNumber(value) && value >= 0 && value <= 1;
 }
 
 function isPlotState(value: unknown): value is PlotState {
@@ -285,6 +312,8 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
     typeof raw.settings.sfxOn === 'boolean' &&
+    isVolume(raw.settings.musicVolume) &&
+    isVolume(raw.settings.sfxVolume) &&
     isFiniteNumber(raw.createdAt) &&
     isFiniteNumber(raw.lastSavedAt)
   );
@@ -372,6 +401,20 @@ export class GameStateStore {
   /** Persist the sound-effects on/off setting. */
   setSfxOn(on: boolean): void {
     this.state.settings.sfxOn = on;
+    this.save();
+  }
+
+  /** Persist the music channel volume, clamped to 0..1. Non-finite input is ignored. */
+  setMusicVolume(volume: number): void {
+    if (!Number.isFinite(volume)) return;
+    this.state.settings.musicVolume = Math.min(1, Math.max(0, volume));
+    this.save();
+  }
+
+  /** Persist the sfx channel volume, clamped to 0..1. Non-finite input is ignored. */
+  setSfxVolume(volume: number): void {
+    if (!Number.isFinite(volume)) return;
+    this.state.settings.sfxVolume = Math.min(1, Math.max(0, volume));
     this.save();
   }
 

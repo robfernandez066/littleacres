@@ -18,6 +18,7 @@ import { CropArc } from './CropArc';
 import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
 import { OrderBoard } from './OrderBoard';
+import { SettingsPanel } from './SettingsPanel';
 
 /**
  * Top HUD: coins (top-left), level + xp bar (top-center), moondust
@@ -60,16 +61,14 @@ const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
 
 /**
- * Music/Sound toggle buttons, stacked under the coin/moondust column. HUD
- * chrome, not a panel - always tappable except under modal backdrops, which
- * already cover them.
+ * Audio settings button, under the coin/moondust column. HUD chrome, not a
+ * panel - always tappable except under modal backdrops, which already cover
+ * it. Opens the SettingsPanel with the volume sliders and toggles.
  */
-const AUDIO_TOGGLE_X = 140;
-const MUSIC_TOGGLE_Y = 310;
-const SFX_TOGGLE_Y = 400;
-const AUDIO_TOGGLE_WIDTH = 190;
-const AUDIO_TOGGLE_HEIGHT = 80;
-const AUDIO_TOGGLE_OFF_ALPHA = 0.45;
+const AUDIO_BUTTON_X = 140;
+const AUDIO_BUTTON_Y = 310;
+const AUDIO_BUTTON_WIDTH = 190;
+const AUDIO_BUTTON_HEIGHT = 80;
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
@@ -105,7 +104,7 @@ const BAG_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
-const AUDIO_TOGGLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+const AUDIO_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '28px',
   fontStyle: 'bold',
@@ -128,8 +127,7 @@ export class Hud {
   /** While true, the periodic refresh leaves the coin ticker to in-flight coin arcs. */
   private coinArcsAnimating = false;
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
-  private musicToggle!: Phaser.GameObjects.Container;
-  private sfxToggle!: Phaser.GameObjects.Container;
+  private readonly settingsPanel: SettingsPanel;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -179,18 +177,21 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
-    this.musicToggle = this.buildAudioToggle(
-      MUSIC_TOGGLE_Y,
-      'Music',
-      () => gameState.getState().settings.musicOn,
-      (on) => this.audio.setMusicOn(on),
-    );
-    this.sfxToggle = this.buildAudioToggle(
-      SFX_TOGGLE_Y,
-      'Sound',
-      () => gameState.getState().settings.sfxOn,
-      (on) => this.audio.setSfxOn(on),
-    );
+    // Audio settings button: same styling as the old toggle pair it replaces.
+    const audioContainer = this.scene.add
+      .container(AUDIO_BUTTON_X, AUDIO_BUTTON_Y)
+      .setDepth(HUD_DEPTH);
+    const audioPanel = this.scene.add
+      .nineslice(0, 0, ATLAS_KEY, 'panel', AUDIO_BUTTON_WIDTH, AUDIO_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .setInteractive({ useHandCursor: true });
+    const audioText = this.scene.add.text(0, 0, 'Audio', AUDIO_BUTTON_STYLE).setOrigin(0.5);
+    audioContainer.add([audioPanel, audioText]);
+    audioPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.inventoryPanel.hide();
+      this.orderBoard.hide();
+      this.settingsPanel.toggle();
+    });
 
     this.bagContainer = this.scene.add
       .container(BAG_POSITION.x, BAG_POSITION.y)
@@ -203,6 +204,7 @@ export class Hud {
     bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.orderBoard.hide();
+      this.settingsPanel.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
     // The container is safe for the guide to scale-breathe: its only other
@@ -228,6 +230,7 @@ export class Hud {
     ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.inventoryPanel.hide();
+      this.settingsPanel.hide();
       this.orderBoard.toggle(gameState.getState());
     });
     // Nothing else ever scales the orders container, so it is safe to breathe.
@@ -254,45 +257,21 @@ export class Hud {
       this.audio,
     );
 
+    this.settingsPanel = new SettingsPanel(this.scene, this.audio);
+
     this.refresh();
   }
 
   /**
-   * One compact settings toggle (Music/Sound): a small nineslice button that
-   * flips the setting via the AudioManager (which persists it and starts or
-   * stops playback at once), dims to AUDIO_TOGGLE_OFF_ALPHA while off, and
-   * clicks only when turning ON - a tap that just muted everything should
-   * itself be silent.
-   */
-  private buildAudioToggle(
-    y: number,
-    label: string,
-    isOn: () => boolean,
-    setOn: (on: boolean) => void,
-  ): Phaser.GameObjects.Container {
-    const container = this.scene.add.container(AUDIO_TOGGLE_X, y).setDepth(HUD_DEPTH);
-    const panel = this.scene.add
-      .nineslice(0, 0, ATLAS_KEY, 'panel', AUDIO_TOGGLE_WIDTH, AUDIO_TOGGLE_HEIGHT, 24, 24, 24, 24)
-      .setInteractive({ useHandCursor: true });
-    const text = this.scene.add.text(0, 0, label, AUDIO_TOGGLE_STYLE).setOrigin(0.5);
-    container.add([panel, text]);
-    container.setAlpha(isOn() ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
-    panel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      const on = !isOn();
-      setOn(on);
-      container.setAlpha(on ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
-      if (on) this.audio.sfx('tap');
-    });
-    return container;
-  }
-
-  /**
    * Fly a harvested crop's mature sprite from its plot to the bag. The bag's
-   * arrival bounce is driven exclusively by this flight landing - never by
-   * the harvest itself or a timer, and never by coin arcs.
+   * arrival bounce and blub pop are driven exclusively by this flight
+   * landing - never by the harvest itself or a timer, and never by coin arcs.
    */
   flyCropToBag(fromX: number, fromY: number, cropId: CropId): void {
-    this.cropArc.fly(fromX, fromY, CROPS[cropId].stageFrames[2], () => this.bounceBag());
+    this.cropArc.fly(fromX, fromY, CROPS[cropId].stageFrames[2], () => {
+      this.bounceBag();
+      this.audio.bagpop();
+    });
   }
 
   /** Small scale bounce on the bag button; restart-safe so rapid arrivals never compound. */
@@ -316,14 +295,12 @@ export class Hud {
     this.updateXpBar(state.level, state.xp);
     this.moondustText.setText(String(state.moondust));
 
-    // Re-assert toggle dimming from state so a dev import/reset re-renders it.
-    this.musicToggle.setAlpha(state.settings.musicOn ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
-    this.sfxToggle.setAlpha(state.settings.sfxOn ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
-
     if (!this.coinArcsAnimating) this.driftCoinsTo(state.coins);
 
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
+    // Re-derives its controls from state so a dev import/reset re-renders it.
+    this.settingsPanel.refresh();
 
     // Onboarding's panel steps: observed panel state is notified every tick
     // (not just on the tap), so a panel already in the required state when

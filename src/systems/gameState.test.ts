@@ -74,7 +74,12 @@ describe('fresh default state', () => {
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' })));
     expect(state.onboarding).toEqual({ completed: false, step: 0, progress: 0, progressB: 0 });
-    expect(state.settings).toEqual({ musicOn: true, sfxOn: true });
+    expect(state.settings).toEqual({
+      musicOn: true,
+      sfxOn: true,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
     expect(state.createdAt).toBeLessThanOrEqual(Date.now());
     expect(state.lastSavedAt).toBeLessThanOrEqual(Date.now());
   });
@@ -119,7 +124,12 @@ describe('settings (music/sfx toggles)', () => {
 
     const reader = new GameStateStore({ storage });
     reader.load();
-    expect(reader.getState().settings).toEqual({ musicOn: false, sfxOn: true });
+    expect(reader.getState().settings).toEqual({
+      musicOn: false,
+      sfxOn: true,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
   });
 
   it('setSfxOn(false) persists through a save/load round-trip', () => {
@@ -129,7 +139,12 @@ describe('settings (music/sfx toggles)', () => {
 
     const reader = new GameStateStore({ storage });
     reader.load();
-    expect(reader.getState().settings).toEqual({ musicOn: true, sfxOn: false });
+    expect(reader.getState().settings).toEqual({
+      musicOn: true,
+      sfxOn: false,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
   });
 
   it('toggling back on persists too', () => {
@@ -142,7 +157,37 @@ describe('settings (music/sfx toggles)', () => {
 
     const reader = new GameStateStore({ storage });
     reader.load();
-    expect(reader.getState().settings).toEqual({ musicOn: true, sfxOn: true });
+    expect(reader.getState().settings).toEqual({
+      musicOn: true,
+      sfxOn: true,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
+  });
+
+  it('setMusicVolume/setSfxVolume clamp to 0..1 and persist through a round-trip', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    writer.setMusicVolume(0.55);
+    writer.setSfxVolume(0.35);
+
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.getState().settings.musicVolume).toBe(0.55);
+    expect(reader.getState().settings.sfxVolume).toBe(0.35);
+
+    writer.setMusicVolume(1.5);
+    writer.setSfxVolume(-0.2);
+    expect(writer.getState().settings.musicVolume).toBe(1);
+    expect(writer.getState().settings.sfxVolume).toBe(0);
+  });
+
+  it('volume setters ignore non-finite input instead of poisoning the save', () => {
+    const store = new GameStateStore({ storage: makeStorage() });
+    store.setMusicVolume(Number.NaN);
+    store.setSfxVolume(Infinity);
+    expect(store.getState().settings.musicVolume).toBe(0.2);
+    expect(store.getState().settings.sfxVolume).toBe(0.7);
   });
 });
 
@@ -219,7 +264,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(4);
+    expect(MIGRATIONS).toHaveLength(5);
     const { moondust, orders, onboarding, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -229,7 +274,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -250,7 +295,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(5);
+    expect(state.version).toBe(6);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -258,17 +303,17 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a fresh save is created at v5 with moondust 0 and three pending slots', () => {
+  it('a fresh save is created at v6 with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(5);
-    expect(store.getState().version).toBe(5);
+    expect(store.currentVersion).toBe(6);
+    expect(store.getState().version).toBe(6);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(5),
+      ...createDefaultState(6),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -297,7 +342,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(5);
+    expect(store.getState().version).toBe(6);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -318,7 +363,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(5),
+      ...createDefaultState(6),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -341,7 +386,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(5);
+    expect(store.getState().version).toBe(6);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 3,
@@ -351,8 +396,8 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('resets cleanly on a v5 save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(5) as unknown as Record<string, unknown>;
+  it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
+    const bad = createDefaultState(6) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -364,6 +409,64 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
       progressB: 0,
     });
     expect(console.warn).toHaveBeenCalled();
+  });
+});
+
+describe('real migration v5 -> v6 (channel volumes)', () => {
+  /** A v5-shaped save: settings has only the on/off flags, no volumes. */
+  function v5Save(settings: { musicOn: boolean; sfxOn: boolean }): string {
+    const saved = createDefaultState(5) as unknown as Record<string, unknown>;
+    saved.settings = settings;
+    return JSON.stringify(saved);
+  }
+
+  it('existing saves get the new volume defaults (music 0.2, sfx 0.7)', () => {
+    const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(6);
+    expect(store.getState().settings).toEqual({
+      musicOn: true,
+      sfxOn: true,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('preserves the on/off flags while adding the volumes', () => {
+    const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: false, sfxOn: false }) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().settings).toEqual({
+      musicOn: false,
+      sfxOn: false,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('resets cleanly on out-of-range or non-numeric volumes', () => {
+    for (const settings of [
+      { musicOn: true, sfxOn: true, musicVolume: 1.5, sfxVolume: 0.7 },
+      { musicOn: true, sfxOn: true, musicVolume: 0.2, sfxVolume: -0.1 },
+      { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
+      { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
+    ]) {
+      const bad = createDefaultState(6) as unknown as Record<string, unknown>;
+      bad.settings = settings;
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().settings).toEqual({
+        musicOn: true,
+        sfxOn: true,
+        musicVolume: 0.2,
+        sfxVolume: 0.7,
+      });
+      expect(console.warn).toHaveBeenCalled();
+    }
   });
 });
 
@@ -567,24 +670,24 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(5);
-    expect(isValidState(base, 5)).toBe(true);
+    const base = createDefaultState(6);
+    expect(isValidState(base, 6)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 5)).toBe(true);
+    expect(isValidState(expanded, 6)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(5);
+    const base = createDefaultState(6);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 5)).toBe(false);
+    expect(isValidState(thirteen, 6)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 5)).toBe(false);
+    expect(isValidState(seventeen, 6)).toBe(false);
   });
 });
 
@@ -618,7 +721,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.inventory = inventory;
     saved.orders[0] = { state: 'open', order };
     return saved;
@@ -761,7 +864,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -1055,7 +1158,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1113,7 +1216,7 @@ describe('onboarding', () => {
   });
 
   it('teaser orders return once onboarding is completed', () => {
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.level = 2;
     saved.xp = xpForLevel(2);
     saved.onboarding = {
@@ -1266,7 +1369,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1356,7 +1459,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(5);
+    const saved = createDefaultState(6);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);

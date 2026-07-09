@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.10a (field recentering + order tuning; Sonnet) and T1.12a (audio overhaul with user-auditioned picks, schema v6 volume sliders; Fable5/Opus) - both prompts out, independent. T1.12 base committed. These close the Phase 1 audition feedback; then the week-long play gate
+**Active task:** Phase 1 gate prep. T1.10a committed (deploy delayed by GitHub Actions incident 2026-07-09, cleared). T1.12a COMMIT verdict issued - awaiting user commit + final audition. Once both are user-confirmed, Phase 1 is closed and the week-long play gate begins
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
