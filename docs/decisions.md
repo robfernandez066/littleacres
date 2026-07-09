@@ -39,7 +39,7 @@ Format:
 
 ## 2026-07-08 - T1.10 verified (COMMIT) + CropArc pool bumped
 **Context:** T1.10 report, DONE, 134 tests. PM verified expandFarm gate/append and the two-size validation directly. The closed-manifest rule worked as designed: the coder flagged (rather than touched) two adjacent files - CropArc's 12-flight preallocation (real invariant break on a 16-plot sweep) and SwipeGuide's hardcoded 3 rows (harmless: tutorial and expansion never coexist).
-**Decision:** COMMIT. PM-direct one-liner alongside: CropArc preallocates EXPANDED_PLOT_COUNT so full-sweep-never-grows-pool survives expansion. SwipeGuide left as-is deliberately. Accepted deviation: ExpandSign at depth 1900. The 500-coin price awaits the user's pacing verdict.
+**Decision:** COMMIT. PM-direct one-liner alongside: CropArc preallocates EXPANDED_PLOT_COUNT so full-sweep-never-grows-pool survives expansion. SwipeGuide left as-is deliberately. Accepted deviation: ExpandSign at depth 1900. Pacing verdict on the 500-coin price deliberately deferred: user judged the game too barebones to evaluate grind meaningfully - economy pacing gets judged holistically at the Phase 1 gate (week of play after T1.12), not per feature.
 **Trigger:** T1.10 coder report.
 
 ## 2026-07-08 - T1.10 design calls (plot expansion)

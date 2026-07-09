@@ -1,6 +1,7 @@
 import { CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
+import { OFFLINE_SUMMARY_MIN_MS } from '../data/offline';
 import {
   ONBOARDING_ORDER_A,
   ONBOARDING_ORDER_B,
@@ -96,6 +97,17 @@ export interface OnboardingState {
 export interface LevelUpEvent {
   level: number;
   unlockedCropIds: CropId[];
+}
+
+/**
+ * "While you were away" summary, computed once on `load()` from the gap
+ * between `lastSavedAt` and the real clock. Transient - never saved, and
+ * cleared by `reset`/`importSave` too, since neither represents a return
+ * from a real session gap.
+ */
+export interface OfflineSummary {
+  elapsedMs: number;
+  readyCounts: Partial<Record<CropId, number>>;
 }
 
 export interface GameStateData {
@@ -311,6 +323,8 @@ export class GameStateStore {
   private autosaveTimer: number | null = null;
   /** Pending level-ups for the scene to celebrate. Transient - never saved. */
   private levelUpQueue: LevelUpEvent[] = [];
+  /** Pending "while you were away" summary from the last `load()`. Transient - never saved. */
+  private offlineSummary: OfflineSummary | null = null;
   /**
    * Game-clock timestamp when the active onboarding step became active.
    * Drives the `review-order` read-dwell in `autoAdvanceOnboarding`.
@@ -382,6 +396,38 @@ export class GameStateStore {
     const events = this.levelUpQueue;
     this.levelUpQueue = [];
     return events;
+  }
+
+  /** Drain and return the pending offline summary (or null); the scene checks this once after `load()`. */
+  consumeOfflineSummary(): OfflineSummary | null {
+    const summary = this.offlineSummary;
+    this.offlineSummary = null;
+    return summary;
+  }
+
+  /**
+   * Compute the "while you were away" summary from the just-restored state,
+   * before anything else touches it - `lastSavedAt` is still the real-clock
+   * end of the last session. Null when away under OFFLINE_SUMMARY_MIN_MS,
+   * nothing matured in the gap, or onboarding has not completed (a
+   * mid-tutorial return must not get a panel over the guide). Uses the real
+   * clock on both sides, deliberately not `now()` (the game clock, which the
+   * dev overlay can warp) - a session gap is measured in wall-clock time.
+   */
+  private computeOfflineSummary(): OfflineSummary | null {
+    if (!this.state.onboarding.completed) return null;
+    const nowMs = Date.now();
+    const elapsedMs = nowMs - this.state.lastSavedAt;
+    if (elapsedMs < OFFLINE_SUMMARY_MIN_MS) return null;
+    const readyCounts: Partial<Record<CropId, number>> = {};
+    for (const plot of this.state.plots) {
+      if (plot.state !== 'growing') continue;
+      const readyAt = plot.plantedAt + CROPS[plot.cropId].growMs;
+      if (readyAt > this.state.lastSavedAt && readyAt <= nowMs) {
+        readyCounts[plot.cropId] = (readyCounts[plot.cropId] ?? 0) + 1;
+      }
+    }
+    return Object.keys(readyCounts).length > 0 ? { elapsedMs, readyCounts } : null;
   }
 
   /**
@@ -644,6 +690,7 @@ export class GameStateStore {
    */
   load(): void {
     this.levelUpQueue = [];
+    this.offlineSummary = null;
     let raw: string | null;
     try {
       raw = this.storage?.getItem(SAVE_KEY) ?? null;
@@ -662,6 +709,7 @@ export class GameStateStore {
       return;
     }
     this.state = restored;
+    this.offlineSummary = this.computeOfflineSummary();
     this.reconcileLevelSilently();
     this.stepEnteredAt = now();
   }
@@ -706,6 +754,7 @@ export class GameStateStore {
   /** Discard the current state for a fresh default one, and persist it. */
   reset(): void {
     this.levelUpQueue = [];
+    this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
     this.stepEnteredAt = now();
     this.save();
@@ -727,6 +776,7 @@ export class GameStateStore {
       return false;
     }
     this.levelUpQueue = [];
+    this.offlineSummary = null;
     this.state = restored;
     this.reconcileLevelSilently();
     this.stepEnteredAt = now();

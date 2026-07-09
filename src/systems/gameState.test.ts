@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CropId, CROPS } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
+import { OFFLINE_SUMMARY_MIN_MS } from '../data/offline';
 import {
   ONBOARDING_ORDER_A,
   ONBOARDING_ORDER_B,
@@ -1221,6 +1222,154 @@ describe('offline growth (app closed during growth)', () => {
       expect(store.getState().plots[0]).toEqual({ state: 'empty' });
       expect(console.warn).toHaveBeenCalled();
     }
+  });
+});
+
+describe('consumeOfflineSummary ("while you were away")', () => {
+  /** Comfortably over OFFLINE_SUMMARY_MIN_MS. */
+  const AWAY_MS = OFFLINE_SUMMARY_MIN_MS + 60_000;
+
+  /** A current-version, onboarding-completed save with the given overrides. */
+  function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
+    const saved = createDefaultState(5);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    return { ...saved, ...overrides };
+  }
+
+  function loadedStore(saved: GameStateData): GameStateStore {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    return store;
+  }
+
+  it('counts a plot that became ready during the away window, per crop', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    // Ready well inside the window: plantedAt + growMs is between lastSavedAt and now.
+    const plantedAt = lastSavedAt + 5_000;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 10 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    const summary = store.consumeOfflineSummary();
+    expect(summary?.readyCounts).toEqual({ sunwheat: 2 });
+    expect(summary?.elapsedMs).toBeGreaterThanOrEqual(AWAY_MS);
+  });
+
+  it('excludes a plot that was already ready before lastSavedAt', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        // Matured long before the session even ended - not a while-away event.
+        {
+          state: 'growing',
+          cropId: 'sunwheat',
+          plantedAt: lastSavedAt - CROPS.sunwheat.growMs - 1,
+        },
+        // This one matures inside the window and should be the only count.
+        { state: 'growing', cropId: 'carrot', plantedAt: lastSavedAt + 1_000 },
+        ...Array.from({ length: 10 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()?.readyCounts).toEqual({ carrot: 1 });
+  });
+
+  it('excludes a plot that is still growing (not yet ready)', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        // Planted just before load - growMs has not elapsed even now.
+        { state: 'growing', cropId: 'glowberry', plantedAt: Date.now() - 1_000 },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('is null when away under OFFLINE_SUMMARY_MIN_MS, even with a matured crop', () => {
+    const lastSavedAt = Date.now() - (OFFLINE_SUMMARY_MIN_MS - 5_000);
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('is null when away long enough but nothing became ready', () => {
+    const saved = completedSave({ lastSavedAt: Date.now() - AWAY_MS });
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('is null while onboarding has not completed, even with a matured crop', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = createDefaultState(5);
+    saved.lastSavedAt = lastSavedAt;
+    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('consumes once - a second call returns null', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    expect(store.consumeOfflineSummary()).not.toBeNull();
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('reset clears any pending summary', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.reset();
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('importSave never produces a summary and clears any pending one', () => {
+    const lastSavedAt = Date.now() - AWAY_MS;
+    const saved = completedSave({
+      lastSavedAt,
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    // A pending summary exists from load() above; importing must clear it even
+    // though the imported save's own gap would otherwise also qualify.
+    expect(store.importSave(JSON.stringify(saved))).toBe(true);
+    expect(store.consumeOfflineSummary()).toBeNull();
   });
 });
 

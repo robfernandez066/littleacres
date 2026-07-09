@@ -17,6 +17,7 @@ import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
+import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { ParticleBurst } from '../ui/ParticleBurst';
 import { SeedBar } from '../ui/SeedBar';
@@ -100,6 +101,7 @@ export class FarmScene extends Phaser.Scene {
   private levelUpCelebration!: LevelUpCelebration;
   private onboardingGuide!: OnboardingGuide;
   private expandSign!: ExpandSign;
+  private offlineSummaryPanel!: OfflineSummaryPanel;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -136,6 +138,12 @@ export class FarmScene extends Phaser.Scene {
     this.setupFieldInput();
     this.refreshCrops();
     this.onboardingGuide.refresh(gameState.getState());
+
+    // Checked once per scene start, after every other panel/backdrop exists -
+    // it blocks field input like any modal, via the same isModalOpen() gate.
+    this.offlineSummaryPanel = new OfflineSummaryPanel(this);
+    const offlineSummary = gameState.consumeOfflineSummary();
+    if (offlineSummary !== null) this.offlineSummaryPanel.show(offlineSummary);
 
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
