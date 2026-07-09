@@ -1,5 +1,5 @@
 import { CROPS, type CropId } from '../data/crops';
-import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
   ONBOARDING_ORDER_A,
@@ -32,7 +32,9 @@ export const SAVE_KEY = 'littleacres:save';
 /** Autosave cadence. Wall-clock interval, never frame deltas. */
 export const AUTOSAVE_INTERVAL_MS = 10_000;
 
-export const PLOT_COUNT = FARM_COLS * FARM_ROWS;
+/** Plot count of a fresh save. Kept as an alias of BASE_PLOT_COUNT since a
+ * default state is always unexpanded; expanded saves have EXPANDED_PLOT_COUNT. */
+export const PLOT_COUNT = BASE_PLOT_COUNT;
 
 export interface EmptyPlot {
   state: 'empty';
@@ -259,7 +261,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isFiniteNumber(raw.xp) &&
     isFiniteNumber(raw.level) &&
     Array.isArray(raw.plots) &&
-    raw.plots.length === PLOT_COUNT &&
+    (raw.plots.length === BASE_PLOT_COUNT || raw.plots.length === EXPANDED_PLOT_COUNT) &&
     raw.plots.every(isPlotState) &&
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
@@ -420,6 +422,23 @@ export class GameStateStore {
       // harvest-first must not also count toward harvest-rest.
       const active = this.currentOnboardingStep()?.id;
       if (active === 'harvest-first' || active === 'harvest-rest') this.trackOnboarding(active);
+    }
+    this.save();
+    return true;
+  }
+
+  /**
+   * Purchase the one-time farm expansion (base 12 plots -> 16). Returns
+   * false without mutating anything unless the farm is still at
+   * BASE_PLOT_COUNT and coins cover EXPANSION_COST - in particular, a second
+   * expansion always fails since plots.length no longer matches.
+   */
+  expandFarm(): boolean {
+    if (this.state.plots.length !== BASE_PLOT_COUNT) return false;
+    if (this.state.coins < EXPANSION_COST) return false;
+    this.state.coins -= EXPANSION_COST;
+    for (let i = BASE_PLOT_COUNT; i < EXPANDED_PLOT_COUNT; i++) {
+      this.state.plots.push({ state: 'empty' });
     }
     this.save();
     return true;

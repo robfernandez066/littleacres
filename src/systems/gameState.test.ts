@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { type CropId, CROPS } from '../data/crops';
+import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
   ONBOARDING_ORDER_A,
@@ -13,8 +14,10 @@ import {
   createDefaultState,
   type GameStateData,
   GameStateStore,
+  isValidState,
   MIGRATIONS,
   type Migration,
+  type PlotState,
   PLOT_COUNT,
   SAVE_KEY,
   type SaveStorage,
@@ -484,6 +487,81 @@ describe('sellCrop', () => {
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.sellCrop('sunwheat')).toBe(0);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('expandFarm', () => {
+  it('fails without enough coins, without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.expandFarm()).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('deducts exactly EXPANSION_COST, appends 4 empty plots, and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    store.addCoins(EXPANSION_COST - store.getState().coins);
+    expect(store.expandFarm()).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(0);
+    expect(state.plots).toHaveLength(EXPANDED_PLOT_COUNT);
+    for (let i = BASE_PLOT_COUNT; i < EXPANDED_PLOT_COUNT; i++) {
+      expect(state.plots[i]).toEqual({ state: 'empty' });
+    }
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().plots).toHaveLength(EXPANDED_PLOT_COUNT);
+    expect(reloaded.getState().coins).toBe(0);
+  });
+
+  it('a second expansion is impossible, without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    store.addCoins(EXPANSION_COST);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.expandFarm()).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => {
+  const emptyPlot: PlotState = { state: 'empty' };
+
+  it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
+    const base = createDefaultState(5);
+    expect(isValidState(base, 5)).toBe(true);
+    const expanded = {
+      ...base,
+      plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
+    };
+    expect(isValidState(expanded, 5)).toBe(true);
+  });
+
+  it('rejects 13 or 17 plots', () => {
+    const base = createDefaultState(5);
+    const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
+    expect(isValidState(thirteen, 5)).toBe(false);
+    const seventeen = {
+      ...base,
+      plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
+    };
+    expect(isValidState(seventeen, 5)).toBe(false);
+  });
+});
+
+describe('plantCrop / harvestPlot on an expanded plot', () => {
+  it('plants and harvests on index 13, in the new row', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    expect(store.plantCrop(13, 'sunwheat')).toBe(true);
+    advanceTime(CROPS.sunwheat.growMs);
+    expect(store.harvestPlot(13)).toBe(true);
+    expect(store.getState().plots[13]).toEqual({ state: 'empty' });
+    expect(store.getState().inventory.sunwheat).toBe(1);
   });
 });
 

@@ -2,13 +2,14 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.9 - Quest-driven onboarding (prompt out; Fable5/Opus). Schema v4, scripted order chain to level 2, pulse-highlight registry
+**Active task:** T1.10 - Plot expansion 12 -> 16 (prompt out; Sonnet)
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
 - T0.2 PWA + deploy pipeline - DONE. Live at robfernandez066.github.io/littleacres/; installs on Android, fullscreen portrait confirmed
 - T0.3 Asset pipeline + placeholder art - DONE, committed + pushed. Survived a mid-task crash (salvaged, RESUME prompt). Demo crops on 3 plots are temporary atlas-proof; remove when planting lands (T1.2/T1.3)
 - T0.4 GameState store + local save - DONE, committed + pushed. 13 Vitest tests; window.dev console hooks until T0.5. Note for Phase 1 balancing: starting coins (50) live in gameState.ts, fold into src/data/ config later
+- T1.9 Onboarding - DONE through five rounds (T1.9 base, a: modal input blocking + occlusion, b: 12-step redesign, c: glow/swipe/review steps, d: polish, e: PM-direct phantom-trail root-cause fix + path restore). Final: 15-step guided first session, ghost-swipe demos, glow highlights, tap-outside panel closing, two scripted orders. User confirmed and committed
 - T0.5 Debug/dev overlay - DONE, committed + pushed. Overlay confirmed working on PC and mobile (installed app + URL)
 - T0.5a Lockfile CI fix - DONE (PM-direct fix, user-approved). Deploy green again; CLAUDE.md lockfile guard rule added
 - PHASE 0 COMPLETE

@@ -2,9 +2,9 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
-import { FARM_COLS } from '../data/farm';
+import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { registerCoinArcTest } from '../systems/dev';
-import { gameState, PLOT_COUNT } from '../systems/gameState';
+import { gameState } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
@@ -13,6 +13,7 @@ import { PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { CoinArc } from '../ui/CoinArc';
+import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
@@ -46,6 +47,11 @@ const HARVEST_POP_DURATION_MS = 150;
 
 /** Light haptic pulse on a successful harvest or plant. */
 const HAPTIC_LIGHT_MS = 12;
+/** Medium haptic pulse on a successful farm expansion. */
+const HAPTIC_MEDIUM_MS = 25;
+
+/** Delay between each new plot's leaf burst when the farm expands. */
+const EXPAND_BURST_STAGGER_MS = 80;
 
 /** Where the floating xp label spawns relative to a plot's tile center. */
 const XP_LABEL_OFFSET_Y = -70;
@@ -93,6 +99,7 @@ export class FarmScene extends Phaser.Scene {
   private hud!: Hud;
   private levelUpCelebration!: LevelUpCelebration;
   private onboardingGuide!: OnboardingGuide;
+  private expandSign!: ExpandSign;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -112,8 +119,7 @@ export class FarmScene extends Phaser.Scene {
     this.add.rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR).setOrigin(0, 0);
 
     this.layGrassField();
-    this.layPlots();
-    this.createCropSprites();
+    this.buildPlotVisuals();
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
@@ -125,6 +131,8 @@ export class FarmScene extends Phaser.Scene {
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles);
+    this.expandSign = new ExpandSign(this, () => this.tryExpand());
+    this.expandSign.refresh(gameState.getState());
     this.setupFieldInput();
     this.refreshCrops();
     this.onboardingGuide.refresh(gameState.getState());
@@ -153,6 +161,7 @@ export class FarmScene extends Phaser.Scene {
     gameState.autoAdvanceOnboarding();
     this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
+    this.expandSign.refresh(gameState.getState());
   }
 
   /**
@@ -165,11 +174,15 @@ export class FarmScene extends Phaser.Scene {
   private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       this.gestureMode = null;
-      this.handlePlotEntered(this.plotTracker.begin(pointer.worldX, pointer.worldY));
+      this.handlePlotEntered(
+        this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount()),
+      );
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown) return;
-      this.handlePlotEntered(this.plotTracker.move(pointer.worldX, pointer.worldY));
+      this.handlePlotEntered(
+        this.plotTracker.move(pointer.worldX, pointer.worldY, this.rowCount()),
+      );
     });
     const endGesture = (): void => {
       this.plotTracker.end();
@@ -177,6 +190,35 @@ export class FarmScene extends Phaser.Scene {
     };
     this.input.on(Phaser.Input.Events.POINTER_UP, endGesture);
     this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, endGesture);
+  }
+
+  /** Current row count (3 base, 4 once expanded), derived from saved plot count. */
+  private rowCount(): number {
+    return gameState.getState().plots.length / FARM_COLS;
+  }
+
+  /**
+   * Attempt the farm expansion purchase. On success, builds the new row's
+   * tiles/sprites, plays a staggered leaf burst per new plot, and buzzes;
+   * on failure (insufficient coins - the sign is hidden once already
+   * expanded, so that is the only failure reachable from a tap) nudges the
+   * sign instead.
+   */
+  private tryExpand(): void {
+    if (!gameState.expandFarm()) {
+      this.expandSign.flashInsufficientCoins();
+      return;
+    }
+    for (let index = BASE_PLOT_COUNT; index < EXPANDED_PLOT_COUNT; index++) {
+      this.createPlotVisuals(index);
+      const stagger = (index - BASE_PLOT_COUNT) * EXPAND_BURST_STAGGER_MS;
+      this.time.delayedCall(stagger, () => {
+        const pos = this.plotPositions[index];
+        if (pos !== undefined) this.particles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
+      });
+    }
+    buzz(HAPTIC_MEDIUM_MS);
+    this.expandSign.refresh(gameState.getState());
   }
 
   /**
@@ -290,12 +332,16 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
-  /** The 4x3 grid of tilled plots, centered by the iso origin; one tile per plot index. */
-  private layPlots(): void {
-    for (let index = 0; index < PLOT_COUNT; index++) {
-      const { col, row } = this.indexToGrid(index);
-      const { x, y } = gridToIso(col, row);
-      this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot');
+  /**
+   * Build the plot tile + crop sprite for every saved plot (12 on a fresh or
+   * unexpanded save, 16 on an expanded one) - so a 16-plot save renders its
+   * 4th row immediately on load. Also called (per new index) at runtime when
+   * `tryExpand` succeeds, so the new row appears without a scene reload.
+   */
+  private buildPlotVisuals(): void {
+    const plotCount = gameState.getState().plots.length;
+    for (let index = 0; index < plotCount; index++) {
+      this.createPlotVisuals(index);
     }
   }
 
@@ -305,24 +351,23 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Create the 12 crop sprites once, positioned on their plot's tile with the
-   * baseline anchoring, hidden until their plot has a growing crop. These
-   * sprites are reused for the life of the scene - no per-frame allocation.
+   * Create one plot's tile and crop sprite, positioned on the iso grid with
+   * the crop's baseline anchoring, hidden until the plot has a growing crop.
+   * Sprites are reused for the life of the scene - no per-frame allocation.
    */
-  private createCropSprites(): void {
-    for (let index = 0; index < PLOT_COUNT; index++) {
-      const { col, row } = this.indexToGrid(index);
-      const { x, y } = gridToIso(col, row);
-      const sprite = this.add
-        .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
-        .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
-        .setDepth(y)
-        .setVisible(false);
-      this.cropSprites[index] = sprite;
-      this.plotPositions[index] = { x, y };
-      this.readyActive[index] = false;
-      this.popActive[index] = false;
-    }
+  private createPlotVisuals(index: number): void {
+    const { col, row } = this.indexToGrid(index);
+    const { x, y } = gridToIso(col, row);
+    this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot');
+    const sprite = this.add
+      .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
+      .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
+      .setDepth(y)
+      .setVisible(false);
+    this.cropSprites[index] = sprite;
+    this.plotPositions[index] = { x, y };
+    this.readyActive[index] = false;
+    this.popActive[index] = false;
   }
 
   /**
@@ -334,7 +379,7 @@ export class FarmScene extends Phaser.Scene {
   private refreshCrops(): void {
     const plots = gameState.getState().plots;
     const nowMs = now();
-    for (let index = 0; index < PLOT_COUNT; index++) {
+    for (let index = 0; index < plots.length; index++) {
       const plot = plots[index];
       const sprite = this.cropSprites[index];
       if (plot === undefined || sprite === undefined) continue;
@@ -394,7 +439,7 @@ export class FarmScene extends Phaser.Scene {
     if (isModalOpen()) return null;
     const plots = gameState.getState().plots;
     const nowMs = now();
-    for (let index = 0; index < PLOT_COUNT; index++) {
+    for (let index = 0; index < plots.length; index++) {
       const plot = plots[index];
       const pos = this.plotPositions[index];
       const tile = this.plotTiles[index];

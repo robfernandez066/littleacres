@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 
 import { BAG_POSITION } from '../config';
 import { CROPS } from '../data/crops';
-import { FARM_COLS, FARM_ROWS } from '../data/farm';
+import { EXPANDED_PLOT_COUNT } from '../data/farm';
 import { registerPoolStats } from '../systems/pool';
 import { PooledArc } from './PooledArc';
 
@@ -19,8 +19,11 @@ const END_SCALE = 0.25;
 /** Above everything, including the seed bar (2000) and the panel (2100). */
 const CROP_ARC_DEPTH = 2200;
 
-/** One flight per plot; a full-field sweep must never grow the pool mid-flight. */
-const PREALLOCATE = FARM_COLS * FARM_ROWS;
+/**
+ * One flight per plot at the maximum farm size, so a full-field sweep never
+ * grows the pool mid-flight - even after the 16-plot expansion.
+ */
+const PREALLOCATE = EXPANDED_PLOT_COUNT;
 
 export class CropArc {
   private readonly arc: PooledArc;
