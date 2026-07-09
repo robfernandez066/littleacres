@@ -6,6 +6,7 @@ import {
   generateOrder,
   ORDER_BASE_UNITS,
   ORDER_COIN_MULTIPLIER,
+  ORDER_UNIT_CAPS,
   ORDER_UNITS_PER_LEVEL,
   ORDER_XP_MULTIPLIER,
   TEASER_CHANCE,
@@ -24,6 +25,12 @@ function seededRng(seed: number): () => number {
 function sampleOrders(level: number, count: number, seed = 42): ReturnType<typeof generateOrder>[] {
   const rng = seededRng(seed);
   return Array.from({ length: count }, () => generateOrder(level, rng));
+}
+
+/** A fixed sequence of rng() results, repeating its last value past the end. */
+function queuedRng(values: number[]): () => number {
+  let i = 0;
+  return () => values[Math.min(i++, values.length - 1)]!;
 }
 
 describe('generateOrder', () => {
@@ -48,11 +55,15 @@ describe('generateOrder', () => {
     }
   });
 
-  it('total units scale with level per the config parameters', () => {
+  it("total units are at most the per-level formula, and each item respects its crop's unit cap", () => {
     for (let level = 1; level <= MAX_LEVEL; level++) {
       for (const order of sampleOrders(level, 200)) {
         const total = order.items.reduce((sum, item) => sum + item.count, 0);
-        expect(total).toBe(ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level);
+        expect(total).toBeLessThanOrEqual(ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level);
+        for (const item of order.items) {
+          const cap = ORDER_UNIT_CAPS[item.cropId];
+          if (cap !== undefined) expect(item.count).toBeLessThanOrEqual(cap);
+        }
       }
     }
   });
@@ -110,18 +121,45 @@ describe('generateOrder', () => {
 
   it('a forced teaser roll pairs one unlocked crop with the next unlock', () => {
     // rng stuck at 0: teaser roll passes, first picks land on index 0,
-    // and the split gives the first item exactly 1 unit.
+    // and the split gives the first item exactly 1 unit (carrot's uncapped).
     const order = generateOrder(1, () => 0);
     expect(order.items).toEqual([
       { cropId: 'sunwheat', count: 1 },
-      { cropId: 'carrot', count: 3 },
+      { cropId: 'carrot', count: 2 },
     ]);
     expect(order.coinReward).toBe(
-      Math.ceil((CROPS.sunwheat.sellValue + 3 * CROPS.carrot.sellValue) * ORDER_COIN_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.carrot.sellValue) * ORDER_COIN_MULTIPLIER),
     );
     expect(order.xpReward).toBe(
-      Math.ceil((CROPS.sunwheat.xp + 3 * CROPS.carrot.xp) * ORDER_XP_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.carrot.xp) * ORDER_XP_MULTIPLIER),
     );
+  });
+
+  it('a forced teaser roll at level 2 clamps the glowberry item to its cap', () => {
+    // Same rng-stuck-at-0 shape, one level later: the teaser is glowberry
+    // (unlocks at 3), whose pre-clamp split count (3) exceeds its cap (2).
+    const order = generateOrder(2, () => 0);
+    expect(order.items).toEqual([
+      { cropId: 'sunwheat', count: 1 },
+      { cropId: 'glowberry', count: 2 },
+    ]);
+    expect(order.coinReward).toBe(
+      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.glowberry.sellValue) * ORDER_COIN_MULTIPLIER),
+    );
+    expect(order.xpReward).toBe(
+      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.glowberry.xp) * ORDER_XP_MULTIPLIER),
+    );
+  });
+
+  it('a single-item glowberry order (no second item) is still capped', () => {
+    // First rng() (0.99) fails the second-item roll; second rng() (0.9)
+    // picks index 2 of the 3 unlocked crops at level 5 (glowberry). The
+    // single-item count equals totalUnits (7), which the cap clamps to 2.
+    const rng = queuedRng([0.99, 0.9]);
+    const order = generateOrder(5, rng);
+    expect(order.items).toEqual([{ cropId: 'glowberry', count: 2 }]);
+    expect(order.coinReward).toBe(Math.ceil(2 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
+    expect(order.xpReward).toBe(Math.ceil(2 * CROPS.glowberry.xp * ORDER_XP_MULTIPLIER));
   });
 
   it('never teases when no crop unlocks at the next level', () => {

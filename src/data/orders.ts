@@ -32,7 +32,18 @@ export const SECOND_ITEM_CHANCE = 0.45;
 
 /** Total units requested per order: BASE + PER_LEVEL * level, split across items. */
 export const ORDER_BASE_UNITS = 2;
-export const ORDER_UNITS_PER_LEVEL = 2;
+export const ORDER_UNITS_PER_LEVEL = 1;
+
+/**
+ * Per-crop cap on a single order item's count, applied after the split. An
+ * item exceeding its crop's cap is clamped down to it - the order simply asks
+ * for less overall; the clamped units are never redistributed to the other
+ * item. Crops with no entry are uncapped.
+ */
+export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
+  carrot: 5,
+  glowberry: 2,
+};
 
 export interface OrderItem {
   cropId: CropId;
@@ -70,7 +81,10 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
  * - Otherwise items come from unlocked crops only: two distinct ones with
  *   SECOND_ITEM_CHANCE (when two exist), else one.
  * - Total units are ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level, split
- *   randomly across the items with every item getting at least 1.
+ *   randomly across the items with every item getting at least 1, then each
+ *   item is clamped to its crop's ORDER_UNIT_CAPS entry (if any) - the actual
+ *   total can end up below the pre-clamp total. Rewards are computed from the
+ *   final (post-clamp) items, so they always match what is displayed/paid.
  */
 export function generateOrder(
   level: number,
@@ -99,7 +113,13 @@ export function generateOrder(
   const firstCount = chosen.length === 2 ? 1 + Math.floor(rng() * (totalUnits - 1)) : totalUnits;
   const counts = chosen.length === 2 ? [firstCount, totalUnits - firstCount] : [firstCount];
 
-  const items: OrderItem[] = chosen.map((crop, i) => ({ cropId: crop.id, count: counts[i]! }));
+  // Clamp each item to its crop's cap (if any) after the split - clamped
+  // units are dropped, never redistributed to the other item.
+  const items: OrderItem[] = chosen.map((crop, i) => {
+    const cap = ORDER_UNIT_CAPS[crop.id];
+    const count = cap === undefined ? counts[i]! : Math.min(counts[i]!, cap);
+    return { cropId: crop.id, count };
+  });
   const coinBase = items.reduce((sum, item) => sum + item.count * CROPS[item.cropId].sellValue, 0);
   const xpBase = items.reduce((sum, item) => sum + item.count * CROPS[item.cropId].xp, 0);
   return {

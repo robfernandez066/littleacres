@@ -15,7 +15,7 @@ import { isoToGrid } from './iso';
  * never changes but the row count can grow at runtime.
  */
 export function plotIndexAtScreen(x: number, y: number, rowCount: number): number | null {
-  const { col, row } = isoToGrid(x, y);
+  const { col, row } = isoToGrid(x, y, rowCount);
   const c = Math.round(col);
   const r = Math.round(row);
   if (c < 0 || c >= FARM_COLS || r < 0 || r >= rowCount) return null;

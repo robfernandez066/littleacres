@@ -35,9 +35,9 @@ describe('plotIndexAtScreen', () => {
   });
 
   it('with rowCount 4 (expanded farm), accepts the new row and rejects past it', () => {
-    const newRow = gridToIso(0, FARM_ROWS); // row index 3, the expansion row
+    const newRow = gridToIso(0, FARM_ROWS, 4); // row index 3, the expansion row
     expect(plotIndexAtScreen(newRow.x, newRow.y, 4)).toBe(FARM_ROWS * FARM_COLS);
-    const pastExpanded = gridToIso(0, 4);
+    const pastExpanded = gridToIso(0, 4, 4);
     expect(plotIndexAtScreen(pastExpanded.x, pastExpanded.y, 4)).toBeNull();
   });
 });
@@ -78,7 +78,7 @@ describe('PlotPointerTracker', () => {
 
   it('respects a larger rowCount on an expanded farm', () => {
     const tracker = new PlotPointerTracker();
-    const { x, y } = gridToIso(1, 3); // the new row, only valid with rowCount 4
+    const { x, y } = gridToIso(1, 3, 4); // the new row, only valid with rowCount 4
     expect(tracker.begin(x, y, FARM_ROWS)).toBeNull();
     tracker.end();
     expect(tracker.begin(x, y, 4)).toBe(3 * FARM_COLS + 1);

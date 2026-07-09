@@ -224,8 +224,14 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     this.audio.sfx('tap');
+    // Expansion adds a row, which recenters the iso origin - reposition every
+    // existing plot before building the new row's visuals at the new origin.
+    const rowCount = this.rowCount();
+    for (let index = 0; index < BASE_PLOT_COUNT; index++) {
+      this.repositionPlotVisuals(index, rowCount);
+    }
     for (let index = BASE_PLOT_COUNT; index < EXPANDED_PLOT_COUNT; index++) {
-      this.createPlotVisuals(index);
+      this.createPlotVisuals(index, rowCount);
       const stagger = (index - BASE_PLOT_COUNT) * EXPAND_BURST_STAGGER_MS;
       this.time.delayedCall(stagger, () => {
         const pos = this.plotPositions[index];
@@ -352,13 +358,15 @@ export class FarmScene extends Phaser.Scene {
   /**
    * Build the plot tile + crop sprite for every saved plot (12 on a fresh or
    * unexpanded save, 16 on an expanded one) - so a 16-plot save renders its
-   * 4th row immediately on load. Also called (per new index) at runtime when
-   * `tryExpand` succeeds, so the new row appears without a scene reload.
+   * 4th row, correctly recentered, immediately on load. Also called (per new
+   * index) at runtime when `tryExpand` succeeds, so the new row appears
+   * without a scene reload.
    */
   private buildPlotVisuals(): void {
     const plotCount = gameState.getState().plots.length;
+    const rowCount = plotCount / FARM_COLS;
     for (let index = 0; index < plotCount; index++) {
-      this.createPlotVisuals(index);
+      this.createPlotVisuals(index, rowCount);
     }
   }
 
@@ -368,13 +376,14 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Create one plot's tile and crop sprite, positioned on the iso grid with
-   * the crop's baseline anchoring, hidden until the plot has a growing crop.
-   * Sprites are reused for the life of the scene - no per-frame allocation.
+   * Create one plot's tile and crop sprite, positioned on the iso grid (for
+   * the given current row count) with the crop's baseline anchoring, hidden
+   * until the plot has a growing crop. Sprites are reused for the life of the
+   * scene - no per-frame allocation.
    */
-  private createPlotVisuals(index: number): void {
+  private createPlotVisuals(index: number, rowCount: number): void {
     const { col, row } = this.indexToGrid(index);
-    const { x, y } = gridToIso(col, row);
+    const { x, y } = gridToIso(col, row, rowCount);
     this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot');
     const sprite = this.add
       .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
@@ -385,6 +394,19 @@ export class FarmScene extends Phaser.Scene {
     this.plotPositions[index] = { x, y };
     this.readyActive[index] = false;
     this.popActive[index] = false;
+  }
+
+  /**
+   * Reposition an already-built plot's tile/sprite for a new row count - used
+   * when expansion recenters the whole grid. Depth is re-derived from the new
+   * y like at creation, so draw order stays correct after the shift.
+   */
+  private repositionPlotVisuals(index: number, rowCount: number): void {
+    const { col, row } = this.indexToGrid(index);
+    const { x, y } = gridToIso(col, row, rowCount);
+    this.plotTiles[index]?.setPosition(x, y);
+    this.cropSprites[index]?.setPosition(x, y).setDepth(y);
+    this.plotPositions[index] = { x, y };
   }
 
   /**

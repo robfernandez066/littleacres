@@ -16,32 +16,52 @@ export const TILE_HEIGHT = 128;
 
 /**
  * Screen position of the center of tile (0, 0), chosen so that the
- * FARM_COLS x FARM_ROWS plot grid is centered in the design area (leaving
+ * FARM_COLS x rowCount plot grid is centered in the design area (leaving
  * symmetric headroom at top and bottom for the future HUD).
  *
- * Derivation: the average grid cell is ((FARM_COLS-1)/2, (FARM_ROWS-1)/2);
+ * Derivation: the average grid cell is ((FARM_COLS-1)/2, (rowCount-1)/2);
  * plugging it into gridToIso and solving for the origin that puts it at the
- * design center gives the offsets below.
+ * design center gives the offsets below. `rowCount` is the CURRENT number of
+ * rows (3 base, 4 once expanded) so the grid recenters as the farm grows.
  */
-export const ISO_ORIGIN_X = DESIGN_WIDTH / 2 - ((FARM_COLS - FARM_ROWS) * TILE_WIDTH) / 4;
-export const ISO_ORIGIN_Y = DESIGN_HEIGHT / 2 - ((FARM_COLS + FARM_ROWS - 2) * TILE_HEIGHT) / 4;
-
-/** Convert grid coordinates to the screen position of that tile's center. */
-export function gridToIso(col: number, row: number): { x: number; y: number } {
+export function isoOrigin(rowCount: number): { x: number; y: number } {
   return {
-    x: ISO_ORIGIN_X + ((col - row) * TILE_WIDTH) / 2,
-    y: ISO_ORIGIN_Y + ((col + row) * TILE_HEIGHT) / 2,
+    x: DESIGN_WIDTH / 2 - ((FARM_COLS - rowCount) * TILE_WIDTH) / 4,
+    y: DESIGN_HEIGHT / 2 - ((FARM_COLS + rowCount - 2) * TILE_HEIGHT) / 4,
+  };
+}
+
+/**
+ * Convert grid coordinates to the screen position of that tile's center.
+ * `rowCount` is the CURRENT row count (defaults to the base FARM_ROWS) - pass
+ * the expanded row count once the farm has grown, so the whole grid recenters.
+ */
+export function gridToIso(
+  col: number,
+  row: number,
+  rowCount: number = FARM_ROWS,
+): { x: number; y: number } {
+  const origin = isoOrigin(rowCount);
+  return {
+    x: origin.x + ((col - row) * TILE_WIDTH) / 2,
+    y: origin.y + ((col + row) * TILE_HEIGHT) / 2,
   };
 }
 
 /**
  * Convert a screen position back to (fractional) grid coordinates - the exact
- * inverse of gridToIso. Callers doing tile hit-tests should Math.round both
- * components; the rounded cell is the tile whose diamond contains the point.
+ * inverse of gridToIso for the same `rowCount`. Callers doing tile hit-tests
+ * should Math.round both components; the rounded cell is the tile whose
+ * diamond contains the point.
  */
-export function isoToGrid(x: number, y: number): { col: number; row: number } {
-  const dx = (x - ISO_ORIGIN_X) / (TILE_WIDTH / 2);
-  const dy = (y - ISO_ORIGIN_Y) / (TILE_HEIGHT / 2);
+export function isoToGrid(
+  x: number,
+  y: number,
+  rowCount: number = FARM_ROWS,
+): { col: number; row: number } {
+  const origin = isoOrigin(rowCount);
+  const dx = (x - origin.x) / (TILE_WIDTH / 2);
+  const dy = (y - origin.y) / (TILE_HEIGHT / 2);
   return {
     col: (dx + dy) / 2,
     row: (dy - dx) / 2,
