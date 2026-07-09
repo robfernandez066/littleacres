@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T1.10 - Plot expansion 12 -> 16 (prompt out; Sonnet)
+**Active task:** T1.12 - AudioManager + real sound assets (prompt out; Fable5/Opus). T1.10 and T1.11 committed. Kenney CC0 SFX + Pixabay farm track approved by user; LAST task before the Phase 1 play-gate
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed

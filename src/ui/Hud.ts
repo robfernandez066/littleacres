@@ -9,6 +9,7 @@ import {
 } from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
+import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { registerPulseTarget } from '../systems/pulseTargets';
@@ -57,6 +58,18 @@ const MOONDUST_TINT_FILL = 0x5b8bf5;
 
 const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
+
+/**
+ * Music/Sound toggle buttons, stacked under the coin/moondust column. HUD
+ * chrome, not a panel - always tappable except under modal backdrops, which
+ * already cover them.
+ */
+const AUDIO_TOGGLE_X = 140;
+const MUSIC_TOGGLE_Y = 310;
+const SFX_TOGGLE_Y = 400;
+const AUDIO_TOGGLE_WIDTH = 190;
+const AUDIO_TOGGLE_HEIGHT = 80;
+const AUDIO_TOGGLE_OFF_ALPHA = 0.45;
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
@@ -92,6 +105,13 @@ const BAG_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+const AUDIO_TOGGLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '28px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 export class Hud {
   private readonly coinText: Phaser.GameObjects.Text;
   private readonly levelText: Phaser.GameObjects.Text;
@@ -108,11 +128,14 @@ export class Hud {
   /** While true, the periodic refresh leaves the coin ticker to in-flight coin arcs. */
   private coinArcsAnimating = false;
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
+  private musicToggle!: Phaser.GameObjects.Container;
+  private sfxToggle!: Phaser.GameObjects.Container;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly coinArc: CoinArc,
     private readonly floatingText: FloatingText,
+    private readonly audio: AudioManager,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
 
@@ -156,6 +179,19 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
+    this.musicToggle = this.buildAudioToggle(
+      MUSIC_TOGGLE_Y,
+      'Music',
+      () => gameState.getState().settings.musicOn,
+      (on) => this.audio.setMusicOn(on),
+    );
+    this.sfxToggle = this.buildAudioToggle(
+      SFX_TOGGLE_Y,
+      'Sound',
+      () => gameState.getState().settings.sfxOn,
+      (on) => this.audio.setSfxOn(on),
+    );
+
     this.bagContainer = this.scene.add
       .container(BAG_POSITION.x, BAG_POSITION.y)
       .setDepth(HUD_DEPTH);
@@ -165,6 +201,7 @@ export class Hud {
     const bagText = this.scene.add.text(0, 0, 'Bag', BAG_STYLE).setOrigin(0.5);
     this.bagContainer.add([bagPanel, bagText]);
     bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
       this.orderBoard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -189,6 +226,7 @@ export class Hud {
     const ordersText = this.scene.add.text(0, 0, 'Orders', BAG_STYLE).setOrigin(0.5);
     ordersContainer.add([ordersPanel, ordersText]);
     ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
       this.inventoryPanel.hide();
       this.orderBoard.toggle(gameState.getState());
     });
@@ -203,17 +241,49 @@ export class Hud {
 
     this.cropArc = new CropArc(this.scene);
 
-    this.inventoryPanel = new InventoryPanel(this.scene, (cropId, worldX, worldY) =>
-      this.sellCrop(cropId, worldX, worldY),
+    this.inventoryPanel = new InventoryPanel(
+      this.scene,
+      (cropId, worldX, worldY) => this.sellCrop(cropId, worldX, worldY),
+      this.audio,
     );
 
     this.orderBoard = new OrderBoard(
       this.scene,
       (slotIndex, worldX, worldY) => this.fulfillOrder(slotIndex, worldX, worldY),
       (slotIndex) => this.skipOrder(slotIndex),
+      this.audio,
     );
 
     this.refresh();
+  }
+
+  /**
+   * One compact settings toggle (Music/Sound): a small nineslice button that
+   * flips the setting via the AudioManager (which persists it and starts or
+   * stops playback at once), dims to AUDIO_TOGGLE_OFF_ALPHA while off, and
+   * clicks only when turning ON - a tap that just muted everything should
+   * itself be silent.
+   */
+  private buildAudioToggle(
+    y: number,
+    label: string,
+    isOn: () => boolean,
+    setOn: (on: boolean) => void,
+  ): Phaser.GameObjects.Container {
+    const container = this.scene.add.container(AUDIO_TOGGLE_X, y).setDepth(HUD_DEPTH);
+    const panel = this.scene.add
+      .nineslice(0, 0, ATLAS_KEY, 'panel', AUDIO_TOGGLE_WIDTH, AUDIO_TOGGLE_HEIGHT, 24, 24, 24, 24)
+      .setInteractive({ useHandCursor: true });
+    const text = this.scene.add.text(0, 0, label, AUDIO_TOGGLE_STYLE).setOrigin(0.5);
+    container.add([panel, text]);
+    container.setAlpha(isOn() ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
+    panel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      const on = !isOn();
+      setOn(on);
+      container.setAlpha(on ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
+      if (on) this.audio.sfx('tap');
+    });
+    return container;
   }
 
   /**
@@ -245,6 +315,10 @@ export class Hud {
     this.levelText.setText(`Lv ${state.level}`);
     this.updateXpBar(state.level, state.xp);
     this.moondustText.setText(String(state.moondust));
+
+    // Re-assert toggle dimming from state so a dev import/reset re-renders it.
+    this.musicToggle.setAlpha(state.settings.musicOn ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
+    this.sfxToggle.setAlpha(state.settings.sfxOn ? 1 : AUDIO_TOGGLE_OFF_ALPHA);
 
     if (!this.coinArcsAnimating) this.driftCoinsTo(state.coins);
 
@@ -312,6 +386,7 @@ export class Hud {
     let arrived = 0;
 
     this.coinArc.fly(worldX, worldY, gained, () => {
+      this.audio.coin();
       arrived++;
       this.coinDisplay.value = arrived >= arrivals ? target : this.coinDisplay.value + share;
       this.coinText.setText(String(Math.round(this.coinDisplay.value)));

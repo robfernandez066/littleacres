@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
+import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { isModalOpen } from '../systems/modalPanels';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
@@ -80,7 +81,10 @@ export class SeedBar {
   /** Level the lock visuals were last derived from; -1 forces a first pass. */
   private lastLevel = -1;
 
-  constructor(private readonly scene: Phaser.Scene) {
+  constructor(
+    private readonly scene: Phaser.Scene,
+    private readonly audio: AudioManager,
+  ) {
     const crops = Object.values(CROPS);
     crops.forEach((crop, index) => {
       this.buttons.push(this.buildButton(crop, index, crops.length));
@@ -226,6 +230,8 @@ export class SeedBar {
   private onTap(cropId: CropId): void {
     const button = this.buttons.find((b) => b.crop.id === cropId);
     if (button === undefined || button.locked) return;
+    // One click per accepted tap, select or deselect; locked taps stay silent.
+    this.audio.sfx('tap');
     this.setSelected(this.selected === cropId ? null : cropId);
   }
 

@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
+import type { AudioManager } from '../systems/audio';
 import type { GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { registerPulseTarget } from '../systems/pulseTargets';
@@ -107,8 +108,15 @@ export class InventoryPanel {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly onSell: (cropId: CropId, worldX: number, worldY: number) => void,
+    private readonly audio: AudioManager,
   ) {
-    this.backdrop = new ModalBackdrop(scene, () => this.hide());
+    // Tap sounds live on the user-driven close seams (backdrop and X), never
+    // in hide() itself - hide() is also called programmatically (e.g. when
+    // the Orders button closes this panel) and must stay silent then.
+    this.backdrop = new ModalBackdrop(scene, () => {
+      this.audio.sfx('tap');
+      this.hide();
+    });
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
       .setDepth(PANEL_DEPTH)
@@ -145,7 +153,10 @@ export class InventoryPanel {
       .setOrigin(0.5)
       .setPadding(16)
       .setInteractive({ useHandCursor: true });
-    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
+    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.hide();
+    });
     this.container.add([bg, title, closeButton]);
 
     Object.values(CROPS).forEach((crop, index) => {
@@ -203,6 +214,9 @@ export class InventoryPanel {
       .setOrigin(0.5);
 
     sellButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      // Only fires when the button is interactive (count > 0), so the tap
+      // always accompanies a real sale.
+      this.audio.sfx('tap');
       this.onSell(crop.id, PANEL_CENTER_X + ROW_SELL_BUTTON_X, PANEL_CENTER_Y + y);
     });
 

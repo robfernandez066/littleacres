@@ -111,6 +111,41 @@ describe('save and load', () => {
   });
 });
 
+describe('settings (music/sfx toggles)', () => {
+  it('setMusicOn(false) persists through a save/load round-trip', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    writer.setMusicOn(false);
+
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.getState().settings).toEqual({ musicOn: false, sfxOn: true });
+  });
+
+  it('setSfxOn(false) persists through a save/load round-trip', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    writer.setSfxOn(false);
+
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.getState().settings).toEqual({ musicOn: true, sfxOn: false });
+  });
+
+  it('toggling back on persists too', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    writer.setMusicOn(false);
+    writer.setSfxOn(false);
+    writer.setMusicOn(true);
+    writer.setSfxOn(true);
+
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.getState().settings).toEqual({ musicOn: true, sfxOn: true });
+  });
+});
+
 describe('corrupt or invalid saves', () => {
   it('resets cleanly on unparseable JSON', () => {
     const storage = makeStorage({ [SAVE_KEY]: 'not json{{{' });

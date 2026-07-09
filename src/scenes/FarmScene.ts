@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
+import { AudioManager } from '../systems/audio';
 import { registerCoinArcTest } from '../systems/dev';
 import { gameState } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
@@ -102,6 +103,7 @@ export class FarmScene extends Phaser.Scene {
   private onboardingGuide!: OnboardingGuide;
   private expandSign!: ExpandSign;
   private offlineSummaryPanel!: OfflineSummaryPanel;
+  private audio!: AudioManager;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -122,17 +124,21 @@ export class FarmScene extends Phaser.Scene {
 
     this.layGrassField();
     this.buildPlotVisuals();
+    // Before any UI that plays sounds; startMusic self-defers until the
+    // sound system unlocks on the first user gesture.
+    this.audio = new AudioManager(this);
+    this.audio.startMusic();
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
-    this.seedBar = new SeedBar(this);
+    this.seedBar = new SeedBar(this, this.audio);
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
-    this.hud = new Hud(this, this.coinArc, this.floatingText);
+    this.hud = new Hud(this, this.coinArc, this.floatingText, this.audio);
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     this.onboardingGuide = new OnboardingGuide(this);
-    this.levelUpCelebration = new LevelUpCelebration(this, this.particles);
+    this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
     this.expandSign = new ExpandSign(this, () => this.tryExpand());
     this.expandSign.refresh(gameState.getState());
     this.setupFieldInput();
@@ -217,6 +223,7 @@ export class FarmScene extends Phaser.Scene {
       this.expandSign.flashInsufficientCoins();
       return;
     }
+    this.audio.sfx('tap');
     for (let index = BASE_PLOT_COUNT; index < EXPANDED_PLOT_COUNT; index++) {
       this.createPlotVisuals(index);
       const stagger = (index - BASE_PLOT_COUNT) * EXPAND_BURST_STAGGER_MS;
@@ -250,6 +257,7 @@ export class FarmScene extends Phaser.Scene {
       const plot = gameState.getState().plots[plotIndex];
       if (gameState.harvestPlot(plotIndex)) {
         this.gestureMode = 'harvest';
+        this.audio.harvestPop();
         this.playHarvestPop(plotIndex);
         if (plot?.state === 'growing') this.playHarvestJuice(plotIndex, plot.cropId);
         return;
@@ -279,6 +287,7 @@ export class FarmScene extends Phaser.Scene {
     if (cropId === null) return;
     if (gameState.plantCrop(plotIndex, cropId)) {
       this.gestureMode = 'plant';
+      this.audio.sfx('plant');
       this.refreshCrops();
       this.playPlantPop(plotIndex);
       const pos = this.plotPositions[plotIndex];

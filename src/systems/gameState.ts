@@ -363,6 +363,18 @@ export class GameStateStore {
     this.state.level = Math.max(1, Math.floor(level));
   }
 
+  /** Persist the music on/off setting. */
+  setMusicOn(on: boolean): void {
+    this.state.settings.musicOn = on;
+    this.save();
+  }
+
+  /** Persist the sound-effects on/off setting. */
+  setSfxOn(on: boolean): void {
+    this.state.settings.sfxOn = on;
+    this.save();
+  }
+
   /**
    * Apply an xp delta and raise the level to match, queuing one
    * `LevelUpEvent` per level gained, in order. Level only ever increases

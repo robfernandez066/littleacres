@@ -2,7 +2,25 @@ import Phaser from 'phaser';
 
 import atlasJsonUrl from '../../assets/atlas.json?url';
 import atlasPngUrl from '../../assets/atlas.png';
+import coinOggUrl from '../../assets/audio/coin.ogg?url';
+import fanfareOggUrl from '../../assets/audio/fanfare.ogg?url';
+import harvestOggUrl from '../../assets/audio/harvest.ogg?url';
+import levelupOggUrl from '../../assets/audio/levelup.ogg?url';
+import musicMp3Url from '../../assets/audio/music.mp3?url';
+import plantOggUrl from '../../assets/audio/plant.ogg?url';
+import tapOggUrl from '../../assets/audio/tap.ogg?url';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import { MUSIC_KEY, type SfxKey } from '../data/audio';
+
+/** Loader key -> fingerprinted URL for the six one-shot effects. */
+const SFX_URLS: Record<SfxKey, string> = {
+  harvest: harvestOggUrl,
+  plant: plantOggUrl,
+  coin: coinOggUrl,
+  tap: tapOggUrl,
+  fanfare: fanfareOggUrl,
+  levelup: levelupOggUrl,
+};
 
 const BACKGROUND_COLOR = 0xfdf6e3;
 const TRACK_COLOR = 0x2e4a1f;
@@ -51,6 +69,10 @@ export class PreloadScene extends Phaser.Scene {
     });
 
     this.load.atlas(ATLAS_KEY, atlasPngUrl, atlasJsonUrl);
+    for (const [key, url] of Object.entries(SFX_URLS)) {
+      this.load.audio(key, url);
+    }
+    this.load.audio(MUSIC_KEY, musicMp3Url);
   }
 
   create(): void {

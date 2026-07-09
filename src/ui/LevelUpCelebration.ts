@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { CROPS } from '../data/crops';
+import type { AudioManager } from '../systems/audio';
 import type { LevelUpEvent } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { ParticleBurst } from './ParticleBurst';
@@ -70,6 +71,7 @@ export class LevelUpCelebration {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly particles: ParticleBurst,
+    private readonly audio: AudioManager,
   ) {
     this.backdrop = this.scene.add
       .rectangle(
@@ -173,7 +175,7 @@ export class LevelUpCelebration {
 
     this.particles.burst('sparkle', DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2);
     buzz(BUZZ_MS);
-    // TODO(T1.12): level-up chime
+    this.audio.sfx('levelup');
 
     this.timer?.remove();
     const delay = event.unlockedCropIds.length > 0 ? BANNER_TO_CARD_MS : BANNER_AUTO_DISMISS_MS;

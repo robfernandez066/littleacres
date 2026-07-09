@@ -3,6 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH, VILLAGER_POSITION } from '../config';
 import { CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
+import type { AudioManager } from '../systems/audio';
 import type { GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { registerPoolStats } from '../systems/pool';
@@ -187,8 +188,15 @@ export class OrderBoard {
     private readonly scene: Phaser.Scene,
     private readonly onFulfill: (slotIndex: number, worldX: number, worldY: number) => void,
     private readonly onSkip: (slotIndex: number) => void,
+    private readonly audio: AudioManager,
   ) {
-    this.backdrop = new ModalBackdrop(scene, () => this.hide());
+    // Tap sounds live on the user-driven close seams (backdrop and X), never
+    // in hide() itself - hide() is also called programmatically (e.g. when
+    // the Bag button closes this board) and must stay silent then.
+    this.backdrop = new ModalBackdrop(scene, () => {
+      this.audio.sfx('tap');
+      this.hide();
+    });
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
       .setDepth(PANEL_DEPTH)
@@ -225,7 +233,10 @@ export class OrderBoard {
       .setOrigin(0.5)
       .setPadding(16)
       .setInteractive({ useHandCursor: true });
-    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
+    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.hide();
+    });
     this.container.add([bg, title, closeButton]);
 
     for (let i = 0; i < ORDER_SLOTS; i++) {
@@ -372,9 +383,13 @@ export class OrderBoard {
     const worldX = PANEL_CENTER_X;
     const worldY = PANEL_CENTER_Y + y;
     fulfillButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      // Only interactive while the order is covered, so this tap always
+      // accompanies a real fulfillment (whose fanfare rides playFulfillJuice).
+      this.audio.sfx('tap');
       this.onFulfill(slotIndex, worldX, worldY);
     });
     skipButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
       this.onSkip(slotIndex);
     });
     skipButton.setInteractive({ useHandCursor: true });
@@ -496,6 +511,8 @@ export class OrderBoard {
   playFulfillJuice(slotIndex: number, order: Order): void {
     const card = this.cards[slotIndex];
     if (card === undefined) return;
+
+    this.audio.sfx('fanfare');
 
     for (const item of order.items) {
       this.villagerArc.fly(
