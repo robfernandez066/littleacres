@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
 import type { OfflineSummary } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -100,10 +100,10 @@ export class OfflineSummaryPanel {
       'panel',
       PANEL_WIDTH,
       PANEL_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     // Swallow taps on the panel body so they never fall through to the field beneath.
     bg.setInteractive();

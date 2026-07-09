@@ -1,169 +1,29 @@
 {
   "frames": {
-    "grass": {
+    "coin": {
       "frame": {
         "x": 2,
         "y": 2,
-        "w": 256,
-        "h": 128
+        "w": 96,
+        "h": 96
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 256,
-        "h": 128
+        "w": 96,
+        "h": 96
       },
       "sourceSize": {
-        "w": 256,
-        "h": 128
-      }
-    },
-    "plot": {
-      "frame": {
-        "x": 260,
-        "y": 2,
-        "w": 256,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 256,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 256,
-        "h": 128
-      }
-    },
-    "sunwheat_0": {
-      "frame": {
-        "x": 2,
-        "y": 132,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
-      }
-    },
-    "sunwheat_1": {
-      "frame": {
-        "x": 132,
-        "y": 132,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
-      }
-    },
-    "sunwheat_2": {
-      "frame": {
-        "x": 262,
-        "y": 132,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
-      }
-    },
-    "carrot_0": {
-      "frame": {
-        "x": 392,
-        "y": 132,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
-      }
-    },
-    "carrot_1": {
-      "frame": {
-        "x": 2,
-        "y": 262,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
-      }
-    },
-    "carrot_2": {
-      "frame": {
-        "x": 132,
-        "y": 262,
-        "w": 128,
-        "h": 128
-      },
-      "rotated": false,
-      "trimmed": false,
-      "spriteSourceSize": {
-        "x": 0,
-        "y": 0,
-        "w": 128,
-        "h": 128
-      },
-      "sourceSize": {
-        "w": 128,
-        "h": 128
+        "w": 96,
+        "h": 96
       }
     },
     "glowberry_0": {
       "frame": {
-        "x": 262,
-        "y": 262,
+        "x": 100,
+        "y": 2,
         "w": 128,
         "h": 128
       },
@@ -182,8 +42,8 @@
     },
     "glowberry_1": {
       "frame": {
-        "x": 392,
-        "y": 262,
+        "x": 230,
+        "y": 2,
         "w": 128,
         "h": 128
       },
@@ -202,8 +62,8 @@
     },
     "glowberry_2": {
       "frame": {
-        "x": 2,
-        "y": 392,
+        "x": 360,
+        "y": 2,
         "w": 128,
         "h": 128
       },
@@ -220,10 +80,30 @@
         "h": 128
       }
     },
-    "coin": {
+    "grass": {
       "frame": {
-        "x": 132,
-        "y": 392,
+        "x": 490,
+        "y": 2,
+        "w": 256,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 160
+      }
+    },
+    "moondust": {
+      "frame": {
+        "x": 748,
+        "y": 2,
         "w": 96,
         "h": 96
       },
@@ -242,32 +122,192 @@
     },
     "panel": {
       "frame": {
-        "x": 230,
-        "y": 392,
-        "w": 96,
-        "h": 96
+        "x": 846,
+        "y": 2,
+        "w": 128,
+        "h": 128
       },
       "rotated": false,
       "trimmed": false,
       "spriteSourceSize": {
         "x": 0,
         "y": 0,
-        "w": 96,
-        "h": 96
+        "w": 128,
+        "h": 128
       },
       "sourceSize": {
-        "w": 96,
-        "h": 96
+        "w": 128,
+        "h": 128
+      }
+    },
+    "plot": {
+      "frame": {
+        "x": 2,
+        "y": 164,
+        "w": 256,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 160
+      }
+    },
+    "plot_occupied": {
+      "frame": {
+        "x": 260,
+        "y": 164,
+        "w": 256,
+        "h": 160
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 160
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 160
+      }
+    },
+    "starcorn_0": {
+      "frame": {
+        "x": 518,
+        "y": 164,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "starcorn_1": {
+      "frame": {
+        "x": 648,
+        "y": 164,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "starcorn_2": {
+      "frame": {
+        "x": 778,
+        "y": 164,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "sunwheat_0": {
+      "frame": {
+        "x": 908,
+        "y": 164,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "sunwheat_1": {
+      "frame": {
+        "x": 2,
+        "y": 326,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "sunwheat_2": {
+      "frame": {
+        "x": 132,
+        "y": 326,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
       }
     }
   },
   "meta": {
-    "app": "littleacres tools/gen-assets.mjs",
+    "app": "littleacres tools/pack-atlas.mjs",
     "image": "atlas.png",
     "format": "RGBA8888",
     "size": {
-      "w": 522,
-      "h": 522
+      "w": 1038,
+      "h": 456
     },
     "scale": "1"
   }

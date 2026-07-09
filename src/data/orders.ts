@@ -41,7 +41,7 @@ export const ORDER_UNITS_PER_LEVEL = 1;
  * item. Crops with no entry are uncapped.
  */
 export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
-  carrot: 5,
+  starcorn: 5,
   glowberry: 2,
 };
 

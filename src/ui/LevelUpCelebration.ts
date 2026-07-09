@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
 import type { AudioManager } from '../systems/audio';
 import type { LevelUpEvent } from '../systems/gameState';
@@ -117,10 +117,10 @@ export class LevelUpCelebration {
       'panel',
       CARD_WIDTH,
       CARD_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     this.cardIcon = this.scene.add
       .image(0, CARD_ICON_Y, ATLAS_KEY, CROPS.sunwheat.stageFrames[2])

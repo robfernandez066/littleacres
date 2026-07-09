@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY } from '../config';
+import { ATLAS_KEY, PANEL_SLICE } from '../config';
 import { BASE_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import type { GameStateData } from '../systems/gameState';
 
@@ -55,10 +55,10 @@ export class ExpandSign {
       'panel',
       SIGN_WIDTH,
       SIGN_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     const coinIcon = scene.add.image(COIN_OFFSET_X, 0, ATLAS_KEY, 'coin').setScale(COIN_SCALE);
     this.label = scene.add

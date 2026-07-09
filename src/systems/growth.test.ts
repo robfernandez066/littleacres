@@ -33,8 +33,8 @@ describe('growthFraction', () => {
   });
 
   it('uses the growMs of the planted crop', () => {
-    const carrot: GrowingPlot = { state: 'growing', cropId: 'carrot', plantedAt: 0 };
-    expect(growthFraction(carrot, CROPS.carrot.growMs / 4)).toBe(0.25);
+    const starcorn: GrowingPlot = { state: 'growing', cropId: 'starcorn', plantedAt: 0 };
+    expect(growthFraction(starcorn, CROPS.starcorn.growMs / 4)).toBe(0.25);
   });
 });
 
@@ -79,8 +79,8 @@ describe('secondsUntilNextReady (onboarding countdown)', () => {
   it('is null when no plot grows the crop', () => {
     const plots: PlotState[] = [{ state: 'empty' }, { state: 'empty' }];
     expect(secondsUntilNextReady(plots, 'sunwheat', 0)).toBeNull();
-    const carrotOnly: PlotState[] = [{ state: 'growing', cropId: 'carrot', plantedAt: 0 }];
-    expect(secondsUntilNextReady(carrotOnly, 'sunwheat', 0)).toBeNull();
+    const starcornOnly: PlotState[] = [{ state: 'growing', cropId: 'starcorn', plantedAt: 0 }];
+    expect(secondsUntilNextReady(starcornOnly, 'sunwheat', 0)).toBeNull();
   });
 
   it('rounds the remaining time up to whole seconds', () => {
@@ -93,7 +93,7 @@ describe('secondsUntilNextReady (onboarding countdown)', () => {
     const plots: PlotState[] = [
       plot(10_000), // 10s late: ready at GROW + 10_000
       plot(0), // the soonest
-      { state: 'growing', cropId: 'carrot', plantedAt: -CROPS.carrot.growMs }, // ready, wrong crop
+      { state: 'growing', cropId: 'starcorn', plantedAt: -CROPS.starcorn.growMs }, // ready, wrong crop
       { state: 'empty' },
     ];
     expect(secondsUntilNextReady(plots, 'sunwheat', GROW - 5_000)).toBe(5);

@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
@@ -90,7 +90,7 @@ export class SeedBar {
       this.buttons.push(this.buildButton(crop, index, crops.length));
     });
     registerPulseTarget('seed-sunwheat', () => this.seedPulseTarget('sunwheat'));
-    registerPulseTarget('seed-carrot', () => this.seedPulseTarget('carrot'));
+    registerPulseTarget('seed-starcorn', () => this.seedPulseTarget('starcorn'));
     this.refresh();
   }
 
@@ -195,10 +195,10 @@ export class SeedBar {
       'panel',
       BUTTON_WIDTH,
       BUTTON_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     const icon = this.scene.add.image(0, ICON_OFFSET_Y, ATLAS_KEY, crop.stageFrames[2]);
     const nameText = this.scene.add.text(0, NAME_OFFSET_Y, crop.name, NAME_STYLE).setOrigin(0.5);

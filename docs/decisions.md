@@ -37,6 +37,26 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-09 - Coder session policy: /clear by default, marked follow-ups
+**Context:** User asked whether to /clear the coder between tasks or continue sessions.
+**Decision:** Default /clear for every new task (prompts are self-contained by design; stale context carries reversed decisions and dead file states). Exception: small fixes/additions to the just-finished task, where the coder's fresh build context is an asset. PM marks every prompt [FRESH SESSION - /clear first] or [FOLLOW-UP - same session]; unmarked = /clear.
+**Trigger:** User process question.
+
+## 2026-07-09 - Carrot replaced by Starcorn (user pick)
+**Context:** User judged Carrot too mundane beside Sunwheat/Glowberry. Options offered from the GDD Phase 3 crop list; user chose Starcorn (over the PM-recommended Moonroot; the sunwheat-similarity risk was flagged - prompts differentiate via a single thick green stalk with husked star-glint cobs vs sunwheat's thin golden stem cluster).
+**Decision:** Starcorn is the MVP level-2 crop. Same stats (seed 12 / sell 20 / 2m / 5 xp / level 2). GDD MVP table + roadmap T3.1 updated (Starcorn promoted out of Phase 3; Moonroot stays there). Code rename (CropId 'carrot' -> 'starcorn', display names, tutorial copy "4 Starcorn", ORDER B, unit caps) requires a v7 save migration (inventory/seeds keys, plot cropIds, order items) - bundled into the atlas-packing art task since stage frame names change in the same stroke. Until then the game keeps saying Carrot; art generation proceeds as Starcorn now.
+**Trigger:** User crop-flavor review during art generation.
+
+## 2026-07-09 - Art direction decided: AI-generated soft-cartoon pack via Sprixen
+**Context:** User explored AI art generation ahead of the Phase 2 art pass. Three Sprixen test generations (project: cartoon / 512x512 / isometric / pico8 palette): grass tile (soft raised block, fluffy fringe - not retro despite palette quantization), mature sunwheat (excellent, game-defining), young sunwheat sprout (same soil-mound family = stage consistency holds). User upgraded to Sprixen Pro ($15/mo, 200 credits) for the full pack.
+**Decision:** Art style = soft cartoon high-res (GDD-aligned), generated in Sprixen at 512, downscaled to our frame sizes at pack time. PM supplied a 12-prompt kit covering the full frame API (grass w/ flat seamless variant, plot, plot_occupied, three crops x three stages, coin, moondust, panel) plus optional icon extras. Known watch items: grass tiles need flat top-face edge-to-edge variants for seamless tiling (raised-block look reserved for plots); crops carry baked-in soil mounds (fine over plots, regenerate with "no soil" if it doubles up). Workflow: user generates + auditions (2-3 outputs per prompt), saves picks at 512 into tools/art-staging/ (to be gitignored), then a packing task builds the atlas - zero code changes per ASSETS.md.
+**Trigger:** User Sprixen tests.
+
+## 2026-07-09 - Plant sound swap (PM-direct): user-picked shovel
+**Context:** During Phase 1 gate prep the user picked a real planting sound: freesound_community-085296_shovel-36732.mp3 (Pixabay, same license), normal rate, replacing the Kenney impact pop.
+**Decision:** PM-direct swap (copy to assets/audio/plant.mp3, delete plant.ogg, PreloadScene import updated; SFX_DEFS plant entry unchanged - volume 0.7, jitter 0.1, rate 1.0). User verifies with the test trio before committing.
+**Trigger:** User sound pick.
+
 ## 2026-07-09 - T1.12a sound picks finalized by user audition
 **Context:** User auditioned files directly (including a playbackRate preview trick in the browser console) instead of the coder guessing by filename.
 **Decision:** Final palette: tap/menu = footstep_wood_004.ogg at rate 4.0; order fanfare = jingles_PIZZI04.ogg at 1.0; level-up = jingles_PIZZI10.ogg at 1.15 (same instrument family as fanfare, brighter and faster = clean reward hierarchy); harvest = freesound_community-walking-on-dry-leaves-67670.mp3 clipped to its first second VIA PHASER MARKER (no file editing; trim stays tunable in config); bag arrival = universfield-bubble-pop-02-293341.mp3. Plant, coin, and music track unchanged. Process note: user-audition-with-rates is the standing method for all future sound selection.

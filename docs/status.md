@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** Phase 1 gate prep. T1.10a committed (deploy delayed by GitHub Actions incident 2026-07-09, cleared). T1.12a COMMIT verdict issued - awaiting user commit + final audition. Once both are user-confirmed, Phase 1 is closed and the week-long play gate begins
+**Active task:** T2.6 (pulled forward) - real art pack integration (prompt out; Fable5/Opus). User generated and auditioned a full 15-frame Sprixen art set (tools/art-staging). Task bundles: jimp-based atlas packing script, new frame anchoring (tiles with lips, measured 9-slice margins), Carrot -> Starcorn rename + v7 migration, occupied-plot render switch, real moondust icon. After this + user art audition: Phase 1/2-hybrid play gate
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed

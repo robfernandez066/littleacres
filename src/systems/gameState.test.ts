@@ -264,7 +264,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(5);
+    expect(MIGRATIONS).toHaveLength(6);
     const { moondust, orders, onboarding, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -274,7 +274,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(6);
+    expect(state.version).toBe(7);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -295,7 +295,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(6);
+    expect(state.version).toBe(7);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -303,17 +303,17 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a fresh save is created at v6 with moondust 0 and three pending slots', () => {
+  it('a fresh save is created at v7 with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(6);
-    expect(store.getState().version).toBe(6);
+    expect(store.currentVersion).toBe(7);
+    expect(store.getState().version).toBe(7);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(6),
+      ...createDefaultState(7),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -342,7 +342,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(6);
+    expect(store.getState().version).toBe(7);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -363,7 +363,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(6),
+      ...createDefaultState(7),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -386,7 +386,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(6);
+    expect(store.getState().version).toBe(7);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 3,
@@ -397,7 +397,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
   });
 
   it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(6) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(7) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -424,7 +424,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(6);
+    expect(store.getState().version).toBe(7);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -454,7 +454,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
       { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
     ]) {
-      const bad = createDefaultState(6) as unknown as Record<string, unknown>;
+      const bad = createDefaultState(7) as unknown as Record<string, unknown>;
       bad.settings = settings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
       const store = new GameStateStore({ storage });
@@ -467,6 +467,91 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       });
       expect(console.warn).toHaveBeenCalled();
     }
+  });
+});
+
+describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
+  /** A v6-shaped save speaking 'carrot' everywhere saves store crop ids. */
+  function v6CarrotSave(): Record<string, unknown> {
+    const saved = createDefaultState(7) as unknown as Record<string, unknown>;
+    saved.version = 6;
+    saved.coins = 77;
+    saved.xp = 31;
+    saved.level = 2;
+    saved.inventory = { sunwheat: 3, carrot: 4 };
+    saved.seeds = { carrot: 2 };
+    const plots: Record<string, unknown>[] = Array.from({ length: PLOT_COUNT }, () => ({
+      state: 'empty',
+    }));
+    plots[0] = { state: 'growing', cropId: 'carrot', plantedAt: 1_000 };
+    plots[1] = { state: 'growing', cropId: 'sunwheat', plantedAt: 2_000 };
+    saved.plots = plots;
+    saved.orders = [
+      {
+        state: 'open',
+        order: {
+          items: [
+            { cropId: 'carrot', count: 2 },
+            { cropId: 'sunwheat', count: 1 },
+          ],
+          coinReward: 66,
+          xpReward: 17,
+        },
+      },
+      { state: 'cooldown', readyAt: 9_999 },
+      { state: 'pending' },
+    ];
+    return saved;
+  }
+
+  it('renames carrot to starcorn in inventory, seeds, plots, and open orders - nothing else altered', () => {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v6CarrotSave()) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(7);
+    expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
+    expect(state.seeds).toEqual({ starcorn: 2 });
+    expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
+    expect(state.plots[1]).toEqual({ state: 'growing', cropId: 'sunwheat', plantedAt: 2_000 });
+    expect(state.orders[0]).toEqual({
+      state: 'open',
+      order: {
+        items: [
+          { cropId: 'starcorn', count: 2 },
+          { cropId: 'sunwheat', count: 1 },
+        ],
+        coinReward: 66,
+        xpReward: 17,
+      },
+    });
+    expect(state.orders[1]).toEqual({ state: 'cooldown', readyAt: 9_999 });
+    expect(state.orders[2]).toEqual({ state: 'pending' });
+    expect(state.coins).toBe(77);
+    expect(state.xp).toBe(31);
+    expect(state.level).toBe(2);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a carrot-free v6 save migrates untouched apart from the version bump', () => {
+    const saved = createDefaultState(7) as unknown as Record<string, unknown>;
+    saved.version = 6;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(7);
+    expect(store.getState().coins).toBe(50);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a current-version save still speaking carrot resets cleanly (validation, not migration)', () => {
+    const bad = createDefaultState(7) as unknown as Record<string, unknown>;
+    bad.inventory = { carrot: 3 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().inventory).toEqual({});
+    expect(console.warn).toHaveBeenCalled();
   });
 });
 
@@ -550,8 +635,8 @@ describe('plantCrop', () => {
 
   it('fails when the crop is not unlocked yet without mutation', () => {
     const store = new GameStateStore({ storage: null });
-    expect(CROPS.carrot.unlockLevel).toBeGreaterThan(store.getState().level);
-    expect(store.plantCrop(0, 'carrot')).toBe(false);
+    expect(CROPS.starcorn.unlockLevel).toBeGreaterThan(store.getState().level);
+    expect(store.plantCrop(0, 'starcorn')).toBe(false);
     expect(store.getState().coins).toBe(50);
     expect(store.getState().plots[0]).toEqual({ state: 'empty' });
   });
@@ -670,24 +755,24 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(6);
-    expect(isValidState(base, 6)).toBe(true);
+    const base = createDefaultState(7);
+    expect(isValidState(base, 7)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 6)).toBe(true);
+    expect(isValidState(expanded, 7)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(6);
+    const base = createDefaultState(7);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 6)).toBe(false);
+    expect(isValidState(thirteen, 7)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 6)).toBe(false);
+    expect(isValidState(seventeen, 7)).toBe(false);
   });
 });
 
@@ -710,7 +795,7 @@ describe('orders', () => {
   const TEST_ORDER: Order = {
     items: [
       { cropId: 'sunwheat', count: 3 },
-      { cropId: 'carrot', count: 2 },
+      { cropId: 'starcorn', count: 2 },
     ],
     coinReward: 123,
     xpReward: 9,
@@ -721,7 +806,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.inventory = inventory;
     saved.orders[0] = { state: 'open', order };
     return saved;
@@ -758,7 +843,7 @@ describe('orders', () => {
   });
 
   it('fulfillOrder pays exactly the stored rewards, deducts items, and persists', () => {
-    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, carrot: 2 });
+    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 });
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
@@ -770,7 +855,7 @@ describe('orders', () => {
     expect(state.coins).toBe(coinsBefore + TEST_ORDER.coinReward);
     expect(state.xp).toBe(xpBefore + TEST_ORDER.xpReward);
     expect(state.inventory.sunwheat).toBe(2);
-    expect(state.inventory.carrot).toBe(0);
+    expect(state.inventory.starcorn).toBe(0);
     expect(state.orders[0]).toEqual({ state: 'pending' });
 
     const reloaded = new GameStateStore({ storage });
@@ -780,7 +865,7 @@ describe('orders', () => {
   });
 
   it('fulfillOrder fails without mutation when inventory is short on any item', () => {
-    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, carrot: 1 });
+    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 1 });
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
@@ -809,7 +894,7 @@ describe('orders', () => {
     store.load();
     expect(store.fulfillOrder(0)).toBe(true);
     expect(store.getState().level).toBe(2);
-    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['starcorn'] }]);
   });
 
   it('skipOrder puts an open slot on a now()-based cooldown and persists', () => {
@@ -864,7 +949,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -922,13 +1007,13 @@ describe('onboarding', () => {
     expect(store.getState().orders[0]).toEqual({ state: 'open', order: ONBOARDING_ORDER_A });
 
     // 7 deliver-sunwheat: +63 coins, +10 xp -> exactly the 30 xp level-2
-    // threshold; the celebration and carrot reveal fire here by design.
+    // threshold; the celebration and starcorn reveal fire here by design.
     expect(store.fulfillOrder(0)).toBe(true);
     expect(store.getState().coins).toBe(63);
     expect(store.getState().xp).toBe(30);
     expect(store.getState().xp).toBe(xpForLevel(2));
     expect(store.getState().level).toBe(2);
-    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['starcorn'] }]);
     expect(store.getState().inventory.sunwheat).toBe(4);
     // ORDER B immediately replaces slot 0 - open, never pending.
     expect(store.getState().orders[0]).toEqual({ state: 'open', order: ONBOARDING_ORDER_B });
@@ -974,7 +1059,7 @@ describe('onboarding', () => {
     store.notifyOnboardingUiEvent('close-orders-2');
     expect(onboarding().step).toBe(stepIndex('plant-mixed'));
 
-    // 15 plant-mixed: 8 sunwheat then 4 carrots -> exactly 7 coins left,
+    // 15 plant-mixed: 8 sunwheat then 4 starcorn -> exactly 7 coins left,
     // and the tutorial completes permanently.
     for (let i = 0; i < 8; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
     expect(onboarding()).toEqual({
@@ -983,7 +1068,7 @@ describe('onboarding', () => {
       progress: 8,
       progressB: 0,
     });
-    for (let i = 8; i < 12; i++) expect(store.plantCrop(i, 'carrot')).toBe(true);
+    for (let i = 8; i < 12; i++) expect(store.plantCrop(i, 'starcorn')).toBe(true);
     expect(store.getState().coins).toBe(7);
     expect(onboarding()).toEqual({
       completed: true,
@@ -1045,13 +1130,13 @@ describe('onboarding', () => {
   });
 
   it('sell-rest advances on a sunwheat sale but not on other crops', () => {
-    const saved = savedAtStep(9 /* sell-rest */, { inventory: { sunwheat: 4, carrot: 2 } });
+    const saved = savedAtStep(9 /* sell-rest */, { inventory: { sunwheat: 4, starcorn: 2 } });
     saved.level = 2;
     saved.xp = xpForLevel(2);
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.sellCrop('carrot')).toBeGreaterThan(0);
+    expect(store.sellCrop('starcorn')).toBeGreaterThan(0);
     expect(store.getState().onboarding.step).toBe(9);
     expect(store.sellCrop('sunwheat')).toBe(4 * CROPS.sunwheat.sellValue);
     expect(store.getState().onboarding.step).toBe(10);
@@ -1095,9 +1180,9 @@ describe('onboarding', () => {
     for (let i = 1; i <= 9; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
     expect(onboarding()).toEqual({ completed: false, step: 14, progress: 8, progressB: 0 });
 
-    // Carrots still short: not completed until BOTH goals are met.
-    expect(store.plantCrop(10, 'carrot')).toBe(true);
-    expect(store.plantCrop(11, 'carrot')).toBe(true);
+    // Starcorn still short: not completed until BOTH goals are met.
+    expect(store.plantCrop(10, 'starcorn')).toBe(true);
+    expect(store.plantCrop(11, 'starcorn')).toBe(true);
     expect(onboarding()).toEqual({ completed: false, step: 14, progress: 8, progressB: 2 });
   });
 
@@ -1108,7 +1193,7 @@ describe('onboarding', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.plantCrop(0, 'carrot')).toBe(true); // wrong crop, no progress
+    expect(store.plantCrop(0, 'starcorn')).toBe(true); // wrong crop, no progress
     expect(store.getState().onboarding.progress).toBe(0);
     expect(store.plantCrop(1, 'sunwheat')).toBe(true);
     expect(store.getState().onboarding.progress).toBe(1);
@@ -1146,7 +1231,7 @@ describe('onboarding', () => {
     const store = new GameStateStore({ storage });
     store.load();
     store.plantCrop(0, 'sunwheat');
-    store.plantCrop(1, 'carrot');
+    store.plantCrop(1, 'starcorn');
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
     expect(reloaded.getState().onboarding).toEqual({
@@ -1158,7 +1243,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1216,7 +1301,7 @@ describe('onboarding', () => {
   });
 
   it('teaser orders return once onboarding is completed', () => {
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.level = 2;
     saved.xp = xpForLevel(2);
     saved.onboarding = {
@@ -1245,7 +1330,7 @@ describe('leveling', () => {
     store.addXp(xpForLevel(2));
     expect(store.getState().level).toBe(2);
     const events = store.consumeLevelUpEvents();
-    expect(events).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+    expect(events).toEqual([{ level: 2, unlockedCropIds: ['starcorn'] }]);
     expect(store.consumeLevelUpEvents()).toEqual([]);
   });
 
@@ -1254,7 +1339,7 @@ describe('leveling', () => {
     store.addXp(xpForLevel(3));
     expect(store.getState().level).toBe(3);
     expect(store.consumeLevelUpEvents()).toEqual([
-      { level: 2, unlockedCropIds: ['carrot'] },
+      { level: 2, unlockedCropIds: ['starcorn'] },
       { level: 3, unlockedCropIds: ['glowberry'] },
     ]);
   });
@@ -1281,7 +1366,7 @@ describe('leveling', () => {
       harvested++;
     }
     expect(store.getState().level).toBe(2);
-    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['carrot'] }]);
+    expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['starcorn'] }]);
   });
 
   it('level never decreases, and xp catching up after a setLevel jump-ahead queues nothing', () => {
@@ -1369,7 +1454,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1416,12 +1501,12 @@ describe('consumeOfflineSummary ("while you were away")', () => {
           plantedAt: lastSavedAt - CROPS.sunwheat.growMs - 1,
         },
         // This one matures inside the window and should be the only count.
-        { state: 'growing', cropId: 'carrot', plantedAt: lastSavedAt + 1_000 },
+        { state: 'growing', cropId: 'starcorn', plantedAt: lastSavedAt + 1_000 },
         ...Array.from({ length: 10 }, (): PlotState => ({ state: 'empty' })),
       ],
     });
     const store = loadedStore(saved);
-    expect(store.consumeOfflineSummary()?.readyCounts).toEqual({ carrot: 1 });
+    expect(store.consumeOfflineSummary()?.readyCounts).toEqual({ starcorn: 1 });
   });
 
   it('excludes a plot that is still growing (not yet ready)', () => {
@@ -1459,7 +1544,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(6);
+    const saved = createDefaultState(7);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);

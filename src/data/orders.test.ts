@@ -102,17 +102,17 @@ describe('generateOrder', () => {
   });
 
   it('teaser orders appear at roughly TEASER_CHANCE when a next unlock exists', () => {
-    // At level 1 the teaser is carrot (unlockLevel 2).
+    // At level 1 the teaser is starcorn (unlockLevel 2).
     const orders = sampleOrders(1, 2000);
     const teaserCount = orders.filter((order) =>
-      order.items.some((item) => item.cropId === 'carrot'),
+      order.items.some((item) => item.cropId === 'starcorn'),
     ).length;
     const fraction = teaserCount / orders.length;
     expect(fraction).toBeGreaterThan(TEASER_CHANCE - 0.07);
     expect(fraction).toBeLessThan(TEASER_CHANCE + 0.07);
     // A teaser order always pairs the teaser with one unlocked crop.
     for (const order of orders) {
-      if (order.items.some((item) => item.cropId === 'carrot')) {
+      if (order.items.some((item) => item.cropId === 'starcorn')) {
         expect(order.items).toHaveLength(2);
         expect(order.items.some((item) => item.cropId === 'sunwheat')).toBe(true);
       }
@@ -121,17 +121,17 @@ describe('generateOrder', () => {
 
   it('a forced teaser roll pairs one unlocked crop with the next unlock', () => {
     // rng stuck at 0: teaser roll passes, first picks land on index 0,
-    // and the split gives the first item exactly 1 unit (carrot's uncapped).
+    // and the split gives the first item exactly 1 unit (starcorn's uncapped).
     const order = generateOrder(1, () => 0);
     expect(order.items).toEqual([
       { cropId: 'sunwheat', count: 1 },
-      { cropId: 'carrot', count: 2 },
+      { cropId: 'starcorn', count: 2 },
     ]);
     expect(order.coinReward).toBe(
-      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.carrot.sellValue) * ORDER_COIN_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.starcorn.sellValue) * ORDER_COIN_MULTIPLIER),
     );
     expect(order.xpReward).toBe(
-      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.carrot.xp) * ORDER_XP_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.starcorn.xp) * ORDER_XP_MULTIPLIER),
     );
   });
 

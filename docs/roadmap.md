@@ -142,7 +142,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 
 **Goal:** the optimization game begins.
 
-- **T3.1** Crops 4-8 (e.g., Moonroot, Emberpepper, Dewmelon, Sagesprig, Starcorn) with varied time/value curves (config only + art).
+- **T3.1** Crops 4-8 (e.g., Moonroot, Emberpepper, Dewmelon, Sagesprig - Starcorn was promoted to the MVP level-2 crop, replacing Carrot) with varied time/value curves (config only + art).
 - **T3.2** Storage caps: per-category caps (crops), storage building UI, upgrade tiers; offline production respects caps; gentle "storage full" state (never blocks manual harvest into overflow decisions - design detail: harvested crops beyond cap auto-sell at a small discount, so nothing is ever lost).
 - **T3.3** Land expansion system: unlock adjacent grid regions with coins + level gates; overgrowth-clearing reveal animation; mere glow brightens per region (global tint/lighting step).
 - **T3.4** Camera: pinch zoom + pan within unlocked bounds; snap-back at edges; UI stays fixed.

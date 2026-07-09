@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . && prettier --check .",
     "gen:assets": "node tools/gen-assets.mjs",
+    "pack:atlas": "node tools/pack-atlas.mjs",
     "format": "prettier --write .",
     "test": "vitest run"
   },
@@ -20,6 +21,7 @@
     "eslint": "^10.6.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",
+    "jimp": "^1.6.1",
     "prettier": "^3.9.4",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",

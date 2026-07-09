@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH, VILLAGER_POSITION } from '../config';
+import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE, VILLAGER_POSITION } from '../config';
 import { CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
 import type { AudioManager } from '../systems/audio';
@@ -209,10 +209,10 @@ export class OrderBoard {
       'panel',
       PANEL_WIDTH,
       PANEL_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     // Swallow taps on the panel body so they never fall through to the field
     // or seed bar beneath - the buttons drawn on top of the bg still receive
@@ -307,10 +307,10 @@ export class OrderBoard {
       'panel',
       CARD_WIDTH,
       CARD_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
 
     const itemRows: ItemRow[] = ITEM_ROW_YS.map((rowY) => ({
@@ -345,10 +345,10 @@ export class OrderBoard {
       'panel',
       FULFILL_BUTTON_WIDTH,
       FULFILL_BUTTON_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     const fulfillText = this.scene.add
       .text(FULFILL_BUTTON_X, y + FULFILL_BUTTON_Y, 'Fulfill', BUTTON_STYLE)
@@ -361,10 +361,10 @@ export class OrderBoard {
       'panel',
       SKIP_BUTTON_WIDTH,
       SKIP_BUTTON_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     const skipText = this.scene.add
       .text(SKIP_BUTTON_X, y + SKIP_BUTTON_Y, 'Skip', SKIP_STYLE)

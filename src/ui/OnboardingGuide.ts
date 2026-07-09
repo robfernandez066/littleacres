@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import {
   DELIVER_PROGRESS_INSTRUCTION,
   HARVEST_COUNTDOWN_INSTRUCTION,
@@ -88,10 +88,10 @@ export class OnboardingGuide {
       'panel',
       CHIP_WIDTH,
       CHIP_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     this.chipText = scene.add.text(0, 0, '', CHIP_TEXT_STYLE).setOrigin(0.5);
     this.chipContainer.add([chipBg, this.chipText]);
@@ -226,9 +226,9 @@ export class OnboardingGuide {
         return resolvePulseTarget('fulfill-slot-0') ?? resolvePulseTarget('orders-button');
       }
       case 'plant-mixed': {
-        // Walk sunwheat first, then carrots: highlight the needed crop's
+        // Walk sunwheat first, then starcorn: highlight the needed crop's
         // seed button only, until it is selected - never a plot.
-        const needed = state.onboarding.progress < step.goal ? 'seed-sunwheat' : 'seed-carrot';
+        const needed = state.onboarding.progress < step.goal ? 'seed-sunwheat' : 'seed-starcorn';
         return resolvePulseTarget(needed);
       }
       default:

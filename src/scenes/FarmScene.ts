@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import {
+  ATLAS_KEY,
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  TILE_DIAMOND_CENTER_Y,
+  TILE_FRAME_HEIGHT,
+} from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { AudioManager } from '../systems/audio';
@@ -25,6 +31,14 @@ import { SeedBar } from '../ui/SeedBar';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
 const BACKGROUND_COLOR = 0x55913f;
+
+/**
+ * Tile sprite origin: x centered, y at the diamond top face's center - the
+ * frame is taller than the 2:1 diamond because the art's lip/fringe hangs
+ * below it. Positioning stays "tile center at gridToIso(col, row)", so the
+ * grid math and hit-testing are untouched by the taller frame.
+ */
+const TILE_ORIGIN_Y = TILE_DIAMOND_CENTER_Y / TILE_FRAME_HEIGHT;
 
 /**
  * Vertical band (in design pixels) covered by grass tiles. Everything above
@@ -350,7 +364,7 @@ export class FarmScene extends Phaser.Scene {
         const { x, y } = gridToIso(col, row);
         if (y < FIELD_MIN_Y || y > FIELD_MAX_Y) continue;
         if (x < -TILE_WIDTH / 2 || x > DESIGN_WIDTH + TILE_WIDTH / 2) continue;
-        this.add.image(x, y, ATLAS_KEY, 'grass');
+        this.add.image(x, y, ATLAS_KEY, 'grass').setOrigin(0.5, TILE_ORIGIN_Y);
       }
     }
   }
@@ -384,7 +398,7 @@ export class FarmScene extends Phaser.Scene {
   private createPlotVisuals(index: number, rowCount: number): void {
     const { col, row } = this.indexToGrid(index);
     const { x, y } = gridToIso(col, row, rowCount);
-    this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot');
+    this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot').setOrigin(0.5, TILE_ORIGIN_Y);
     const sprite = this.add
       .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
       .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
@@ -422,6 +436,12 @@ export class FarmScene extends Phaser.Scene {
       const plot = plots[index];
       const sprite = this.cropSprites[index];
       if (plot === undefined || sprite === undefined) continue;
+
+      // Occupied plots show the planted-soil tile; frame set only on change,
+      // same pattern as the crop sprite frames below.
+      const tile = this.plotTiles[index];
+      const tileFrame = plot.state === 'growing' ? 'plot_occupied' : 'plot';
+      if (tile !== undefined && tile.frame.name !== tileFrame) tile.setFrame(tileFrame);
 
       if (plot.state === 'empty') {
         // A mid-pop sprite is already reset-and-hidden by the pop's own

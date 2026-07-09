@@ -1,5 +1,5 @@
 /** The three MVP crops. All gameplay numbers live here, never in scene/system logic. */
-export type CropId = 'sunwheat' | 'carrot' | 'glowberry';
+export type CropId = 'sunwheat' | 'starcorn' | 'glowberry';
 
 /** Growth stages per crop: 0 = sprout, 1 = mid, 2 = ready to harvest. */
 export const CROP_STAGES = 3;
@@ -16,7 +16,7 @@ export interface CropDef {
   id: CropId;
   /** Display name (user-facing). */
   name: string;
-  /** Plural display name for counted UI copy ("4 Carrots", "8 Sunwheat"). */
+  /** Plural display name for counted UI copy ("4 Starcorn", "8 Sunwheat"). */
   pluralName: string;
   /** Atlas frame per growth stage, index 0 (sprout) to 2 (ready). */
   stageFrames: readonly [string, string, string];
@@ -45,11 +45,12 @@ export const CROPS: Record<CropId, CropDef> = {
     xp: 2,
     unlockLevel: 1,
   },
-  carrot: {
-    id: 'carrot',
-    name: 'Carrot',
-    pluralName: 'Carrots',
-    stageFrames: ['carrot_0', 'carrot_1', 'carrot_2'],
+  starcorn: {
+    id: 'starcorn',
+    name: 'Starcorn',
+    // Mass-noun plural: "4 Starcorn", never "Starcorns".
+    pluralName: 'Starcorn',
+    stageFrames: ['starcorn_0', 'starcorn_1', 'starcorn_2'],
     seedCost: 12,
     sellValue: 20,
     growMs: 120_000,

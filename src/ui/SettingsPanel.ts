@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -117,10 +117,10 @@ export class SettingsPanel {
       'panel',
       PANEL_WIDTH,
       PANEL_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     // Swallow taps on the panel body so they never fall through to the field
     // beneath - the controls drawn on top still receive their own
@@ -199,13 +199,35 @@ export class SettingsPanel {
 
     const toggleContainer = this.scene.add.container(TOGGLE_X, y);
     const togglePanel = this.scene.add
-      .nineslice(0, 0, ATLAS_KEY, 'panel', TOGGLE_WIDTH, TOGGLE_HEIGHT, 24, 24, 24, 24)
+      .nineslice(
+        0,
+        0,
+        ATLAS_KEY,
+        'panel',
+        TOGGLE_WIDTH,
+        TOGGLE_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
       .setInteractive({ useHandCursor: true });
     const toggleText = this.scene.add.text(0, 0, '', TOGGLE_STYLE).setOrigin(0.5);
     toggleContainer.add([togglePanel, toggleText]);
 
     const track = this.scene.add
-      .nineslice(TRACK_CENTER_X, y, ATLAS_KEY, 'panel', TRACK_WIDTH, TRACK_HEIGHT, 16, 16, 16, 16)
+      .nineslice(
+        TRACK_CENTER_X,
+        y,
+        ATLAS_KEY,
+        'panel',
+        TRACK_WIDTH,
+        TRACK_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
       .setInteractive({ useHandCursor: true });
     const handle = this.scene.add.nineslice(
       TRACK_CENTER_X,
@@ -214,10 +236,10 @@ export class SettingsPanel {
       'panel',
       HANDLE_WIDTH,
       HANDLE_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     handle.setInteractive({
       useHandCursor: true,

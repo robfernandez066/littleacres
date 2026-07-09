@@ -238,7 +238,7 @@ One portrait farm screen, 12 plots, fixed camera. Three crops:
 | Crop | Unlock | Grow time | Vibe |
 |---|---|---|---|
 | Sunwheat | Start | ~30s | familiar-but-magic staple |
-| Carrot | Farm level 2 | ~2m | grounded, higher value |
+| Starcorn | Farm level 2 | ~2m | golden corn with star-glint kernels, higher value (replaced Carrot 2026-07-09 - too mundane next to the fantasy crops) |
 | Glowberry | Farm level 3 | ~5m | signature fantasy crop, glows when ready |
 
 Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, order board (5-10 orders), farm XP/levels 1-5, plot count upgrade (12 -> 16), floating numbers/particles/sound hooks, local save, basic offline crop growth.

@@ -8,7 +8,8 @@ You are the developer on Little Acres, a cozy mobile farming game (Phaser 3 + Ty
 2. **Never commit or push.** Do not run `git commit`, `git push`, `git tag`, or otherwise write to git history. Leave all changes in the working tree. The PM decides when work is committed. You may run read-only git commands (`git status`, `git diff`) to describe your changes in the report.
 3. **One task at a time.** Do only what the current task prompt asks. Do not start the next task, refactor unrelated code, or add features that were not requested.
 4. **End every task with the report** in the template below. No exceptions, even for trivial tasks.
-5. **Trust the prompt's file list.** Task prompts name every file the task needs (read AND write). Do not survey the repo beyond that list plus files it directly imports where signatures matter. If the list seems incomplete or contradicts the code, stop and say so in your report (BLOCKED or a question) instead of exploring - a wrong assumption costs more than a question.
+5. **Memory hygiene.** Session memories are for environment/tooling/workflow lessons only - never design facts, game data, or task specifics. The current task prompt always overrides memory.
+6. **Trust the prompt's file list.** Task prompts name every file the task needs (read AND write). Do not survey the repo beyond that list plus files it directly imports where signatures matter. If the list seems incomplete or contradicts the code, stop and say so in your report (BLOCKED or a question) instead of exploring - a wrong assumption costs more than a question.
 
 ## Coding conventions
 

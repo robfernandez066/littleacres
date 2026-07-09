@@ -88,7 +88,7 @@ export interface GameSettings {
  * First-session tutorial progress. `step` indexes ONBOARDING_STEPS and
  * `progress` counts matching actions within the current step (reset to 0 on
  * every advance). `progressB` is the second counter for the dual-goal
- * plant-mixed step (progress = sunwheat, progressB = carrots); 0 everywhere
+ * plant-mixed step (progress = sunwheat, progressB = starcorn); 0 everywhere
  * else. Once `completed` is true it never flips back.
  */
 export interface OnboardingState {
@@ -198,8 +198,47 @@ const v5ToV6: Migration = (raw) => ({
     : raw.settings,
 });
 
+/** v6 -> v7: renames the 'carrot' crop id to 'starcorn' (see renameCropId). */
+const v6ToV7: Migration = (raw) => renameCropId(raw, 'carrot', 'starcorn');
+
+/**
+ * Rename a crop id everywhere a save stores crop ids: inventory and seeds
+ * keys, growing plots' cropId, and open order slots' item cropIds. Anything
+ * with an unexpected shape is passed through untouched - validation after
+ * the migration chain is the arbiter of bad saves, not the migration.
+ */
+function renameCropId(
+  raw: Record<string, unknown>,
+  from: string,
+  to: string,
+): Record<string, unknown> {
+  const renameKey = (value: unknown): unknown => {
+    if (!isRecord(value) || !(from in value)) return value;
+    const { [from]: count, ...rest } = value;
+    return { ...rest, [to]: count };
+  };
+  const renamePlot = (plot: unknown): unknown =>
+    isRecord(plot) && plot.cropId === from ? { ...plot, cropId: to } : plot;
+  const renameSlot = (slot: unknown): unknown => {
+    if (!isRecord(slot) || slot.state !== 'open' || !isRecord(slot.order)) return slot;
+    const order = slot.order;
+    if (!Array.isArray(order.items)) return slot;
+    const items = order.items.map((item: unknown) =>
+      isRecord(item) && item.cropId === from ? { ...item, cropId: to } : item,
+    );
+    return { ...slot, order: { ...order, items } };
+  };
+  return {
+    ...raw,
+    inventory: renameKey(raw.inventory),
+    seeds: renameKey(raw.seeds),
+    plots: Array.isArray(raw.plots) ? raw.plots.map(renamePlot) : raw.plots,
+    orders: Array.isArray(raw.orders) ? raw.orders.map(renameSlot) : raw.orders,
+  };
+}
+
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6];
+export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -654,7 +693,7 @@ export class GameStateStore {
   /**
    * Count one planting toward the active onboarding step. The single-counter
    * plant steps only accept sunwheat; plant-mixed keeps two capped counters
-   * (progress = sunwheat / goal, progressB = carrots / goalB) and advances
+   * (progress = sunwheat / goal, progressB = starcorn / goalB) and advances
    * only when BOTH goals are met. Callers own the save.
    */
   private trackOnboardingPlant(cropId: CropId): void {
@@ -669,7 +708,7 @@ export class GameStateStore {
     const goalB = step.goalB ?? 0;
     if (cropId === 'sunwheat' && onboarding.progress < step.goal) {
       onboarding.progress++;
-    } else if (cropId === 'carrot' && onboarding.progressB < goalB) {
+    } else if (cropId === 'starcorn' && onboarding.progressB < goalB) {
       onboarding.progressB++;
     } else {
       return;

@@ -53,7 +53,7 @@ export type OnboardingUiEventId =
  */
 export type PulseTargetId =
   | 'seed-sunwheat'
-  | 'seed-carrot'
+  | 'seed-starcorn'
   | 'empty-plot'
   | 'ready-plot'
   | 'orders-button'
@@ -76,7 +76,7 @@ export interface OnboardingStep {
    * highlight - the drag steps (plant-rest, harvest-rest) show the ghost
    * swipe guide instead. Conditional resolution (the deliver step swapping
    * between replant and the order board, seed-button fallbacks, plant-mixed
-   * walking sunwheat then carrot) lives in `OnboardingGuide.resolveTarget`.
+   * walking sunwheat then starcorn) lives in `OnboardingGuide.resolveTarget`.
    */
   pulseTarget: PulseTargetId | null;
 }
@@ -85,7 +85,7 @@ export interface OnboardingStep {
  * ORDER A: the scripted delivery placed into slot 0 when `deliver-sunwheat`
  * begins. Rewards are explicit, NOT the generator formula: the 10 tutorial
  * harvests pay 20 xp, so the +10 here lands the fulfillment at exactly the
- * 30 xp level-2 threshold - the celebration and carrot reveal fire
+ * 30 xp level-2 threshold - the celebration and starcorn reveal fire
  * mid-tutorial by design. Asking for 6 of the 10 held leaves 4 for the
  * sell-rest step.
  */
@@ -99,7 +99,7 @@ export const ONBOARDING_ORDER_A: Order = {
  * ORDER B: replaces slot 0 the moment ORDER A is fulfilled during
  * onboarding, so the board immediately shows the order the plant-mixed step
  * grows toward. Its item counts ARE that step's goals (8 sunwheat, 4
- * carrots) and the review-order chip derives its copy from these items.
+ * starcorn) and the review-order chip derives its copy from these items.
  * Rewards are the standard generator formula, precomputed:
  * coins ceil((8*8 + 4*20) * 1.3) = 188, xp ceil((8*2 + 4*5) * 1.5) = 54.
  * Fulfilling it post-tutorial lands level 3 (and glowberry) naturally.
@@ -107,14 +107,14 @@ export const ONBOARDING_ORDER_A: Order = {
 export const ONBOARDING_ORDER_B: Order = {
   items: [
     { cropId: 'sunwheat', count: 8 },
-    { cropId: 'carrot', count: 4 },
+    { cropId: 'starcorn', count: 4 },
   ],
   coinReward: 188,
   xpReward: 54,
 };
 
 /**
- * User-facing "8 Sunwheat and 4 Carrots" list for an order's items, using
+ * User-facing "8 Sunwheat and 4 Starcorn" list for an order's items, using
  * each crop's configured plural name. The review-order chip derives its copy
  * through this so it always matches the ORDER B config, never a hardcoded
  * string.
@@ -202,7 +202,7 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
   },
   {
     id: 'plant-mixed',
-    instruction: 'Plant 8 Sunwheat and 4 Carrots',
+    instruction: 'Plant 8 Sunwheat and 4 Starcorn',
     goal: 8,
     goalB: 4,
     pulseTarget: 'empty-plot',

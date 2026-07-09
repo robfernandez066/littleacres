@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, DESIGN_WIDTH } from '../config';
+import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { AudioManager } from '../systems/audio';
 import type { GameStateData } from '../systems/gameState';
@@ -129,10 +129,10 @@ export class InventoryPanel {
       'panel',
       PANEL_WIDTH,
       PANEL_HEIGHT,
-      32,
-      32,
-      32,
-      32,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     // Swallow taps on the panel body so they never fall through to the field
     // or seed bar beneath - the buttons drawn on top of the bg still receive
@@ -204,10 +204,10 @@ export class InventoryPanel {
       'panel',
       SELL_BUTTON_WIDTH,
       SELL_BUTTON_HEIGHT,
-      24,
-      24,
-      24,
-      24,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
     );
     const sellText = this.scene.add
       .text(ROW_SELL_BUTTON_X, y, 'Sell all', SELL_BUTTON_STYLE)

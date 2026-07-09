@@ -6,6 +6,7 @@ import {
   DESIGN_WIDTH,
   HUD_COIN_POSITION,
   ORDERS_BUTTON_POSITION,
+  PANEL_SLICE,
 } from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
@@ -50,12 +51,6 @@ const MOONDUST_X = 140;
 const MOONDUST_Y = 230;
 /** Matches COIN_TEXT_OFFSET_X so both counts left-align on their first digit. */
 const MOONDUST_TEXT_OFFSET_X = 60;
-/**
- * Placeholder moondust look: flat blue via setTintFill - a multiplicative
- * setTint can only darken the gold coin (reads brown, never blue). Real
- * moondust icon frame arrives with the T2.6 asset pack.
- */
-const MOONDUST_TINT_FILL = 0x5b8bf5;
 
 const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
@@ -168,10 +163,7 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
-    this.scene.add
-      .image(MOONDUST_X, MOONDUST_Y, ATLAS_KEY, 'coin')
-      .setTintFill(MOONDUST_TINT_FILL)
-      .setDepth(HUD_DEPTH);
+    this.scene.add.image(MOONDUST_X, MOONDUST_Y, ATLAS_KEY, 'moondust').setDepth(HUD_DEPTH);
     this.moondustText = this.scene.add
       .text(MOONDUST_X + MOONDUST_TEXT_OFFSET_X, MOONDUST_Y, '0', CURRENCY_STYLE)
       .setOrigin(0, 0.5)
@@ -182,7 +174,18 @@ export class Hud {
       .container(AUDIO_BUTTON_X, AUDIO_BUTTON_Y)
       .setDepth(HUD_DEPTH);
     const audioPanel = this.scene.add
-      .nineslice(0, 0, ATLAS_KEY, 'panel', AUDIO_BUTTON_WIDTH, AUDIO_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .nineslice(
+        0,
+        0,
+        ATLAS_KEY,
+        'panel',
+        AUDIO_BUTTON_WIDTH,
+        AUDIO_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
       .setInteractive({ useHandCursor: true });
     const audioText = this.scene.add.text(0, 0, 'Audio', AUDIO_BUTTON_STYLE).setOrigin(0.5);
     audioContainer.add([audioPanel, audioText]);
@@ -197,7 +200,18 @@ export class Hud {
       .container(BAG_POSITION.x, BAG_POSITION.y)
       .setDepth(HUD_DEPTH);
     const bagPanel = this.scene.add
-      .nineslice(0, 0, ATLAS_KEY, 'panel', BAG_BUTTON_WIDTH, BAG_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .nineslice(
+        0,
+        0,
+        ATLAS_KEY,
+        'panel',
+        BAG_BUTTON_WIDTH,
+        BAG_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
       .setInteractive({ useHandCursor: true });
     const bagText = this.scene.add.text(0, 0, 'Bag', BAG_STYLE).setOrigin(0.5);
     this.bagContainer.add([bagPanel, bagText]);
@@ -223,7 +237,18 @@ export class Hud {
       .container(ORDERS_BUTTON_POSITION.x, ORDERS_BUTTON_POSITION.y)
       .setDepth(HUD_DEPTH);
     const ordersPanel = this.scene.add
-      .nineslice(0, 0, ATLAS_KEY, 'panel', BAG_BUTTON_WIDTH, BAG_BUTTON_HEIGHT, 24, 24, 24, 24)
+      .nineslice(
+        0,
+        0,
+        ATLAS_KEY,
+        'panel',
+        BAG_BUTTON_WIDTH,
+        BAG_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
       .setInteractive({ useHandCursor: true });
     const ordersText = this.scene.add.text(0, 0, 'Orders', BAG_STYLE).setOrigin(0.5);
     ordersContainer.add([ordersPanel, ordersText]);
