@@ -22,7 +22,13 @@ const config: Phaser.Types.Core.GameConfig = {
   // Cap rendering at 60fps: on high-refresh displays Phaser otherwise renders
   // at the full refresh rate (observed 144fps), wasting GPU on a mostly-static
   // farm and starving the OS compositor (system-wide lag when moving windows).
-  fps: { limit: 60 },
+  // NOT `fps.limit`: TimeStep.stepLimitFPS accumulates delta from rAF ticks and
+  // resets it to 0 (not carrying the remainder) once it crosses the threshold,
+  // so on a 144Hz display (~6.94ms/tick) it only fires every 3rd tick - a real
+  // ~48fps, not 60. `target` + `forceSetTimeOut` instead drives the loop off
+  // setTimeout at the target interval directly, so every step is a real render
+  // at ~60fps (verified against node_modules/phaser/src/core/TimeStep.js).
+  fps: { target: 60, forceSetTimeOut: true },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
