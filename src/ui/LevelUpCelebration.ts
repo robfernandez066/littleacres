@@ -8,13 +8,16 @@ import { buzz } from '../systems/haptics';
 import { ParticleBurst } from './ParticleBurst';
 
 /**
- * Fast, full-screen level-up celebration: a dimmed input-blocking backdrop,
- * a bouncing "Level N!" banner, and (when the level unlocks a crop) a
- * follow-up reveal card per unlocked crop. Multiple queued level-ups play
- * sequentially - one celebration finishes before the next starts.
+ * Fast, full-screen celebration overlay: a dimmed input-blocking backdrop,
+ * a bouncing banner, and follow-up cards. Two kinds ride one queue:
+ * level-ups ("Level N!" plus a reveal card per unlocked crop) and the
+ * one-shot tutorial completion (its own banner copy, then a single card
+ * pointing at the pending order). Queued celebrations play sequentially -
+ * one finishes before the next starts.
  *
  * Driven externally: `FarmScene` drains `gameState.consumeLevelUpEvents()`
- * on its refresh tick and hands the results to `enqueue`.
+ * and `gameState.consumeTutorialCompleteEvent()` on its refresh tick and
+ * hands the results to `enqueue` / `enqueueTutorialComplete`.
  */
 
 /** Above everything, including flying coins/crops (2200). */
@@ -35,6 +38,29 @@ const CARD_ICON_Y = -70;
 const CARD_ICON_SCALE = 1.3;
 const CARD_TEXT_Y = 150;
 
+/** Banner copy wider than this shrinks to fit instead of overflowing. */
+const BANNER_MAX_WIDTH = DESIGN_WIDTH - 80;
+/** Wrap width for the multi-line tutorial card copy. */
+const CARD_TEXT_WRAP_WIDTH = CARD_WIDTH - 80;
+
+/**
+ * Tutorial-complete card geometry: a taller panel with its own vertical
+ * layout (icon high, 4-line copy at center, a "Let's Go!" button below).
+ * Unlock cards keep the original 700x480 layout untouched - `presentCard`
+ * swaps between the two on every show.
+ */
+const TUTORIAL_CARD_HEIGHT = 620;
+const TUTORIAL_CARD_ICON_Y = -190;
+const TUTORIAL_CARD_TEXT_Y = -20;
+const GO_BUTTON_WIDTH = 320;
+const GO_BUTTON_HEIGHT = 90;
+const GO_BUTTON_Y = 230;
+
+const TUTORIAL_BANNER_TEXT = 'Little Acres is yours!';
+const TUTORIAL_CARD_TEXT =
+  "Harvest the field when it's ready and deliver the order. The village is counting on you.";
+const GO_BUTTON_TEXT = "Let's Go!";
+
 const BANNER_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '110px',
@@ -51,8 +77,18 @@ const CARD_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+const GO_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '40px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+/** One queued celebration: a level-up event or the tutorial completion. */
+type CelebrationItem = { kind: 'level-up'; event: LevelUpEvent } | { kind: 'tutorial-complete' };
+
 interface ActiveCelebration {
-  event: LevelUpEvent;
+  item: CelebrationItem;
   stage: 'banner' | 'card';
   cardIndex: number;
 }
@@ -61,10 +97,13 @@ export class LevelUpCelebration {
   private readonly backdrop: Phaser.GameObjects.Rectangle;
   private readonly bannerText: Phaser.GameObjects.Text;
   private readonly cardContainer: Phaser.GameObjects.Container;
+  private readonly cardPanel: Phaser.GameObjects.NineSlice;
   private readonly cardIcon: Phaser.GameObjects.Image;
   private readonly cardText: Phaser.GameObjects.Text;
+  private readonly goButton: Phaser.GameObjects.NineSlice;
+  private readonly goButtonText: Phaser.GameObjects.Text;
 
-  private readonly queue: LevelUpEvent[] = [];
+  private readonly queue: CelebrationItem[] = [];
   private active: ActiveCelebration | null = null;
   private timer: Phaser.Time.TimerEvent | null = null;
 
@@ -110,7 +149,7 @@ export class LevelUpCelebration {
       .container(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2)
       .setDepth(CELEBRATION_DEPTH + 1)
       .setVisible(false);
-    const cardPanel = this.scene.add.nineslice(
+    this.cardPanel = this.scene.add.nineslice(
       0,
       0,
       ATLAS_KEY,
@@ -126,7 +165,51 @@ export class LevelUpCelebration {
       .image(0, CARD_ICON_Y, ATLAS_KEY, CROPS.sunwheat.stageFrames[2])
       .setScale(CARD_ICON_SCALE);
     this.cardText = this.scene.add.text(0, CARD_TEXT_Y, '', CARD_TEXT_STYLE).setOrigin(0.5);
-    this.cardContainer.add([cardPanel, this.cardIcon, this.cardText]);
+
+    // The tutorial card's "Let's Go!" button - hidden for unlock cards
+    // (invisible objects never receive input). Dismissing rides the same
+    // path as the backdrop tap; its own stopPropagation keeps the backdrop
+    // handler (and anything beneath) from double-handling the tap.
+    this.goButton = this.scene.add
+      .nineslice(
+        0,
+        GO_BUTTON_Y,
+        ATLAS_KEY,
+        'panel',
+        GO_BUTTON_WIDTH,
+        GO_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+    this.goButtonText = this.scene.add
+      .text(0, GO_BUTTON_Y, GO_BUTTON_TEXT, GO_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.goButton.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        this.audio.sfx('tap');
+        this.advanceFromCard();
+      },
+    );
+
+    this.cardContainer.add([
+      this.cardPanel,
+      this.cardIcon,
+      this.cardText,
+      this.goButton,
+      this.goButtonText,
+    ]);
   }
 
   /** True while a celebration is queued or playing; callers gate field input on this. */
@@ -137,7 +220,13 @@ export class LevelUpCelebration {
   /** Queue new level-up events; starts playing immediately if nothing else is active. */
   enqueue(events: LevelUpEvent[]): void {
     if (events.length === 0) return;
-    this.queue.push(...events);
+    this.queue.push(...events.map((event): CelebrationItem => ({ kind: 'level-up', event })));
+    if (this.active === null) this.playNext();
+  }
+
+  /** Queue the one-shot tutorial-complete celebration, behind anything already queued. */
+  enqueueTutorialComplete(): void {
+    this.queue.push({ kind: 'tutorial-complete' });
     if (this.active === null) this.playNext();
   }
 
@@ -152,23 +241,32 @@ export class LevelUpCelebration {
   }
 
   private playNext(): void {
-    const event = this.queue.shift();
-    if (event === undefined) {
+    const item = this.queue.shift();
+    if (item === undefined) {
       this.active = null;
       this.hideAll();
       return;
     }
-    this.active = { event, stage: 'banner', cardIndex: 0 };
-    this.showBanner(event);
+    this.active = { item, stage: 'banner', cardIndex: 0 };
+    this.showBanner(item);
   }
 
-  private showBanner(event: LevelUpEvent): void {
+  /** Whether this celebration follows its banner with a card stage. */
+  private hasCards(item: CelebrationItem): boolean {
+    return item.kind === 'tutorial-complete' || item.event.unlockedCropIds.length > 0;
+  }
+
+  private showBanner(item: CelebrationItem): void {
     this.cardContainer.setVisible(false);
     this.backdrop.setVisible(true);
-    this.bannerText.setText(`Level ${event.level}!`).setScale(0).setVisible(true);
+    const copy = item.kind === 'level-up' ? `Level ${item.event.level}!` : TUTORIAL_BANNER_TEXT;
+    this.bannerText.setText(copy).setScale(0).setVisible(true);
+    // Copy wider than the screen shrinks to fit (the tutorial banner; a
+    // "Level N!" always measures under the cap, so its scale stays 1).
+    const fitScale = Math.min(1, BANNER_MAX_WIDTH / this.bannerText.width);
     this.scene.tweens.add({
       targets: this.bannerText,
-      scale: 1,
+      scale: fitScale,
       duration: BANNER_SCALE_IN_MS,
       ease: 'Back.easeOut',
     });
@@ -178,7 +276,7 @@ export class LevelUpCelebration {
     this.audio.sfx('levelup');
 
     this.timer?.remove();
-    const delay = event.unlockedCropIds.length > 0 ? BANNER_TO_CARD_MS : BANNER_AUTO_DISMISS_MS;
+    const delay = this.hasCards(item) ? BANNER_TO_CARD_MS : BANNER_AUTO_DISMISS_MS;
     this.timer = this.scene.time.delayedCall(delay, () => this.advanceFromBanner());
   }
 
@@ -186,7 +284,7 @@ export class LevelUpCelebration {
     if (this.active === null || this.active.stage !== 'banner') return;
     this.timer?.remove();
     this.timer = null;
-    if (this.active.event.unlockedCropIds.length > 0) {
+    if (this.hasCards(this.active.item)) {
       this.active.stage = 'card';
       this.showCard(0);
     } else {
@@ -197,15 +295,38 @@ export class LevelUpCelebration {
   private showCard(index: number): void {
     if (this.active === null) return;
     this.active.cardIndex = index;
-    const cropId = this.active.event.unlockedCropIds[index];
+    const item = this.active.item;
+    if (item.kind === 'tutorial-complete') {
+      // The scroll (Orders) icon points at the pending order the player just
+      // planted for; no auto-dismiss - the tap lets them read.
+      this.presentCard('scroll', TUTORIAL_CARD_TEXT, true);
+      return;
+    }
+    const cropId = item.event.unlockedCropIds[index];
     if (cropId === undefined) {
       this.finishEvent();
       return;
     }
     const crop = CROPS[cropId];
+    this.presentCard(crop.stageFrames[2], `${crop.name} seeds unlocked!`, false);
+  }
+
+  /**
+   * Shared card presentation: per-kind geometry, icon, copy, scale-in. The
+   * tutorial card gets the taller panel with wrapped copy and the button;
+   * unlock cards restore the original single-line 700x480 layout exactly.
+   */
+  private presentCard(iconFrame: string, copy: string, tutorial: boolean): void {
     this.bannerText.setVisible(false);
-    this.cardIcon.setFrame(crop.stageFrames[2]);
-    this.cardText.setText(`${crop.name} seeds unlocked!`);
+    this.cardPanel.setSize(CARD_WIDTH, tutorial ? TUTORIAL_CARD_HEIGHT : CARD_HEIGHT);
+    this.cardIcon.setFrame(iconFrame).setY(tutorial ? TUTORIAL_CARD_ICON_Y : CARD_ICON_Y);
+    this.cardText
+      .setWordWrapWidth(tutorial ? CARD_TEXT_WRAP_WIDTH : null)
+      .setAlign(tutorial ? 'center' : 'left')
+      .setY(tutorial ? TUTORIAL_CARD_TEXT_Y : CARD_TEXT_Y)
+      .setText(copy);
+    this.goButton.setVisible(tutorial);
+    this.goButtonText.setVisible(tutorial);
     this.cardContainer.setScale(0.7).setVisible(true);
     this.scene.tweens.add({
       targets: this.cardContainer,
@@ -217,8 +338,14 @@ export class LevelUpCelebration {
 
   private advanceFromCard(): void {
     if (this.active === null || this.active.stage !== 'card') return;
+    const item = this.active.item;
+    if (item.kind === 'tutorial-complete') {
+      // Single card; any tap finishes the celebration.
+      this.finishEvent();
+      return;
+    }
     const next = this.active.cardIndex + 1;
-    if (next < this.active.event.unlockedCropIds.length) {
+    if (next < item.event.unlockedCropIds.length) {
       this.showCard(next);
     } else {
       this.finishEvent();

@@ -71,7 +71,10 @@ interface SeedButton {
  * Bottom-anchored seed selection bar: one button per crop showing icon, name
  * and seed cost. Locked crops (player level below unlockLevel) are visible
  * but dimmed with a "Lv N" requirement instead of the cost. At most one seed
- * is selected at a time; tapping the selected seed deselects it.
+ * is selected at a time; tapping the selected seed deselects it - except
+ * during the tutorial, where the rails own selection: only the step's crop
+ * is selectable (others dim, alpha only), re-taps never deselect, and a seed
+ * auto-deselects the moment the rails stop allowing it.
  *
  * The bar only renders from and reads `gameState` - it never owns game data.
  */
@@ -123,21 +126,46 @@ export class SeedBar {
   }
 
   /**
-   * Re-derive lock state from the player level. Cheap when nothing changed,
-   * so the scene can call it on its regular refresh tick. Deselects the
-   * current seed if it just became locked.
+   * Re-derive lock state from the player level (cheap when nothing changed)
+   * and the tutorial rails dimming, on the scene's regular refresh tick.
+   * Deselects the current seed if it just became locked.
    */
   refresh(): void {
     this.reassertSelectedScale();
     const level = gameState.getState().level;
-    if (level === this.lastLevel) return;
-    this.lastLevel = level;
-    for (const button of this.buttons) {
-      button.locked = level < button.crop.unlockLevel;
-      this.applyLockVisuals(button);
+    if (level !== this.lastLevel) {
+      this.lastLevel = level;
+      for (const button of this.buttons) {
+        button.locked = level < button.crop.unlockLevel;
+        this.applyLockVisuals(button);
+      }
+      const selectedButton = this.buttons.find((b) => b.crop.id === this.selected);
+      if (selectedButton?.locked === true) this.setSelected(null);
     }
-    const selectedButton = this.buttons.find((b) => b.crop.id === this.selected);
-    if (selectedButton?.locked === true) this.setSelected(null);
+    this.applyRailsGating();
+  }
+
+  /**
+   * Tutorial rails dimming, re-derived EVERY tick (never behind the level
+   * early-out above): the gating changes with the onboarding step and even
+   * within one step (plant-mixed's counters filling). The rules come solely
+   * from the store's `railsAllow` choke point - alpha dim only, the "Lv N"
+   * cost text stays owned by the level lock. Also deselects a seed the
+   * moment it stops being selectable (step change, or its plant-mixed
+   * counter reaching goal), mirroring the became-locked deselect - a stale
+   * selection would otherwise let plot taps reach a step that forbids
+   * planting and trip FarmScene's insufficient-coins nudge, which a blocked
+   * action must never do. Post-tutorial `railsAllow` is always true, so
+   * this pass reduces to the plain locked dim.
+   */
+  private applyRailsGating(): void {
+    for (const button of this.buttons) {
+      const dimmed = button.locked || !gameState.railsAllow('select-seed', button.crop.id);
+      button.container.setAlpha(dimmed ? LOCKED_ALPHA : 1);
+    }
+    if (this.selected !== null && !gameState.railsAllow('select-seed', this.selected)) {
+      this.setSelected(null);
+    }
   }
 
   /**
@@ -230,6 +258,12 @@ export class SeedBar {
   private onTap(cropId: CropId): void {
     const button = this.buttons.find((b) => b.crop.id === cropId);
     if (button === undefined || button.locked) return;
+    // Tutorial rails: taps on a seed the current step does not call for are
+    // silent no-ops, exactly like locked taps.
+    if (!gameState.railsAllow('select-seed', cropId)) return;
+    // Re-tapping the selected seed never deselects during the tutorial - the
+    // rails would leave nothing actionable selected.
+    if (!gameState.getState().onboarding.completed && this.selected === cropId) return;
     // One click per accepted tap, select or deselect; locked taps stay silent.
     this.audio.sfx('tap');
     this.setSelected(this.selected === cropId ? null : cropId);
@@ -248,9 +282,10 @@ export class SeedBar {
     }
   }
 
+  /** Icon tint and cost/level text for the level lock. The container alpha
+   * is owned by `applyRailsGating` (locked OR rails-dimmed), never here. */
   private applyLockVisuals(button: SeedButton): void {
     if (button.locked) {
-      button.container.setAlpha(LOCKED_ALPHA);
       button.icon.setTint(LOCKED_ICON_TINT);
       button.coinIcon.setVisible(false);
       button.costText
@@ -259,7 +294,6 @@ export class SeedBar {
         .setOrigin(0.5)
         .setX(0);
     } else {
-      button.container.setAlpha(1);
       button.icon.clearTint();
       button.coinIcon.setVisible(true);
       button.costText

@@ -72,6 +72,9 @@ const AUDIO_BUTTON_HEIGHT = 80;
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
 
+/** Rails-inert buttons dim like the seed bar's locked buttons (alpha 0.5). */
+const BUTTON_INERT_ALPHA = 0.5;
+
 const SELL_HAPTIC_MS = 12;
 const SELL_LABEL_OFFSET_Y = -70;
 
@@ -116,6 +119,12 @@ export class Hud {
   private readonly xpBarFill: Phaser.GameObjects.Rectangle;
   private readonly moondustText: Phaser.GameObjects.Text;
   private readonly bagContainer: Phaser.GameObjects.Container;
+  private readonly bagPanel: Phaser.GameObjects.NineSlice;
+  private readonly ordersContainer: Phaser.GameObjects.Container;
+  private readonly ordersPanel: Phaser.GameObjects.NineSlice;
+  /** Cached rails gating so interactivity/alpha only toggle on change. */
+  private bagEnabled = true;
+  private ordersEnabled = true;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
   private readonly orderBoard: OrderBoard;
@@ -203,7 +212,7 @@ export class Hud {
     this.bagContainer = this.scene.add
       .container(BAG_POSITION.x, BAG_POSITION.y)
       .setDepth(HUD_DEPTH);
-    const bagPanel = this.scene.add
+    this.bagPanel = this.scene.add
       .nineslice(
         0,
         0,
@@ -217,17 +226,17 @@ export class Hud {
         PANEL_SLICE,
       )
       .setInteractive({ useHandCursor: true });
-    this.bagContainer.add(bagPanel);
+    this.bagContainer.add(this.bagPanel);
     this.addIconLabel(this.bagContainer, 'bag', 'Bag', BAG_STYLE);
-    bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.orderBoard.hide();
       this.settingsPanel.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
     // The container is safe for the guide to scale-breathe: its only other
-    // scale state is the short arrival bounce, which cannot overlap the
-    // open-bag step's highlight in the tutorial flow.
+    // scale state is the short arrival bounce. No current step targets the
+    // bag; the registration stays for future chains.
     registerPulseTarget('bag-button', () => ({
       x: BAG_POSITION.x,
       y: BAG_POSITION.y,
@@ -237,10 +246,10 @@ export class Hud {
     }));
 
     // Orders button: same styling as the bag, stacked directly below it.
-    const ordersContainer = this.scene.add
+    this.ordersContainer = this.scene.add
       .container(ORDERS_BUTTON_POSITION.x, ORDERS_BUTTON_POSITION.y)
       .setDepth(HUD_DEPTH);
-    const ordersPanel = this.scene.add
+    this.ordersPanel = this.scene.add
       .nineslice(
         0,
         0,
@@ -254,9 +263,9 @@ export class Hud {
         PANEL_SLICE,
       )
       .setInteractive({ useHandCursor: true });
-    ordersContainer.add(ordersPanel);
-    this.addIconLabel(ordersContainer, 'scroll', 'Orders', BAG_STYLE);
-    ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.ordersContainer.add(this.ordersPanel);
+    this.addIconLabel(this.ordersContainer, 'scroll', 'Orders', BAG_STYLE);
+    this.ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.inventoryPanel.hide();
       this.settingsPanel.hide();
@@ -268,7 +277,7 @@ export class Hud {
       y: ORDERS_BUTTON_POSITION.y,
       width: BAG_BUTTON_WIDTH,
       height: BAG_BUTTON_HEIGHT,
-      object: ordersContainer,
+      object: this.ordersContainer,
     }));
 
     this.cropArc = new CropArc(this.scene);
@@ -354,26 +363,52 @@ export class Hud {
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 
+    this.applyRailsGating();
+
     // Onboarding's panel steps: observed panel state is notified every tick
     // (not just on the tap), so a panel already in the required state when
     // its step begins still counts - including one closed via the X button
     // during a "tap outside" step. Cheap no-ops whenever the step is not
-    // active. The board drives three step pairs: open-orders/close-orders,
-    // check-orders/review-order (review-order also completes on an early
-    // board close, ahead of its read-dwell - see REVIEW_ORDER_DWELL_MS), and
-    // the explicit close-orders-2 revisit after that dwell.
+    // active. On a board-closed observation, review-order fires before
+    // close-orders so an early close (ahead of the read-dwell - see
+    // REVIEW_ORDER_DWELL_MS) advances both back to back and neither step
+    // can wedge.
     if (this.orderBoard.isVisible()) {
       gameState.notifyOnboardingUiEvent('open-orders');
-      gameState.notifyOnboardingUiEvent('check-orders');
     } else {
-      gameState.notifyOnboardingUiEvent('close-orders');
       gameState.notifyOnboardingUiEvent('review-order');
-      gameState.notifyOnboardingUiEvent('close-orders-2');
+      gameState.notifyOnboardingUiEvent('close-orders');
     }
-    if (this.inventoryPanel.isVisible()) {
-      gameState.notifyOnboardingUiEvent('open-bag');
-    } else {
-      gameState.notifyOnboardingUiEvent('close-bag');
+  }
+
+  /**
+   * Tutorial rails on the HUD buttons, from the store's railsAllow choke
+   * point (no rules here): the bag is inert and dimmed for the whole
+   * tutorial, the Orders button only lives during the board-facing steps.
+   * The cached flags keep the per-tick work to two boolean checks;
+   * interactivity and alpha only change on a transition. Post-tutorial both
+   * are always allowed, so this never touches them again.
+   */
+  private applyRailsGating(): void {
+    const bagAllowed = gameState.railsAllow('bag-button');
+    if (bagAllowed !== this.bagEnabled) {
+      this.bagEnabled = bagAllowed;
+      this.bagContainer.setAlpha(bagAllowed ? 1 : BUTTON_INERT_ALPHA);
+      if (bagAllowed) {
+        this.bagPanel.setInteractive({ useHandCursor: true });
+      } else {
+        this.bagPanel.disableInteractive();
+      }
+    }
+    const ordersAllowed = gameState.railsAllow('orders-button');
+    if (ordersAllowed !== this.ordersEnabled) {
+      this.ordersEnabled = ordersAllowed;
+      this.ordersContainer.setAlpha(ordersAllowed ? 1 : BUTTON_INERT_ALPHA);
+      if (ordersAllowed) {
+        this.ordersPanel.setInteractive({ useHandCursor: true });
+      } else {
+        this.ordersPanel.disableInteractive();
+      }
     }
   }
 

@@ -2,9 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import {
-  DELIVER_PROGRESS_INSTRUCTION,
   HARVEST_COUNTDOWN_INSTRUCTION,
-  ONBOARDING_ORDER_A,
   ONBOARDING_STEPS,
   type OnboardingStep,
 } from '../data/onboarding';
@@ -213,18 +211,11 @@ export class OnboardingGuide {
     switch (step.id) {
       case 'plant-first':
         return resolvePulseTarget('seed-sunwheat') ?? resolvePulseTarget('empty-plot');
-      case 'deliver-sunwheat': {
-        if (!this.isDeliveryCovered(state)) {
-          // The board's close (X) is only a valid target while it's open -
-          // closing it IS the next action then. Otherwise glow the sunwheat
-          // seed button while more is needed and it isn't selected yet; no
-          // plot fallback (no highlight once it's selected).
-          return resolvePulseTarget('orders-close') ?? resolvePulseTarget('seed-sunwheat');
-        }
-        // Enough sunwheat: the board's Fulfill button if it is open, else the
-        // Orders button to get there.
+      case 'deliver-sunwheat':
+        // The rails guarantee the 10 harvested sunwheat are still held, so
+        // the delivery is always covered: the board's Fulfill button if it
+        // is open, else the Orders button to get there.
         return resolvePulseTarget('fulfill-slot-0') ?? resolvePulseTarget('orders-button');
-      }
       case 'plant-mixed': {
         // Walk sunwheat first, then starcorn: highlight the needed crop's
         // seed button only, until it is selected - never a plot.
@@ -239,20 +230,12 @@ export class OnboardingGuide {
     }
   }
 
-  /** Whether ORDER A (the scripted delivery) is already covered by inventory. */
-  private isDeliveryCovered(state: GameStateData): boolean {
-    return ONBOARDING_ORDER_A.items.every(
-      (item) => (state.inventory[item.cropId] ?? 0) >= item.count,
-    );
-  }
-
   /**
    * The chip string for the current step. harvest-first counts down to the
-   * soonest-ready sunwheat while none is ripe; deliver-sunwheat swaps in
-   * `DELIVER_PROGRESS_INSTRUCTION` with a live n/6 count while ORDER A isn't
-   * covered yet; plant-mixed shows both live counters. Everything else is
-   * the step's plain instruction (review-order's is derived from the ORDER B
-   * config at module init).
+   * soonest-ready sunwheat while none is ripe; plant-mixed shows both live
+   * counters. Everything else is the step's plain instruction (review-order's
+   * is derived from the ORDER B config at module init) - including
+   * deliver-sunwheat, whose inventory is always covered under the rails.
    */
   private resolveChipText(step: OnboardingStep, state: GameStateData): string {
     switch (step.id) {
@@ -260,14 +243,6 @@ export class OnboardingGuide {
         const seconds = secondsUntilNextReady(state.plots, 'sunwheat', now());
         if (seconds !== null && seconds > 0) {
           return `${HARVEST_COUNTDOWN_INSTRUCTION} ${seconds}s`;
-        }
-        return step.instruction;
-      }
-      case 'deliver-sunwheat': {
-        const item = ONBOARDING_ORDER_A.items[0];
-        if (item !== undefined && !this.isDeliveryCovered(state)) {
-          const have = Math.min(state.inventory[item.cropId] ?? 0, item.count);
-          return `${DELIVER_PROGRESS_INSTRUCTION} - ${have}/${item.count}`;
         }
         return step.instruction;
       }

@@ -1,15 +1,31 @@
 import { describe, expect, it } from 'vitest';
 
-import { ONBOARDING_ORDER_B, ONBOARDING_STEPS, orderItemsText } from './onboarding';
+import {
+  ONBOARDING_ORDER_A,
+  ONBOARDING_ORDER_B,
+  ONBOARDING_STEPS,
+  orderItemsText,
+} from './onboarding';
 
 describe('onboarding step chain', () => {
-  it('is 15 steps with the order-review chain between close-bag and plant-mixed', () => {
-    expect(ONBOARDING_STEPS).toHaveLength(15);
-    const ids = ONBOARDING_STEPS.map((step) => step.id);
-    expect(ids.indexOf('check-orders')).toBe(ids.indexOf('close-bag') + 1);
-    expect(ids.indexOf('review-order')).toBe(ids.indexOf('check-orders') + 1);
-    expect(ids.indexOf('close-orders-2')).toBe(ids.indexOf('review-order') + 1);
-    expect(ids.indexOf('plant-mixed')).toBe(ids.indexOf('close-orders-2') + 1);
+  it('is exactly the 10-step full-rails chain, in order', () => {
+    expect(ONBOARDING_STEPS.map((step) => step.id)).toEqual([
+      'select-sunwheat',
+      'plant-first',
+      'plant-rest',
+      'harvest-first',
+      'harvest-rest',
+      'open-orders',
+      'deliver-sunwheat',
+      'review-order',
+      'close-orders',
+      'plant-mixed',
+    ]);
+  });
+
+  it('ORDER A pays the 95 coins that fund the plant-mixed step without selling', () => {
+    expect(ONBOARDING_ORDER_A.coinReward).toBe(95);
+    expect(ONBOARDING_ORDER_A.xpReward).toBe(10);
   });
 
   it('derives the review-order chip copy from the ORDER B config', () => {

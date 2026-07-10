@@ -3,9 +3,11 @@ import type { Order } from './orders';
 
 /**
  * Quest-driven onboarding config: the ordered step chain that walks a fresh
- * save through one full guided session (plant, harvest, deliver, sell,
- * review the next order, replant mixed), plus the two scripted orders. All
- * tunables live here, never in scene/system logic.
+ * save through one full guided session (plant, harvest, deliver, review the
+ * next order, replant mixed), plus the two scripted orders. All tunables
+ * live here, never in scene/system logic. While the chain runs, the game is
+ * on FULL RAILS: `GameStateStore.railsAllow` silently rejects every action
+ * the current step does not call for.
  */
 
 export type OnboardingStepId =
@@ -16,35 +18,23 @@ export type OnboardingStepId =
   | 'harvest-rest'
   | 'open-orders'
   | 'deliver-sunwheat'
-  | 'close-orders'
-  | 'open-bag'
-  | 'sell-rest'
-  | 'close-bag'
-  | 'check-orders'
   | 'review-order'
-  | 'close-orders-2'
+  | 'close-orders'
   | 'plant-mixed';
 
 /**
- * The subset of steps advanced by UI events (seed selection, panels opening
- * or closing) via `notifyOnboardingUiEvent`, rather than by store actions.
- * The open/close events are tick-notified from observed panel state, so a
- * panel already in the required state when its step begins still counts.
- * `check-orders` completes when the order board opens (like `open-orders`);
- * `review-order` also completes the moment the board closes (an early close,
- * before its read-dwell elapses - see `REVIEW_ORDER_DWELL_MS`), and
- * `close-orders-2` completes on the same board-closed observation, like
- * `close-orders` - unconditionally, so neither step can ever wedge.
+ * The subset of steps advanced by UI events (seed selection, the order board
+ * opening or closing) via `notifyOnboardingUiEvent`, rather than by store
+ * actions. The open/close events are tick-notified from observed panel
+ * state, so a panel already in the required state when its step begins still
+ * counts. `review-order` also completes the moment the board closes (an
+ * early close, before its read-dwell elapses - see `REVIEW_ORDER_DWELL_MS`);
+ * the notifier fires `review-order` then `close-orders` back to back on a
+ * board-closed observation, so an early close advances both and neither
+ * step can ever wedge.
  */
 export type OnboardingUiEventId =
-  | 'select-sunwheat'
-  | 'open-orders'
-  | 'close-orders'
-  | 'open-bag'
-  | 'close-bag'
-  | 'check-orders'
-  | 'review-order'
-  | 'close-orders-2';
+  'select-sunwheat' | 'open-orders' | 'review-order' | 'close-orders';
 
 /**
  * Ids in the pulse-target registry (see systems/pulseTargets.ts). SeedBar,
@@ -74,8 +64,8 @@ export interface OnboardingStep {
   /**
    * Nominal pulse target; null means the step never shows the glow
    * highlight - the drag steps (plant-rest, harvest-rest) show the ghost
-   * swipe guide instead. Conditional resolution (the deliver step swapping
-   * between replant and the order board, seed-button fallbacks, plant-mixed
+   * swipe guide instead. Conditional resolution (seed-button fallbacks, the
+   * deliver step preferring the open board's Fulfill button, plant-mixed
    * walking sunwheat then starcorn) lives in `OnboardingGuide.resolveTarget`.
    */
   pulseTarget: PulseTargetId | null;
@@ -86,12 +76,14 @@ export interface OnboardingStep {
  * begins. Rewards are explicit, NOT the generator formula: the 10 tutorial
  * harvests pay 20 xp, so the +10 here lands the fulfillment at exactly the
  * 30 xp level-2 threshold - the celebration and starcorn reveal fire
- * mid-tutorial by design. Asking for 6 of the 10 held leaves 4 for the
- * sell-rest step.
+ * mid-tutorial by design. The 95 coins fund the plant-mixed step with no
+ * selling (the rails forbid it): start 50 -> plant 10 sunwheat (-50) -> 0
+ * coins -> harvest 10 -> deliver 6 (+95) -> 95 coins, 4 sunwheat held ->
+ * plant 8 sunwheat + 4 starcorn (-88) -> tutorial done with 7 coins.
  */
 export const ONBOARDING_ORDER_A: Order = {
   items: [{ cropId: 'sunwheat', count: 6 }],
-  coinReward: 63,
+  coinReward: 95,
   xpReward: 10,
 };
 
@@ -169,33 +161,13 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     pulseTarget: 'orders-button',
   },
   {
-    id: 'close-orders',
-    instruction: 'Tap outside the window to close it',
-    goal: 1,
-    pulseTarget: null,
-  },
-  { id: 'open-bag', instruction: 'Open your Bag', goal: 1, pulseTarget: 'bag-button' },
-  {
-    id: 'sell-rest',
-    instruction: 'Sell your remaining Sunwheat',
-    goal: 1,
-    pulseTarget: 'sell-sunwheat',
-  },
-  { id: 'close-bag', instruction: 'Tap outside to close', goal: 1, pulseTarget: null },
-  {
-    id: 'check-orders',
-    instruction: 'Check your Orders again',
-    goal: 1,
-    pulseTarget: 'orders-button',
-  },
-  {
     id: 'review-order',
     instruction: `This order needs ${orderItemsText(ONBOARDING_ORDER_B)}`,
     goal: 1,
     pulseTarget: 'order-card-0',
   },
   {
-    id: 'close-orders-2',
+    id: 'close-orders',
     instruction: 'Tap outside the window to close it',
     goal: 1,
     pulseTarget: null,
@@ -208,13 +180,6 @@ export const ONBOARDING_STEPS: readonly OnboardingStep[] = [
     pulseTarget: 'empty-plot',
   },
 ];
-
-/**
- * Shown instead of the deliver-sunwheat step's `instruction` while ORDER A is
- * not yet covered by inventory; `OnboardingGuide` appends " - n/6". Once
- * covered, the chip switches back to the step's normal instruction.
- */
-export const DELIVER_PROGRESS_INSTRUCTION = 'Grow more Sunwheat';
 
 /**
  * Shown instead of the harvest-first step's `instruction` while no sunwheat

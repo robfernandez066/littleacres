@@ -4,7 +4,7 @@ import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE, VILLAGER_POSITION } from '../conf
 import { CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
 import type { AudioManager } from '../systems/audio';
-import type { GameStateData } from '../systems/gameState';
+import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { registerPoolStats } from '../systems/pool';
 import { registerPulseTarget } from '../systems/pulseTargets';
@@ -18,7 +18,8 @@ import { PooledArc } from './PooledArc';
  * rewards, and Fulfill/Skip buttons; a cooldown card counts down to its next
  * order. Toggled by the HUD's Orders button; renders purely from the
  * `GameStateData` passed to `refresh` (cooldown seconds derive from `now()`
- * on the scene's 250ms refresh tick).
+ * on the scene's 250ms refresh tick), plus the store's tutorial-rails
+ * `railsAllow` query for the Skip buttons' dim/inert state.
  *
  * State mutation happens in the HUD's callbacks, never here; this class owns
  * only board visuals, including the fulfilled-goods flight to the villager.
@@ -488,6 +489,18 @@ export class OrderBoard {
       card.fulfillButton.setInteractive({ useHandCursor: true });
     } else {
       card.fulfillButton.disableInteractive();
+    }
+
+    // Tutorial rails: skipping is never a tutorial action, so the Skip
+    // buttons dim and go inert for the whole run (the store rejects the
+    // mutation too - this is only the visual half).
+    const skipAllowed = gameState.railsAllow('skip');
+    card.skipButton.setAlpha(skipAllowed ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
+    card.skipText.setAlpha(skipAllowed ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
+    if (skipAllowed) {
+      card.skipButton.setInteractive({ useHandCursor: true });
+    } else {
+      card.skipButton.disableInteractive();
     }
   }
 

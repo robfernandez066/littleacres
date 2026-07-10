@@ -184,11 +184,12 @@ export class FarmScene extends Phaser.Scene {
     if (this.seedBar.getSelected() === 'sunwheat') {
       gameState.notifyOnboardingUiEvent('select-sunwheat');
     }
-    // Anti-stuck guard for sell-rest and the review-order read-dwell
-    // (store-side logic; the scene only provides the tick).
+    // The review-order read-dwell auto-advance (store-side logic; the scene
+    // only provides the tick).
     gameState.autoAdvanceOnboarding();
     this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
+    if (gameState.consumeTutorialCompleteEvent()) this.levelUpCelebration.enqueueTutorialComplete();
     this.expandSign.refresh(gameState.getState());
   }
 

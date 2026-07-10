@@ -261,6 +261,10 @@ Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, or
 
 ---
 
+## 11a. Parked future concepts
+
+- **Mine scene** (2026-07-10): daily rapid-mine mini-game (unfailable, juice-driven, participation-rewarded per pillar 2 and the avoided-verbs list), mine XP/levels, random material drops, AFK yields scaling with mine level + rare-material odds. Materials feed the building/tool upgrade gates in section 6. Daily cadence is bonus-only - no streaks, no FOMO. Post-Phase-6 candidate; details in roadmap "Parked concepts."
+
 ## 12. Open Questions (for future rounds)
 
 - Exact farm-level curve and coin economy numbers (needs a balancing spreadsheet once MVP is playable)

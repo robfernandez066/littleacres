@@ -133,8 +133,15 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T2.4** Offline summary v2: collect-all button, coins/XP earned display, capped-at line item (future-proofing for storage).
 - **T2.5** Moondust earning: awarded on level-up and rare harvest procs (config-driven rare variant: e.g., 2% Radiant crop = 5x value + sparkle burst + Moondust chance). No sinks yet beyond a "coming soon" shop tab.
 - **T2.6** Real asset pack integration: purchase/import isometric farm pack, swap placeholders, document palette/scale rules in `ASSETS.md`. Include an occupied-plot tile variant: empty plots keep the tilled multi-square look, but a plot with something planted should read differently (gradient or solid brown dirt). Requires a new atlas frame (e.g. `plot_occupied`) and a one-line render switch in FarmScene keyed on plot state (user request, 2026-07-07). Also needs a dedicated `moondust` icon frame - the HUD currently flat-tints the coin frame blue as a placeholder (user request, 2026-07-08).
-- **T2.7** SFX/music v2: sourced or licensed lo-fi loop + polished big-four SFX.
+- **T2.7** SFX/music v2: sourced or licensed lo-fi loop + polished big-four SFX. Coin fly-in sound flagged weak in the Phase 1 gate notes - replacement chosen by user audition (standing method).
 - **T2.8** Performance pass: profiling on a real mid-range phone, pooling audit, texture memory check.
+- **T2.9** Tutorial rails (from Phase 1 gate notes): full lock - only the current step's action works; sell/bag steps removed; chain 15 -> 10; Order A reward 63 -> 95; plant-mixed per-crop caps; v8 migration.
+- **T2.10** "While you were away" redesign (gate notes): "While You Were Away for X Hr Y min" title, per-crop "n Crop Ready" lines, Confirm button, sweep-hint line removed.
+- **T2.11** Dynamic order-card layout (gate notes): 1 item type = large centered, 2 = centered pair, 3 = smaller single row.
+- **T2.12** Order-skip cooldown escalation (gate notes): 3s base, ~5x per skip, 10min cap, counter resets when last skip >6h old; all config; schema bump for persisted skip state.
+- **T2.13** HUD theming pass (user note 2026-07-10): unify the top UI into a themed holder (currently a loose assortment - coin, moondust, Audio, Bag, Orders as mismatched floating panels) and re-skin the level number + xp bar to match. Audio demotes to a corner settings gear. Needs new atlas frames (HUD banner/plaque, xp bar frame + fill, gear icon) via the Sprixen workflow; PM mockups first, user auditions art before the code task.
+- **T2.14** Crop tap countdown (user note 2026-07-10): tapping a growing-but-not-ready crop shows a big readable live countdown above that plot; pooled, one active at a time, auto-hides. Fills the currently-silent tap on unready plots.
+- **T2.15** Seed info button (user note 2026-07-10): "i" on seed bar buttons opens an info card with grow time, seed cost, sell value, xp, and a flavor line (new CropDef field; PM writes copy, user approves). Card pattern designed to be reused by Phase 4 processed goods/recipes.
 
 ---
 
@@ -158,7 +165,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T4.1** Building placement system on grid (hybrid layout: buildings occupy tiles, movable in edit mode).
 - **T4.2** First processors: Mill (Sunwheat -> Sunflour), Preserve Pot (Glowberry -> Glowjam); queue-based, timestamp timers, collect on tap (no dragging goods - inputs auto-pull from storage).
 - **T4.3** Processed goods in economy: higher value, requested by orders; recipe unlock reveals.
-- **T4.4** Order board v3: mixed raw + processed orders; premium timed orders (opt-in, bonus-only, clearly marked; expiring quietly replaces them - no failure sting).
+- **T4.4** Order board v3: mixed raw + processed orders; premium timed orders (opt-in, bonus-only, clearly marked; expiring quietly replaces them - no failure sting). Concept from Phase 1 gate notes: orders with 4+ item types don't fit the card layout - consider a separate "Major Shipments" system delivered by a special building (magical delivery balloon/train) instead of cramming the board.
 - **T4.5** Building upgrade tiers (speed, queue slots).
 - **T4.6** Mystery merchant: occasional visitor with rotating Moondust/coin offers (rare seeds, boosts, decorations preview).
 
@@ -204,6 +211,11 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T8.5** Monetization decision point: if pursued, rewarded ads only at first (chest re-roll, boost extension), designed as bonus - never gating the base loop.
 
 ---
+
+## Parked concepts (not scheduled; revisit at phase gates)
+
+- **Mine scene** (user pitch, 2026-07-10): a second scene with a daily rapid-mine mini-game (simple, satisfying, deliberately UNFAILABLE - GDD forbids skill/timing requirements; rewards scale with participation, not performance). Grants mine XP + random materials; mine levels raise AFK material yields and rare-material odds. Materials become the supply for building/tool upgrade gates already reserved in the GDD economy. Daily cadence must be bonus-framed: no streaks, no loss for missed days. Earliest sensible slot: Phase 6+ (wants buildings, storage caps, and the offline-production framework to exist first).
+- **Major Shipments** - see T4.4 note.
 
 ## Sequencing Notes
 

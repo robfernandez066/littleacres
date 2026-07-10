@@ -98,6 +98,23 @@ export interface OnboardingState {
   progressB: number;
 }
 
+/**
+ * Everything the tutorial rails gate (see `GameStateStore.railsAllow`). The
+ * first six mirror the store mutators; the last three are the UI queries
+ * (SeedBar seed taps, the HUD's Orders/Bag buttons) so their gating shares
+ * the exact same rules instead of duplicating them.
+ */
+export type RailsAction =
+  | 'plant'
+  | 'harvest'
+  | 'sell'
+  | 'fulfill'
+  | 'skip'
+  | 'expand'
+  | 'select-seed'
+  | 'orders-button'
+  | 'bag-button';
+
 /** One level gained, and any crops newly unlocked at exactly that level. */
 export interface LevelUpEvent {
   level: number;
@@ -202,6 +219,26 @@ const v5ToV6: Migration = (raw) => ({
 const v6ToV7: Migration = (raw) => renameCropId(raw, 'carrot', 'starcorn');
 
 /**
+ * v7 -> v8: the tutorial chain was redesigned (15 steps -> 10) alongside the
+ * full-rails enforcement, so old mid-chain step indices are meaningless and
+ * a diverged save could wedge against the rails. Any save parked mid-chain
+ * (started but not finished) skips the tutorial permanently; a step-0 save
+ * keeps its fresh tutorial, and everything else passes through untouched.
+ */
+const v7ToV8: Migration = (raw) => {
+  const onboarding = raw.onboarding;
+  if (
+    isRecord(onboarding) &&
+    onboarding.completed === false &&
+    typeof onboarding.step === 'number' &&
+    onboarding.step > 0
+  ) {
+    return { ...raw, onboarding: { ...onboarding, completed: true } };
+  }
+  return raw;
+};
+
+/**
  * Rename a crop id everywhere a save stores crop ids: inventory and seeds
  * keys, growing plots' cropId, and open order slots' item cropIds. Anything
  * with an unexpected shape is passed through untouched - validation after
@@ -238,7 +275,15 @@ function renameCropId(
 }
 
 /** The real migration list. */
-export const MIGRATIONS: readonly Migration[] = [v1ToV2, v2ToV3, v3ToV4, v4ToV5, v5ToV6, v6ToV7];
+export const MIGRATIONS: readonly Migration[] = [
+  v1ToV2,
+  v2ToV3,
+  v3ToV4,
+  v4ToV5,
+  v5ToV6,
+  v6ToV7,
+  v7ToV8,
+];
 
 export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
@@ -391,6 +436,14 @@ export class GameStateStore {
   private autosaveTimer: number | null = null;
   /** Pending level-ups for the scene to celebrate. Transient - never saved. */
   private levelUpQueue: LevelUpEvent[] = [];
+  /**
+   * One-shot flag for the tutorial-complete celebration. Transient - never
+   * saved, and set ONLY by chain completion in `advanceOnboardingStep`, so
+   * migrations, loads, imports, and dev paths that arrive already-completed
+   * never fire it. Lost if the app closes before the scene drains it -
+   * accepted, same philosophy as level-up events on import.
+   */
+  private tutorialCompletePending = false;
   /** Pending "while you were away" summary from the last `load()`. Transient - never saved. */
   private offlineSummary: OfflineSummary | null = null;
   /**
@@ -492,6 +545,18 @@ export class GameStateStore {
     return events;
   }
 
+  /**
+   * Drain the one-shot tutorial-complete event: true exactly once after the
+   * chain's final step completes, false forever after (and false for saves
+   * whose `completed` arrived any other way). The scene polls this on its
+   * refresh tick, mirroring `consumeLevelUpEvents`.
+   */
+  consumeTutorialCompleteEvent(): boolean {
+    const pending = this.tutorialCompletePending;
+    this.tutorialCompletePending = false;
+    return pending;
+  }
+
   /** Drain and return the pending offline summary (or null); the scene checks this once after `load()`. */
   consumeOfflineSummary(): OfflineSummary | null {
     const summary = this.offlineSummary;
@@ -528,13 +593,15 @@ export class GameStateStore {
    * Plant a crop on an empty plot, spending its seed cost from coins (the
    * `seeds` field stays reserved in MVP). Returns false without mutating
    * anything if the index is out of range, the plot is occupied, the crop is
-   * unknown, the crop is not unlocked yet, or coins are insufficient.
+   * unknown, the tutorial rails forbid planting it right now, the crop is
+   * not unlocked yet, or coins are insufficient.
    */
   plantCrop(plotIndex: number, cropId: CropId): boolean {
     const plot = this.state.plots[plotIndex];
     if (plot === undefined || plot.state !== 'empty') return false;
     // cropId is typed, but console/dev calls can pass arbitrary strings.
     if (!((cropId as string) in CROPS)) return false;
+    if (!this.railsAllow('plant', cropId)) return false;
     const crop = CROPS[cropId];
     if (this.state.level < crop.unlockLevel) return false;
     if (this.state.coins < crop.seedCost) return false;
@@ -548,12 +615,14 @@ export class GameStateStore {
   /**
    * Harvest a ready plot: the plot returns to empty, the crop goes to the
    * inventory, and its xp accrues (possibly leveling up). Returns false
-   * without mutating anything if the plot is not growing or not ready yet.
+   * without mutating anything if the plot is not growing, not ready yet, or
+   * the tutorial rails are not on a harvest step.
    */
   harvestPlot(plotIndex: number): boolean {
     const plot = this.state.plots[plotIndex];
     if (plot === undefined || plot.state !== 'growing') return false;
     if (!isReady(plot, now())) return false;
+    if (!this.railsAllow('harvest')) return false;
     this.state.plots[plotIndex] = { state: 'empty' };
     this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + 1;
     this.applyXp(CROPS[plot.cropId].xp);
@@ -571,9 +640,11 @@ export class GameStateStore {
    * Purchase the one-time farm expansion (base 12 plots -> 16). Returns
    * false without mutating anything unless the farm is still at
    * BASE_PLOT_COUNT and coins cover EXPANSION_COST - in particular, a second
-   * expansion always fails since plots.length no longer matches.
+   * expansion always fails since plots.length no longer matches. Rejected
+   * during the tutorial (belt-and-braces; the sign is already hidden then).
    */
   expandFarm(): boolean {
+    if (!this.railsAllow('expand')) return false;
     if (this.state.plots.length !== BASE_PLOT_COUNT) return false;
     if (this.state.coins < EXPANSION_COST) return false;
     this.state.coins -= EXPANSION_COST;
@@ -587,16 +658,16 @@ export class GameStateStore {
   /**
    * Sell the entire stack of one crop: coins gain count * sellValue, the
    * stack empties, and the change persists. Returns the coins gained (0
-   * without mutating anything if the stack is already empty).
+   * without mutating anything if the stack is already empty, or for every
+   * crop while the tutorial is active - it has no sell step).
    */
   sellCrop(cropId: CropId): number {
+    if (!this.railsAllow('sell')) return 0;
     const count = this.state.inventory[cropId] ?? 0;
     if (count <= 0) return 0;
     const gained = count * CROPS[cropId].sellValue;
     this.state.coins += gained;
     this.state.inventory[cropId] = 0;
-    // A sunwheat sale is the sell-rest step's action; a no-op otherwise.
-    if (cropId === 'sunwheat') this.trackOnboarding('sell-rest');
     this.save();
     return gained;
   }
@@ -631,10 +702,12 @@ export class GameStateStore {
    * gain the order's stored coinReward, xp gains its stored xpReward through
    * the applyXp choke point (so level-ups ride the celebration queue), and
    * the slot returns to pending for the next `ensureOrders` to refill.
-   * Returns false without mutating anything if the slot is not open or the
-   * inventory does not cover every item.
+   * Returns false without mutating anything if the slot is not open, the
+   * inventory does not cover every item, or the tutorial rails are not on
+   * the deliver step (which permits only slot 0 - the scripted ORDER A).
    */
   fulfillOrder(slotIndex: number): boolean {
+    if (!this.railsAllow('fulfill', slotIndex)) return false;
     const slot = this.state.orders[slotIndex];
     if (slot === undefined || slot.state !== 'open') return false;
     const { order } = slot;
@@ -648,8 +721,8 @@ export class GameStateStore {
     this.state.coins += order.coinReward;
     this.applyXp(order.xpReward);
     this.state.orders[slotIndex] = { state: 'pending' };
-    // Any successful delivery during the deliver step counts - the mechanic
-    // is learned even if the player fulfills a non-scripted order.
+    // During the tutorial the rails guarantee this is the scripted slot-0
+    // delivery, so the track always matches; post-tutorial it is a no-op.
     this.trackOnboarding('deliver-sunwheat');
     this.save();
     return true;
@@ -658,9 +731,11 @@ export class GameStateStore {
   /**
    * Skip an open order: the slot goes on cooldown until now() +
    * SKIP_COOLDOWN_MS, when `ensureOrders` will refill it. Returns false
-   * without mutating anything if the slot is not open.
+   * without mutating anything if the slot is not open or the tutorial is
+   * still active (skipping is never a tutorial action).
    */
   skipOrder(slotIndex: number): boolean {
+    if (!this.railsAllow('skip')) return false;
     const slot = this.state.orders[slotIndex];
     if (slot === undefined || slot.state !== 'open') return false;
     this.state.orders[slotIndex] = { state: 'cooldown', readyAt: now() + SKIP_COOLDOWN_MS };
@@ -672,6 +747,65 @@ export class GameStateStore {
   private currentOnboardingStep(): OnboardingStep | null {
     if (this.state.onboarding.completed) return null;
     return ONBOARDING_STEPS[this.state.onboarding.step] ?? null;
+  }
+
+  /**
+   * THE tutorial full-rails choke point: while onboarding is active, every
+   * gameplay action is rejected unless the current step calls for it; once
+   * `completed`, everything is allowed - zero post-tutorial behavior change.
+   * `target` is the crop id for 'plant'/'select-seed' and the slot index for
+   * 'fulfill'; the other actions ignore it. The store's own mutators and the
+   * UI (SeedBar, Hud, OrderBoard) all query this - the rails rules live
+   * nowhere else. Blocked actions fail silently (false/0, no shake, no
+   * sound), matching the store's fail-silent philosophy.
+   */
+  railsAllow(action: RailsAction, target?: CropId | number): boolean {
+    if (this.state.onboarding.completed) return true;
+    const step = this.currentOnboardingStep();
+    if (step === null) return true;
+    switch (action) {
+      case 'plant':
+        return this.railsPlantAllowed(step, target);
+      case 'select-seed':
+        // The seed-select step itself, plus wherever planting that crop is
+        // currently allowed.
+        if (step.id === 'select-sunwheat') return target === 'sunwheat';
+        return this.railsPlantAllowed(step, target);
+      case 'harvest':
+        return step.id === 'harvest-first' || step.id === 'harvest-rest';
+      case 'fulfill':
+        // Deliberately only the scripted slot-0 order, never another slot.
+        return step.id === 'deliver-sunwheat' && target === 0;
+      case 'orders-button':
+        return (
+          step.id === 'open-orders' ||
+          step.id === 'deliver-sunwheat' ||
+          step.id === 'review-order' ||
+          step.id === 'close-orders'
+        );
+      case 'sell':
+      case 'skip':
+      case 'expand':
+      case 'bag-button':
+        // No sell/bag steps remain, and skipping or expanding is never a
+        // tutorial action.
+        return false;
+    }
+  }
+
+  /**
+   * The planting half of the rails: the single-crop plant steps accept only
+   * sunwheat; plant-mixed accepts each crop only while its counter is below
+   * its goal (a 9th sunwheat or 5th starcorn is rejected outright, no coins
+   * spent). Every other step forbids planting entirely.
+   */
+  private railsPlantAllowed(step: OnboardingStep, cropId?: CropId | number): boolean {
+    if (step.id === 'plant-first' || step.id === 'plant-rest') return cropId === 'sunwheat';
+    if (step.id !== 'plant-mixed') return false;
+    const { progress, progressB } = this.state.onboarding;
+    if (cropId === 'sunwheat') return progress < step.goal;
+    if (cropId === 'starcorn') return progressB < (step.goalB ?? 0);
+    return false;
   }
 
   /**
@@ -721,11 +855,11 @@ export class GameStateStore {
   /**
    * Advance to the next step (resetting both counters) and apply on-enter
    * side effects: entering `deliver-sunwheat` scripts ORDER A into slot 0;
-   * leaving it (entering `close-orders`, which only fulfillment can do)
-   * replaces the just-vacated slot 0 with ORDER B, so the board immediately
-   * shows what the plant-mixed step grows toward. Passing the last step sets
-   * `completed` - permanently: every entry point checks `completed` first,
-   * so nothing ever tracks again.
+   * leaving it (entering `review-order`, which only fulfillment can do)
+   * replaces the just-vacated slot 0 with ORDER B while the board is still
+   * open, so the player reviews the order the plant-mixed step grows toward
+   * right there. Passing the last step sets `completed` - permanently: every
+   * entry point checks `completed` first, so nothing ever tracks again.
    */
   private advanceOnboardingStep(): void {
     const onboarding = this.state.onboarding;
@@ -735,35 +869,30 @@ export class GameStateStore {
     this.stepEnteredAt = now();
     if (onboarding.step >= ONBOARDING_STEPS.length) {
       onboarding.completed = true;
+      // Chain completion is the ONLY set-point for the celebration one-shot;
+      // migration/load/import set `completed` directly and never pass here.
+      this.tutorialCompletePending = true;
       return;
     }
     const enteredId = ONBOARDING_STEPS[onboarding.step]?.id;
     if (enteredId === 'deliver-sunwheat') {
       this.state.orders[0] = { state: 'open', order: cloneOrder(ONBOARDING_ORDER_A) };
-    } else if (enteredId === 'close-orders') {
+    } else if (enteredId === 'review-order') {
       this.state.orders[0] = { state: 'open', order: cloneOrder(ONBOARDING_ORDER_B) };
     }
   }
 
   /**
-   * Anti-stuck / read-dwell guard, called on the scene's refresh tick.
-   * `sell-rest` self-advances if no sunwheat is left to sell (it was all
-   * delivered some other way), so the tutorial can never park on an
-   * impossible instruction. `review-order` self-advances once its board has
-   * been open for `REVIEW_ORDER_DWELL_MS`, giving the player time to read the
-   * order even if they never close the board; an early close still advances
-   * it sooner via the ordinary `review-order` UI event. Store-side by
-   * design - scenes stay logic-free.
+   * Read-dwell guard, called on the scene's refresh tick. `review-order`
+   * self-advances once its board has been open for `REVIEW_ORDER_DWELL_MS`,
+   * giving the player time to read the order even if they never close the
+   * board; an early close still advances it sooner via the ordinary
+   * `review-order` UI event. Store-side by design - scenes stay logic-free.
    */
   autoAdvanceOnboarding(): void {
     const step = this.currentOnboardingStep();
-    if (step?.id === 'sell-rest') {
-      if ((this.state.inventory.sunwheat ?? 0) > 0) return;
-    } else if (step?.id === 'review-order') {
-      if (now() - this.stepEnteredAt < REVIEW_ORDER_DWELL_MS) return;
-    } else {
-      return;
-    }
+    if (step?.id !== 'review-order') return;
+    if (now() - this.stepEnteredAt < REVIEW_ORDER_DWELL_MS) return;
     this.advanceOnboardingStep();
     this.save();
   }
@@ -784,6 +913,7 @@ export class GameStateStore {
    */
   load(): void {
     this.levelUpQueue = [];
+    this.tutorialCompletePending = false;
     this.offlineSummary = null;
     let raw: string | null;
     try {
@@ -848,6 +978,7 @@ export class GameStateStore {
   /** Discard the current state for a fresh default one, and persist it. */
   reset(): void {
     this.levelUpQueue = [];
+    this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
     this.stepEnteredAt = now();
@@ -870,6 +1001,7 @@ export class GameStateStore {
       return false;
     }
     this.levelUpQueue = [];
+    this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;
     this.reconcileLevelSilently();
