@@ -8,7 +8,6 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "lint": "eslint . && prettier --check .",
-    "gen:assets": "node tools/gen-assets.mjs",
     "pack:atlas": "node tools/pack-atlas.mjs",
     "format": "prettier --write .",
     "test": "vitest run"

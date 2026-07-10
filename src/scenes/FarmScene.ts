@@ -424,6 +424,36 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Keep the built tile/sprite set in step with `plots.length`, so a plot
+   * count change outside `tryExpand` (a dev reset of an expanded save back
+   * to 12 plots, or importing a 16-plot save) renders correctly without a
+   * reload: extras are destroyed, missing ones are created, and everything
+   * remaining is repositioned for the new grid origin. A cheap length check
+   * on the refresh tick; a no-op after `tryExpand`, which builds its own.
+   */
+  private syncPlotVisuals(plotCount: number): void {
+    if (this.plotTiles.length === plotCount) return;
+    const rowCount = plotCount / FARM_COLS;
+    while (this.plotTiles.length > plotCount) {
+      this.plotTiles.pop()?.destroy();
+      const sprite = this.cropSprites.pop();
+      if (sprite !== undefined) {
+        this.tweens.killTweensOf(sprite);
+        sprite.destroy();
+      }
+      this.plotPositions.pop();
+      this.readyActive.pop();
+      this.popActive.pop();
+    }
+    for (let index = 0; index < this.plotTiles.length; index++) {
+      this.repositionPlotVisuals(index, rowCount);
+    }
+    while (this.plotTiles.length < plotCount) {
+      this.createPlotVisuals(this.plotTiles.length, rowCount);
+    }
+  }
+
+  /**
    * Re-derive every plot's visuals from `gameState` and the game clock:
    * show/hide the sprite, set its growth-stage frame, and start/stop the
    * ready-state bounce and glow. Reads state fresh every call - the scene
@@ -431,6 +461,7 @@ export class FarmScene extends Phaser.Scene {
    */
   private refreshCrops(): void {
     const plots = gameState.getState().plots;
+    this.syncPlotVisuals(plots.length);
     const nowMs = now();
     for (let index = 0; index < plots.length; index++) {
       const plot = plots[index];

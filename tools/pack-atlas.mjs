@@ -23,11 +23,14 @@
  *   hangs below into the extra 32 rows. The diamond's left/right corners are
  *   assumed to be the widest opaque points (they mark the face's vertical
  *   center) and its top corner the topmost opaque row.
- * - Crops (9): trimmed, scaled to fit 128x120 preserving aspect, placed on a
- *   128x128 frame with the lowest opaque row on the CROP_BASELINE_Y (104)
- *   baseline, horizontally centered. (Bottom-pinned at 104, a sprite taller
- *   than 105 rows cannot fit the frame, so height is effectively capped
- *   there; the cap is logged when it engages.)
+ * - Crops (9): trimmed, scaled to a per-stage height target (stage 2 = 100%
+ *   of the max legal height, stage 1 = 78%, stage 0 = 55% - a glance must
+ *   read small -> medium -> full), width still capped at 128, placed on a
+ *   128x128 frame horizontally centered (bbox center at x = 64) with the
+ *   lowest opaque row on CROP_BASELINE_Y + CROP_SINK - the sprite sinks a
+ *   little below the anchored baseline so the mound's visual middle sits on
+ *   the diamond center, hugging the tile. Width-limited sprites that miss
+ *   their height target are logged.
  * - coin, moondust: trimmed, fit into 96x96, centered.
  * - panel: 128x128 nine-slice source. The border thickness and corner
  *   radius are measured in packed pixels and a safe slice margin is logged -
@@ -57,8 +60,12 @@ const TILE_DIAMOND_HEIGHT = 128; // iso.ts TILE_HEIGHT
 
 const CROP_FRAME_SIZE = 128; // crops.ts CROP_FRAME_SIZE
 const CROP_BASELINE_Y = 104; // crops.ts CROP_BASELINE_Y
+const CROP_SINK = 14; // crops.ts CROP_SINK
 const CROP_FIT_WIDTH = 128;
-const CROP_FIT_HEIGHT = 120;
+/** Max legal crop height: bottom row pinned at CROP_BASELINE_Y + CROP_SINK. */
+const CROP_MAX_HEIGHT = CROP_BASELINE_Y + CROP_SINK;
+/** Per-stage height targets as fractions of CROP_MAX_HEIGHT (small -> medium -> full). */
+const CROP_STAGE_HEIGHT_FRACTIONS = [0.55, 0.78, 1.0];
 
 const ICON_SIZE = 96;
 const PANEL_SIZE = 128;
@@ -198,23 +205,30 @@ function processTile(image, name) {
 }
 
 /**
- * Crop sprite: fit into CROP_FIT_WIDTH x CROP_FIT_HEIGHT, then bottom-pin on
- * the baseline. Bottom-pinned, only CROP_BASELINE_Y + 1 rows fit above y = 0,
- * so the effective height cap is min(CROP_FIT_HEIGHT, CROP_BASELINE_Y + 1).
+ * Crop sprite: scale the trimmed art to its growth stage's height target
+ * (width capped at CROP_FIT_WIDTH), center horizontally (bbox center at
+ * x = 64), and bottom-pin the lowest opaque row at CROP_BASELINE_Y +
+ * CROP_SINK - sunk below the anchored baseline so the mound's middle sits
+ * on the diamond center. Logs any sprite the width cap keeps short of its
+ * height target.
  */
 function processCrop(image, name) {
   trim(image, name);
-  const maxH = Math.min(CROP_FIT_HEIGHT, CROP_BASELINE_Y + 1);
-  if (image.bitmap.height * (CROP_FIT_WIDTH / image.bitmap.width) > CROP_FIT_HEIGHT) {
-    // Only reachable for unusually tall art; noted so the cap never surprises.
-    console.warn(`note: ${name}: height-limited fit (baseline cap ${maxH}px)`);
-  }
-  const scale = Math.min(CROP_FIT_WIDTH / image.bitmap.width, maxH / image.bitmap.height);
+  const stage = Number(name.at(-1));
+  const targetH = Math.round(CROP_MAX_HEIGHT * CROP_STAGE_HEIGHT_FRACTIONS[stage]);
+  const scale = Math.min(CROP_FIT_WIDTH / image.bitmap.width, targetH / image.bitmap.height);
   const w = Math.max(1, Math.round(image.bitmap.width * scale));
   const h = Math.max(1, Math.round(image.bitmap.height * scale));
+  if (h < targetH) {
+    console.warn(`note: ${name}: width-limited fit - height ${h}px misses its ${targetH}px target`);
+  }
   image.resize({ w, h });
   const frame = blankFrame(CROP_FRAME_SIZE, CROP_FRAME_SIZE);
-  frame.composite(image, Math.round((CROP_FRAME_SIZE - w) / 2), CROP_BASELINE_Y - h + 1);
+  frame.composite(
+    image,
+    Math.round((CROP_FRAME_SIZE - w) / 2),
+    CROP_BASELINE_Y + CROP_SINK - h + 1,
+  );
   return frame;
 }
 

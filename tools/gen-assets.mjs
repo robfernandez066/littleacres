@@ -1,5 +1,12 @@
 #!/usr/bin/env node
 /**
+ * RETIRED (T2.6): this was the placeholder art generator; the atlas is now
+ * owned by tools/pack-atlas.mjs (`npm run pack:atlas`), which packs the real
+ * art from tools/art-staging/. Kept for history only - do NOT run this; it
+ * would overwrite the committed atlas with placeholder art missing frames
+ * the game now requires (plot_occupied, starcorn_*, moondust). The npm
+ * script for it has been removed.
+ *
  * Placeholder art generator for Little Acres.
  *
  * Draws every placeholder sprite programmatically (pure JS, zero dependencies -

@@ -40,18 +40,23 @@ const CARD_HEIGHT = 280;
 const CARD_START_Y = -250;
 const CARD_SPACING = 300;
 
-/** Y offsets of the two item rows within a card; a 1-item order uses only row 0. */
-const ITEM_ROW_YS = [-85, -20] as const;
+/**
+ * Y offsets of the two item rows within a card; a 1-item order uses only
+ * row 0. Sized against the worst case: two rows, "Glowberry 10/10" in 40px
+ * bold, 1.3x icons - nothing may collide with the buttons (left edge x 120)
+ * or the card border.
+ */
+const ITEM_ROW_YS = [-88, -16] as const;
 const ITEM_ICON_X = -360;
-const ITEM_ICON_SCALE = 0.4;
-const ITEM_NAME_X = -310;
-const ITEM_COUNT_X = -100;
+const ITEM_ICON_SCALE = 0.52;
+const ITEM_NAME_X = -300;
+const ITEM_COUNT_X = -70;
 
-const REWARD_ROW_Y = 60;
+const REWARD_ROW_Y = 62;
 const REWARD_COIN_X = -360;
-const REWARD_COIN_SCALE = 0.35;
-const REWARD_COIN_TEXT_X = -315;
-const REWARD_XP_TEXT_X = -150;
+const REWARD_COIN_SCALE = 0.45;
+const REWARD_COIN_TEXT_X = -305;
+const REWARD_XP_TEXT_X = -130;
 
 const FULFILL_BUTTON_X = 240;
 const FULFILL_BUTTON_Y = -60;
@@ -102,28 +107,28 @@ const CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
  * card; only the have/need count carries the coverage color. */
 const ITEM_NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '36px',
+  fontSize: '40px',
   fontStyle: 'bold',
   color: '#4a3218',
 };
 
 const ITEM_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '36px',
+  fontSize: '40px',
   fontStyle: 'bold',
   color: COVERED_COLOR,
 };
 
 const REWARD_COIN_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '34px',
+  fontSize: '38px',
   fontStyle: 'bold',
   color: '#4a3218',
 };
 
 const REWARD_XP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '30px',
+  fontSize: '34px',
   color: '#7a5518',
 };
 

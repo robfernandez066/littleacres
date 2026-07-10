@@ -74,13 +74,20 @@ TILE_FRAME_HEIGHT)`, so grid math and hit-testing never see the taller
 
 ## Crop sprite anchoring
 
-Crop frames are 128x128 (`CROP_FRAME_SIZE`) with the plant's lowest opaque
-row on the baseline y = 104 (`CROP_BASELINE_Y`), both in `src/data/crops.ts`.
-Placing a crop = position it at the tile's iso center with origin
-`(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)`. The packer enforces the baseline
-(trim, fit 128x120 preserving aspect - effectively capped at 105 tall by the
-baseline - bottom-pinned at 104); masters just need the plant to touch the
-bottom of its opaque bounds.
+Crop frames are 128x128 (`CROP_FRAME_SIZE`), anchored on the baseline y = 104
+(`CROP_BASELINE_Y`): placing a crop = position it at the tile's iso center
+with origin `(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)`. The packed art's
+lowest opaque row sits at `CROP_BASELINE_Y + CROP_SINK` (104 + 14) - sunk
+below the anchored baseline so the mound's visual middle lands on the diamond
+center, hugging the tile. All three constants live in `src/data/crops.ts`.
+
+The packer enforces the convention: trim, center horizontally (bbox center at
+x = 64), scale to the growth stage's height target - stage 2 = 100% of the
+max legal height (`CROP_BASELINE_Y + CROP_SINK` = 118), stage 1 = 78%,
+stage 0 = 55%, so stages read small -> medium -> full at a glance - with
+width capped at 128 (a width-limited sprite that misses its height target is
+logged), then bottom-pin at 104 + 14. Masters just need the plant to touch
+the bottom of its opaque bounds.
 
 ## Icons
 
@@ -108,8 +115,8 @@ log line whenever the panel art changes.
 
 ## The retired placeholder generator
 
-`tools/gen-assets.mjs` (`npm run gen:assets`) drew the original programmatic
-placeholder art. It is **retired** and kept only for history - do not run it;
-it would overwrite the atlas with placeholder art that no longer matches the
-frame list (no `plot_occupied`, `starcorn_*`, or `moondust` frames). Use
-`npm run pack:atlas` instead.
+`tools/gen-assets.mjs` drew the original programmatic placeholder art. It is
+**retired** and kept only for history - its npm script has been removed; do
+not run it directly either, as it would overwrite the atlas with placeholder
+art that no longer matches the frame list (no `plot_occupied`, `starcorn_*`,
+or `moondust` frames). Use `npm run pack:atlas` instead.

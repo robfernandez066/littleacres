@@ -14,14 +14,15 @@ import type { GameStateData } from '../systems/gameState';
 
 const SIGN_X = 540;
 const SIGN_Y = 1300;
-const SIGN_WIDTH = 300;
-const SIGN_HEIGHT = 90;
+/** Sized so "Expand - 500" + coin clear the PANEL_SLICE border comfortably. */
+const SIGN_WIDTH = 340;
+const SIGN_HEIGHT = 100;
 /** Above the field and crop sprites, alongside floating text (1900). */
 const SIGN_DEPTH = 1900;
 
-const COIN_OFFSET_X = -78;
+const COIN_OFFSET_X = -100;
 const COIN_SCALE = 0.4;
-const TEXT_OFFSET_X = -50;
+const TEXT_OFFSET_X = -72;
 
 const LABEL_COLOR = '#4a3218';
 const FLASH_COLOR = '#e03131';

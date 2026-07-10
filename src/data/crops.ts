@@ -5,12 +5,17 @@ export type CropId = 'sunwheat' | 'starcorn' | 'glowberry';
 export const CROP_STAGES = 3;
 
 /**
- * Crop sprite frames are square with the plant's base drawn on a fixed
- * baseline, so a sprite sits on a tile by placing it at the tile's iso center
- * with origin (0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE). See ASSETS.md.
+ * Crop sprite frames are square, anchored by a fixed baseline: a sprite sits
+ * on a tile by placing it at the tile's iso center with origin
+ * (0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE). The packed art's lowest opaque
+ * row is at CROP_BASELINE_Y + CROP_SINK - sunk a little below the anchored
+ * baseline so the mound's visual middle sits on the diamond center, hugging
+ * the tile. CROP_SINK is enforced by tools/pack-atlas.mjs (keep them in
+ * sync). See ASSETS.md.
  */
 export const CROP_FRAME_SIZE = 128;
 export const CROP_BASELINE_Y = 104;
+export const CROP_SINK = 14;
 
 export interface CropDef {
   id: CropId;
