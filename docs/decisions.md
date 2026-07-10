@@ -37,6 +37,11 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-10 - Art pass complete (T2.6/a/b/c); stage rule changed: mature sprite = harvestable
+**Context:** Full art integration landed across four tasks: atlas pipeline + Starcorn rename + occupied plots (T2.6), centering/size-ramp/UI polish (T2.6a), button icons + signpost + PWA app icon (T2.6b). User playtest then exposed a design bug hiding since T1.2: stageIndex mapped growth into thirds, so the mature sprite appeared at 66% grown but harvest required 100% - crops looked done while refusing harvest, made obvious by the new size ramp.
+**Decision:** New standing rule (T2.6c): the FINAL growth stage is reserved for ready - growing time divides evenly across the earlier stages (halves for 3-stage crops); mature sprite, bounce, glow, and harvestability all arrive together. All four tasks COMMIT. The week-long play gate now begins: complete game with real art, real sound, user-picked everything. PM holds non-critical tasks until the user's week verdict.
+**Trigger:** T2.6 series reports + user playtest find.
+
 ## 2026-07-09 - Coder session policy: /clear by default, marked follow-ups
 **Context:** User asked whether to /clear the coder between tasks or continue sessions.
 **Decision:** Default /clear for every new task (prompts are self-contained by design; stale context carries reversed decisions and dead file states). Exception: small fixes/additions to the just-finished task, where the coder's fresh build context is an asset. PM marks every prompt [FRESH SESSION - /clear first] or [FOLLOW-UP - same session]; unmarked = /clear.

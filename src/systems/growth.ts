@@ -20,9 +20,17 @@ export function isReady(plot: GrowingPlot, nowMs: number): boolean {
   return growthFraction(plot, nowMs) >= 1;
 }
 
-/** Visual stage 0..CROP_STAGES-1; a ready crop is always the last stage. */
+/**
+ * Visual stage 0..CROP_STAGES-1. The last stage is reserved for a ready crop
+ * (the mature sprite must mean harvestable) - the growing period divides
+ * evenly across the remaining CROP_STAGES-1 earlier stages.
+ */
 export function stageIndex(plot: GrowingPlot, nowMs: number): number {
-  return Math.min(CROP_STAGES - 1, Math.floor(growthFraction(plot, nowMs) * CROP_STAGES));
+  const fraction = growthFraction(plot, nowMs);
+  if (fraction >= 1) return CROP_STAGES - 1;
+  const growingStages = CROP_STAGES - 1;
+  if (growingStages <= 0) return CROP_STAGES - 1;
+  return Math.min(growingStages - 1, Math.floor(fraction * growingStages));
 }
 
 /**

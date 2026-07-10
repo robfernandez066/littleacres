@@ -53,24 +53,26 @@ describe('isReady', () => {
 });
 
 describe('stageIndex', () => {
-  it('is stage 0 from planting until the first boundary', () => {
+  it('is stage 0 from planting until just under half', () => {
     expect(stageIndex(plot(), 0)).toBe(0);
-    expect(stageIndex(plot(), GROW / 3 - 1)).toBe(0);
+    expect(stageIndex(plot(), GROW * 0.49)).toBe(0);
   });
 
-  it('advances to stage 1 at one third and holds until two thirds', () => {
-    expect(stageIndex(plot(), GROW / 3)).toBe(1);
-    expect(stageIndex(plot(), GROW / 2)).toBe(1);
-    expect(stageIndex(plot(), (2 * GROW) / 3 - 1)).toBe(1);
+  it('advances to stage 1 at half and holds until just under growMs', () => {
+    expect(stageIndex(plot(), GROW * 0.5)).toBe(1);
+    expect(stageIndex(plot(), GROW * 0.99)).toBe(1);
   });
 
-  it('reaches the last stage at two thirds', () => {
-    expect(stageIndex(plot(), (2 * GROW) / 3)).toBe(CROP_STAGES - 1);
-    expect(stageIndex(plot(), GROW - 1)).toBe(CROP_STAGES - 1);
+  it('never reaches the last stage before growMs (mature sprite implies ready)', () => {
+    expect(stageIndex(plot(), GROW * 0.99)).toBeLessThan(CROP_STAGES - 1);
   });
 
-  it('is clamped to the last stage at and far past growMs', () => {
+  it('reaches the last stage exactly at growMs, coinciding with isReady', () => {
     expect(stageIndex(plot(), GROW)).toBe(CROP_STAGES - 1);
+    expect(isReady(plot(), GROW)).toBe(true);
+  });
+
+  it('is clamped to the last stage far past growMs', () => {
     expect(stageIndex(plot(), GROW * 100)).toBe(CROP_STAGES - 1);
   });
 });

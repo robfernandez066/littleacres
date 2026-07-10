@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-07
 **Phase:** Phase 1 - MVP Core Loop
-**Active task:** T2.6 (pulled forward) - real art pack integration (prompt out; Fable5/Opus). User generated and auditioned a full 15-frame Sprixen art set (tools/art-staging). Task bundles: jimp-based atlas packing script, new frame anchoring (tiles with lips, measured 9-slice margins), Carrot -> Starcorn rename + v7 migration, occupied-plot render switch, real moondust icon. After this + user art audition: Phase 1/2-hybrid play gate
+**Active task:** PLAY GATE (week of user play, no coder tasks unless critical). Art pass fully landed: T2.6 (atlas pipeline, Starcorn + v7 migration, occupied plots), T2.6a (centering, size ramp, UI polish), T2.6b (button icons, signpost, PWA app icon), T2.6c (mature sprite = harvestable rule). Game state: complete MVP loop, real art (user-generated via Sprixen), real audio (user-auditioned), schema v7, 157 tests. User's week-of-play notes become the Phase 2/3 plan
 
 ## Task states
 - T0.1 Project scaffold - DONE, committed
