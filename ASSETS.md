@@ -28,10 +28,11 @@ hand), shelf-packs the atlas, and rewrites `assets/atlas.png` +
 list, sorted packing order), so reruns are byte-stable given identical inputs.
 
 The only dependency is `jimp` (pure JS - deliberately not sharp: no
-platform-specific optional deps to break the lockfile). Staged files that are
-not in the frame list are ignored with a console note; the current extras
-(`appicon`, `bag`, `scroll`, `sign`, `note`, `pouch`) are **reserved for the
-upcoming icon tasks**.
+platform-specific optional deps to break the lockfile). `appicon` is the one
+staged file never packed into the atlas - it is ignored by `pack-atlas.mjs`
+with a console note and packed separately (see "App icon" below). `pouch` is
+packed into the atlas as a reserved frame - unused in code today, saved for a
+future task.
 
 ## Frame-name convention
 
@@ -48,6 +49,11 @@ keep them.
 | `glowberry_0` .. `glowberry_2` | 128x128   | growth stages; stage 2 glows              |
 | `coin`                         | 96x96     | currency icon                             |
 | `moondust`                     | 96x96     | currency icon                             |
+| `bag`                          | 96x96     | HUD bag button icon                       |
+| `scroll`                       | 96x96     | HUD orders button icon                    |
+| `note`                         | 96x96     | HUD audio button icon                     |
+| `pouch`                        | 96x96     | reserved, unused                          |
+| `sign`                         | 192x192   | ExpandSign signpost                       |
 | `panel`                        | 128x128   | UI 9-slice source                         |
 
 Crops follow `<cropId>_<stage>` with stages `0..2`; `src/data/crops.ts` maps
@@ -91,7 +97,34 @@ the bottom of its opaque bounds.
 
 ## Icons
 
-`coin` and `moondust` are trimmed and fitted into 96x96, centered.
+`coin`, `moondust`, `bag`, `scroll`, `note`, and `pouch` are all trimmed and
+fitted into 96x96, centered. `bag`/`scroll`/`note` are the HUD bag/orders/audio
+button icons (`src/ui/Hud.ts`), laid out beside their label as a single
+horizontally-centered group so button width and label length can vary without
+throwing the group off-center.
+
+`sign` is trimmed and fitted into 192x192, centered - the ExpandSign signpost
+(`src/ui/ExpandSign.ts`), displayed at a fixed height with the cost text and
+coin icon rotated to sit along the plank's angle in the art.
+
+## App icon
+
+The PWA app icon (`public/icon-192.png`, `icon-512.png`,
+`icon-512-maskable.png` - see the `manifest.icons` list in `vite.config.ts`)
+is generated from `tools/art-staging/appicon.png` by a separate script:
+
+```
+npm run pack:icons
+```
+
+Runs `tools/pack-icons.mjs`, kept separate from `pack-atlas.mjs` because the
+app icon is not an atlas frame - the OS/manifest loads it directly, never
+through `ATLAS_KEY`. The master has transparent rounded corners around its
+opaque rounded-square background (so OS icon masking, which crops to its own
+shape, never shows the art's corners as-is); the script samples the
+background color from the opaque square and composites the art over a
+full-bleed canvas of that color before exporting each size, so every output
+file is opaque edge-to-edge. Commit the results, same as the atlas.
 
 ## UI 9-slice panel
 

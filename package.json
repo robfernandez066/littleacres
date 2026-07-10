@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . && prettier --check .",
     "pack:atlas": "node tools/pack-atlas.mjs",
+    "pack:icons": "node tools/pack-icons.mjs",
     "format": "prettier --write .",
     "test": "vitest run"
   },

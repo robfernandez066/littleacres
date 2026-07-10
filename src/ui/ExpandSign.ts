@@ -1,31 +1,41 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, PANEL_SLICE } from '../config';
+import { ATLAS_KEY } from '../config';
 import { BASE_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import type { GameStateData } from '../systems/gameState';
 
 /**
- * The one-time farm expansion button: a small nineslice sign below the
- * field reading "Expand - <cost>". Visible only before the first expansion
- * and only once onboarding has completed (see `refresh`). Tapping it is
- * wired by the scene, which owns the purchase and the new row's visuals;
- * this class only owns the button's look, visibility, and feedback.
+ * The one-time farm expansion button: a wooden signpost below the field
+ * reading "Expand - <cost>". Visible only before the first expansion and
+ * only once onboarding has completed (see `refresh`). Tapping it is wired by
+ * the scene, which owns the purchase and the new row's visuals; this class
+ * only owns the button's look, visibility, and feedback.
  */
 
 const SIGN_X = 540;
 const SIGN_Y = 1300;
-/** Sized so "Expand - 500" + coin clear the PANEL_SLICE border comfortably. */
-const SIGN_WIDTH = 340;
-const SIGN_HEIGHT = 100;
+/** Display height of the `sign` frame; width follows the art's own aspect. */
+const SIGN_DISPLAY_HEIGHT = 200;
+/** Must match SIGN_SIZE in tools/pack-atlas.mjs - the packed frame's square side. */
+const SIGN_FRAME_SIZE = 192;
+const SIGN_SCALE = SIGN_DISPLAY_HEIGHT / SIGN_FRAME_SIZE;
+/** The plank tilts down to the right in the art; text/coin follow that angle. */
+const SIGN_ROTATION_DEG = -6;
+/** Vertical offset from the sign's center to the plank board the text sits on. */
+const PLANK_OFFSET_Y = 35;
 /** Above the field and crop sprites, alongside floating text (1900). */
 const SIGN_DEPTH = 1900;
 
-const COIN_OFFSET_X = -100;
+const COIN_OFFSET_X = -58;
+const COIN_OFFSET_Y = -4;
 const COIN_SCALE = 0.4;
-const TEXT_OFFSET_X = -72;
+const TEXT_OFFSET_X = -28;
+const TEXT_OFFSET_Y = -4;
 
-const LABEL_COLOR = '#4a3218';
-const FLASH_COLOR = '#e03131';
+/** Cream text so the label reads clearly on the wood plank. */
+const LABEL_COLOR = '#fdf6e3';
+/** A deeper red than the old flash color - the light one washed out on wood. */
+const FLASH_COLOR = '#ff6b6b';
 const FLASH_DURATION_MS = 300;
 const SHAKE_DISTANCE = 10;
 /** Min gap between insufficient-coins nudges so a repeated tap cannot spam them. */
@@ -33,9 +43,11 @@ const SHAKE_THROTTLE_MS = 400;
 
 const LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '32px',
+  fontSize: '30px',
   fontStyle: 'bold',
   color: LABEL_COLOR,
+  stroke: '#4a3218',
+  strokeThickness: 3,
 };
 
 export class ExpandSign {
@@ -49,26 +61,24 @@ export class ExpandSign {
     onTap: () => void,
   ) {
     this.container = scene.add.container(SIGN_X, SIGN_Y).setDepth(SIGN_DEPTH).setVisible(false);
-    const panel = scene.add.nineslice(
-      0,
-      0,
-      ATLAS_KEY,
-      'panel',
-      SIGN_WIDTH,
-      SIGN_HEIGHT,
-      PANEL_SLICE,
-      PANEL_SLICE,
-      PANEL_SLICE,
-      PANEL_SLICE,
-    );
-    const coinIcon = scene.add.image(COIN_OFFSET_X, 0, ATLAS_KEY, 'coin').setScale(COIN_SCALE);
-    this.label = scene.add
-      .text(TEXT_OFFSET_X, 0, `Expand - ${EXPANSION_COST}`, LABEL_STYLE)
-      .setOrigin(0, 0.5);
-    this.container.add([panel, coinIcon, this.label]);
+    const signImage = scene.add
+      .image(0, 0, ATLAS_KEY, 'sign')
+      .setScale(SIGN_SCALE)
+      .setInteractive({ useHandCursor: true });
 
-    panel.setInteractive({ useHandCursor: true });
-    panel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onTap);
+    // Coin + label sit as a group rotated to follow the plank's angle in the art.
+    const plankContent = scene.add.container(0, PLANK_OFFSET_Y).setAngle(SIGN_ROTATION_DEG);
+    const coinIcon = scene.add
+      .image(COIN_OFFSET_X, COIN_OFFSET_Y, ATLAS_KEY, 'coin')
+      .setScale(COIN_SCALE);
+    this.label = scene.add
+      .text(TEXT_OFFSET_X, TEXT_OFFSET_Y, `Expand - ${EXPANSION_COST}`, LABEL_STYLE)
+      .setOrigin(0, 0.5);
+    plankContent.add([coinIcon, this.label]);
+
+    this.container.add([signImage, plankContent]);
+
+    signImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onTap);
   }
 
   /**

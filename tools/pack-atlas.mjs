@@ -31,15 +31,17 @@
  *   little below the anchored baseline so the mound's visual middle sits on
  *   the diamond center, hugging the tile. Width-limited sprites that miss
  *   their height target are logged.
- * - coin, moondust: trimmed, fit into 96x96, centered.
+ * - coin, moondust, bag, scroll, note, pouch: trimmed, fit into 96x96,
+ *   centered. `pouch` is packed as a reserved frame - unused in code today.
+ * - sign: trimmed, fit into 192x192, centered.
  * - panel: 128x128 nine-slice source. The border thickness and corner
  *   radius are measured in packed pixels and a safe slice margin is logged -
  *   PANEL_SLICE in src/config.ts must match it.
  *
  * Layout is deterministic (fixed frame list, sorted packing order, fixed
  * shelf width), so reruns are byte-stable given identical inputs. Staged
- * files that are not part of the frame list (app icon, future UI icons) are
- * ignored with a console note.
+ * files that are not part of the frame list (the app icon, packed
+ * separately by tools/pack-icons.mjs) are ignored with a console note.
  */
 
 import { existsSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs';
@@ -68,6 +70,7 @@ const CROP_MAX_HEIGHT = CROP_BASELINE_Y + CROP_SINK;
 const CROP_STAGE_HEIGHT_FRACTIONS = [0.55, 0.78, 1.0];
 
 const ICON_SIZE = 96;
+const SIGN_SIZE = 192;
 const PANEL_SIZE = 128;
 
 /** Alpha above this counts as opaque when trimming / measuring. */
@@ -92,8 +95,9 @@ const CROP_NAMES = [
   'glowberry_1',
   'glowberry_2',
 ];
-const ICON_NAMES = ['coin', 'moondust'];
-const FRAME_NAMES = [...TILE_NAMES, ...CROP_NAMES, ...ICON_NAMES, 'panel'];
+const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch'];
+const SIGN_NAMES = ['sign'];
+const FRAME_NAMES = [...TILE_NAMES, ...CROP_NAMES, ...ICON_NAMES, ...SIGN_NAMES, 'panel'];
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const stagingDir = join(repoRoot, 'tools', 'art-staging');
@@ -232,15 +236,15 @@ function processCrop(image, name) {
   return frame;
 }
 
-/** Icon: fit into ICON_SIZE x ICON_SIZE, centered. */
-function processIcon(image, name) {
+/** Icon: trim and fit into a `size` x `size` square, centered. */
+function processIcon(image, name, size) {
   trim(image, name);
-  const scale = Math.min(ICON_SIZE / image.bitmap.width, ICON_SIZE / image.bitmap.height);
+  const scale = Math.min(size / image.bitmap.width, size / image.bitmap.height);
   const w = Math.max(1, Math.round(image.bitmap.width * scale));
   const h = Math.max(1, Math.round(image.bitmap.height * scale));
   image.resize({ w, h });
-  const frame = blankFrame(ICON_SIZE, ICON_SIZE);
-  frame.composite(image, Math.round((ICON_SIZE - w) / 2), Math.round((ICON_SIZE - h) / 2));
+  const frame = blankFrame(size, size);
+  frame.composite(image, Math.round((size - w) / 2), Math.round((size - h) / 2));
   return frame;
 }
 
@@ -365,9 +369,14 @@ for (const name of [...FRAME_NAMES].sort()) {
   let frame;
   if (TILE_NAMES.includes(name)) frame = processTile(image, name);
   else if (CROP_NAMES.includes(name)) frame = processCrop(image, name);
-  else if (ICON_NAMES.includes(name)) frame = processIcon(image, name);
+  else if (ICON_NAMES.includes(name)) frame = processIcon(image, name, ICON_SIZE);
+  else if (SIGN_NAMES.includes(name)) frame = processIcon(image, name, SIGN_SIZE);
   else frame = processPanel(image, name);
   sprites.push({ name, image: frame });
+}
+
+if (stagedNames.has('pouch')) {
+  console.log('note: pouch packed as a reserved frame (unused in code; a future task wires it up)');
 }
 
 const panelSprite = sprites.find((s) => s.name === 'panel');

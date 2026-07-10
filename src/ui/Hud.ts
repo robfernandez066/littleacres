@@ -55,6 +55,10 @@ const MOONDUST_TEXT_OFFSET_X = 60;
 const BAG_BUTTON_WIDTH = 200;
 const BAG_BUTTON_HEIGHT = 90;
 
+/** Icon + label group layout shared by the bag, orders, and audio buttons. */
+const BUTTON_ICON_DISPLAY_SIZE = 56;
+const BUTTON_ICON_LABEL_GAP = 10;
+
 /**
  * Audio settings button, under the coin/moondust column. HUD chrome, not a
  * panel - always tappable except under modal backdrops, which already cover
@@ -187,8 +191,8 @@ export class Hud {
         PANEL_SLICE,
       )
       .setInteractive({ useHandCursor: true });
-    const audioText = this.scene.add.text(0, 0, 'Audio', AUDIO_BUTTON_STYLE).setOrigin(0.5);
-    audioContainer.add([audioPanel, audioText]);
+    audioContainer.add(audioPanel);
+    this.addIconLabel(audioContainer, 'note', 'Audio', AUDIO_BUTTON_STYLE);
     audioPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.inventoryPanel.hide();
@@ -213,8 +217,8 @@ export class Hud {
         PANEL_SLICE,
       )
       .setInteractive({ useHandCursor: true });
-    const bagText = this.scene.add.text(0, 0, 'Bag', BAG_STYLE).setOrigin(0.5);
-    this.bagContainer.add([bagPanel, bagText]);
+    this.bagContainer.add(bagPanel);
+    this.addIconLabel(this.bagContainer, 'bag', 'Bag', BAG_STYLE);
     bagPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.orderBoard.hide();
@@ -250,8 +254,8 @@ export class Hud {
         PANEL_SLICE,
       )
       .setInteractive({ useHandCursor: true });
-    const ordersText = this.scene.add.text(0, 0, 'Orders', BAG_STYLE).setOrigin(0.5);
-    ordersContainer.add([ordersPanel, ordersText]);
+    ordersContainer.add(ordersPanel);
+    this.addIconLabel(ordersContainer, 'scroll', 'Orders', BAG_STYLE);
     ordersPanel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.inventoryPanel.hide();
@@ -297,6 +301,29 @@ export class Hud {
       this.bounceBag();
       this.audio.bagpop();
     });
+  }
+
+  /**
+   * Add an icon + label pair to a button container, laid out as a single
+   * horizontally-centered group (icon left, label right) regardless of the
+   * label's width - so "Bag", "Orders", and "Audio" all sit centered in
+   * their buttons despite the differing text lengths.
+   */
+  private addIconLabel(
+    container: Phaser.GameObjects.Container,
+    iconFrame: string,
+    labelText: string,
+    labelStyle: Phaser.Types.GameObjects.Text.TextStyle,
+  ): void {
+    const icon = this.scene.add
+      .image(0, 0, ATLAS_KEY, iconFrame)
+      .setDisplaySize(BUTTON_ICON_DISPLAY_SIZE, BUTTON_ICON_DISPLAY_SIZE);
+    const label = this.scene.add.text(0, 0, labelText, labelStyle).setOrigin(0, 0.5);
+    const totalWidth = BUTTON_ICON_DISPLAY_SIZE + BUTTON_ICON_LABEL_GAP + label.width;
+    const startX = -totalWidth / 2;
+    icon.setPosition(startX + BUTTON_ICON_DISPLAY_SIZE / 2, 0);
+    label.setPosition(startX + BUTTON_ICON_DISPLAY_SIZE + BUTTON_ICON_LABEL_GAP, 0);
+    container.add([icon, label]);
   }
 
   /** Small scale bounce on the bag button; restart-safe so rapid arrivals never compound. */
