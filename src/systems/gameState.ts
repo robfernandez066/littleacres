@@ -637,6 +637,40 @@ export class GameStateStore {
   }
 
   /**
+   * Replant everything a harvest gesture just reaped, in one all-or-nothing
+   * pass. Rejected entirely (returns 0, no mutation) while onboarding is
+   * active - the tutorial has no replant step. Filters to entries whose plot
+   * is CURRENTLY empty (the player may have hand-planted one since the
+   * harvest); if none remain, returns 0. Sums seed cost across that filtered
+   * subset and requires coins to cover the whole sum - never a partial
+   * replant of just the affordable entries. On success, plants every
+   * remaining entry, saves once, and returns the count planted. No onboarding
+   * tracking (already gated above); the unlock-level check per crop still
+   * applies defensively, though a harvested crop was necessarily unlocked.
+   */
+  replant(entries: readonly { plotIndex: number; cropId: CropId }[]): number {
+    if (!this.state.onboarding.completed) return 0;
+    const plantable = entries.filter(
+      (entry) =>
+        this.state.plots[entry.plotIndex]?.state === 'empty' &&
+        this.state.level >= CROPS[entry.cropId].unlockLevel,
+    );
+    if (plantable.length === 0) return 0;
+    const totalCost = plantable.reduce((sum, entry) => sum + CROPS[entry.cropId].seedCost, 0);
+    if (this.state.coins < totalCost) return 0;
+    for (const entry of plantable) {
+      this.state.coins -= CROPS[entry.cropId].seedCost;
+      this.state.plots[entry.plotIndex] = {
+        state: 'growing',
+        cropId: entry.cropId,
+        plantedAt: now(),
+      };
+    }
+    this.save();
+    return plantable.length;
+  }
+
+  /**
    * Purchase the one-time farm expansion (base 12 plots -> 16). Returns
    * false without mutating anything unless the farm is still at
    * BASE_PLOT_COUNT and coins cover EXPANSION_COST - in particular, a second

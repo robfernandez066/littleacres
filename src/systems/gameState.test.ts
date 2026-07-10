@@ -790,6 +790,81 @@ describe('sellCrop', () => {
   });
 });
 
+describe('replant', () => {
+  it('replants every entry, deducting total seed cost, in one save', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    const before = now();
+    const entries = [
+      { plotIndex: 0, cropId: 'sunwheat' as CropId },
+      { plotIndex: 1, cropId: 'sunwheat' as CropId },
+    ];
+    const coinsBefore = store.getState().coins;
+    expect(store.replant(entries)).toBe(2);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore - 2 * CROPS.sunwheat.seedCost);
+    for (const { plotIndex } of entries) {
+      const plot = state.plots[plotIndex];
+      expect(plot?.state).toBe('growing');
+      if (plot?.state === 'growing') {
+        expect(plot.cropId).toBe('sunwheat');
+        expect(plot.plantedAt).toBeGreaterThanOrEqual(before);
+      }
+    }
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().plots[0]).toEqual(state.plots[0]);
+    expect(reloaded.getState().plots[1]).toEqual(state.plots[1]);
+  });
+
+  it('replants only the subset still empty, and charges only for that subset', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    // Plot 0 is hand-planted with a different crop since the harvest.
+    expect(store.plantCrop(0, 'sunwheat')).toBe(true);
+    const coinsBefore = store.getState().coins;
+    const entries = [
+      { plotIndex: 0, cropId: 'sunwheat' as CropId },
+      { plotIndex: 1, cropId: 'sunwheat' as CropId },
+    ];
+    expect(store.replant(entries)).toBe(1);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore - CROPS.sunwheat.seedCost);
+    expect(state.plots[1]?.state).toBe('growing');
+  });
+
+  it('fails all-or-nothing without mutation when coins are insufficient for the total', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const entries = [
+      { plotIndex: 0, cropId: 'sunwheat' as CropId },
+      { plotIndex: 1, cropId: 'sunwheat' as CropId },
+    ];
+    store.addCoins(-(store.getState().coins - CROPS.sunwheat.seedCost)); // covers only 1 of 2
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.replant(entries)).toBe(0);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('returns 0 without mutation while onboarding is active', () => {
+    const store = new GameStateStore({ storage: null });
+    // Onboarding left active (not completed).
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.replant([{ plotIndex: 0, cropId: 'sunwheat' }])).toBe(0);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('returns 0 without mutation when entries is empty', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.replant([])).toBe(0);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
 describe('expandFarm', () => {
   it('fails without enough coins, without mutation', () => {
     const store = new GameStateStore({ storage: null });

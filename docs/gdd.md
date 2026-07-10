@@ -99,7 +99,7 @@ Restore the farm -> unlock new crops, buildings, machines, workers, land -> vill
 
 ### 4.4 Orders
 
-- Order board with 5-10 active orders (MVP).
+- Order board with 3 active order slots (MVP as shipped; grows to 5 with rarity tiers in Phase 3 T3.6 - reconciled 2026-07-10 per design review, implementation is the decision of record).
 - No deadlines early. Timed premium orders introduced later for bonus rewards - always opt-in bonus, never a loss if missed.
 - Orders grant coins + XP; bigger orders can grant chests or Moondust.
 - Order generation weights toward crops the player can actually grow (with occasional stretch orders that tease the next unlock).
@@ -241,7 +241,9 @@ One portrait farm screen, 12 plots, fixed camera. Three crops:
 | Starcorn | Farm level 2 | ~2m | golden corn with star-glint kernels, higher value (replaced Carrot 2026-07-09 - too mundane next to the fantasy crops) |
 | Glowberry | Farm level 3 | ~5m | signature fantasy crop, glows when ready |
 
-Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, order board (5-10 orders), farm XP/levels 1-5, plot count upgrade (12 -> 16), floating numbers/particles/sound hooks, local save, basic offline crop growth.
+Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, order board (3 slots), farm XP/levels 1-5, plot count upgrade (12 -> 16), floating numbers/particles/sound hooks, local save, basic offline crop growth.
+
+**Save durability note (2026-07-10):** until cloud save (Phase 7), saves live in localStorage only, which browsers - especially iOS PWA - can evict under storage pressure. Near-term mitigations (navigator.storage.persist(), player-facing export/import in Settings) are scheduled as T2.16; treat localStorage as leaky, not permanent.
 
 **Explicitly NOT in MVP:** animals, fishing, combat, seasons, multiplayer, relationships, town map, complex crafting, hundreds of crops, real-money store, daily events, worker AI, procedural maps, storage caps, weather, day/night, cloud saves, notifications.
 

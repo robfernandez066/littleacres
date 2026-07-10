@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
+import type { AudioManager } from '../systems/audio';
 import type { OfflineSummary } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { ModalBackdrop } from './ModalBackdrop';
@@ -21,7 +22,6 @@ const PANEL_CENTER_Y = 780;
 const PANEL_DEPTH = 2100;
 
 const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
-const SUBTITLE_Y = TITLE_Y + 60;
 const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
 const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 
@@ -31,19 +31,15 @@ const ROW_ICON_X = -300;
 const ROW_ICON_SCALE = 0.5;
 const ROW_TEXT_X = -230;
 
-const HINT_Y = PANEL_HEIGHT / 2 - 60;
+const CONFIRM_Y = PANEL_HEIGHT / 2 - 80;
+const CONFIRM_WIDTH = 320;
+const CONFIRM_HEIGHT = 90;
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '48px',
   fontStyle: 'bold',
   color: '#4a3218',
-};
-
-const SUBTITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '32px',
-  color: '#7a5518',
 };
 
 const ROW_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -53,13 +49,6 @@ const ROW_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
-const HINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
-  fontFamily: 'Arial, sans-serif',
-  fontSize: '30px',
-  fontStyle: 'italic',
-  color: '#7a5518',
-};
-
 const CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '40px',
@@ -67,26 +56,36 @@ const CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+const CONFIRM_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '40px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 /** Friendly away duration: largest two units, minutes floored (never rounded up). */
-function formatAwayDuration(elapsedMs: number): string {
+export function formatAwayDuration(elapsedMs: number): string {
   const totalMinutes = Math.floor(elapsedMs / 60_000);
-  if (totalMinutes < 60) return `${totalMinutes}m`;
+  if (totalMinutes < 60) return `${totalMinutes} min`;
   const totalHours = Math.floor(totalMinutes / 60);
-  if (totalHours < 24) return `${totalHours}h ${totalMinutes % 60}m`;
+  if (totalHours < 24) return `${totalHours} Hr ${totalMinutes % 60} min`;
   const days = Math.floor(totalHours / 24);
-  return `${days}d ${totalHours % 24}h`;
+  return `${days} Day ${totalHours % 24} Hr`;
 }
 
 export class OfflineSummaryPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
-  private readonly subtitleText: Phaser.GameObjects.Text;
+  private readonly titleText: Phaser.GameObjects.Text;
   /** One pooled row per crop type - shown/positioned only for crops with a nonzero ready count. */
   private readonly rowIcons: Phaser.GameObjects.Image[] = [];
   private readonly rowTexts: Phaser.GameObjects.Text[] = [];
   private visible = false;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(
+    scene: Phaser.Scene,
+    private readonly audio: AudioManager,
+  ) {
     this.backdrop = new ModalBackdrop(scene, () => this.hide());
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
@@ -117,9 +116,7 @@ export class OfflineSummaryPanel {
       ) => event.stopPropagation(),
     );
 
-    const title = scene.add.text(0, TITLE_Y, 'While you were away', TITLE_STYLE).setOrigin(0.5);
-    this.subtitleText = scene.add.text(0, SUBTITLE_Y, '', SUBTITLE_STYLE).setOrigin(0.5);
-    const hint = scene.add.text(0, HINT_Y, 'Collect them with a sweep!', HINT_STYLE).setOrigin(0.5);
+    this.titleText = scene.add.text(0, TITLE_Y, '', TITLE_STYLE).setOrigin(0.5);
     const closeButton = scene.add
       .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
       .setOrigin(0.5)
@@ -127,7 +124,27 @@ export class OfflineSummaryPanel {
       .setInteractive({ useHandCursor: true });
     closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
 
-    this.container.add([bg, title, this.subtitleText, hint, closeButton]);
+    const confirmButton = scene.add
+      .nineslice(
+        0,
+        CONFIRM_Y,
+        ATLAS_KEY,
+        'panel',
+        CONFIRM_WIDTH,
+        CONFIRM_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const confirmText = scene.add.text(0, CONFIRM_Y, 'Confirm', CONFIRM_STYLE).setOrigin(0.5);
+    confirmButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('confirm');
+      this.hide();
+    });
+
+    this.container.add([bg, this.titleText, closeButton, confirmButton, confirmText]);
 
     Object.values(CROPS).forEach((crop, index) => {
       const y = ROW_START_Y + index * ROW_SPACING;
@@ -144,7 +161,8 @@ export class OfflineSummaryPanel {
 
   /** Populate and show the panel from a computed offline summary. */
   show(summary: OfflineSummary): void {
-    this.subtitleText.setText(`Away ${formatAwayDuration(summary.elapsedMs)}`);
+    this.titleText.setText(`While You Were Away for ${formatAwayDuration(summary.elapsedMs)}`);
+    this.titleText.setScale(Math.min(1, (PANEL_WIDTH - 80) / this.titleText.width));
     const readyCrops = Object.values(CROPS).filter(
       (crop) => (summary.readyCounts[crop.id] ?? 0) > 0,
     );
@@ -161,7 +179,7 @@ export class OfflineSummaryPanel {
       const y = ROW_START_Y + index * ROW_SPACING;
       const label = count > 1 ? crop.pluralName : crop.name;
       icon.setPosition(ROW_ICON_X, y).setFrame(crop.stageFrames[2]).setVisible(true);
-      text.setPosition(ROW_TEXT_X, y).setText(`${count} ${label} ready`).setVisible(true);
+      text.setPosition(ROW_TEXT_X, y).setText(`${count} ${label} Ready`).setVisible(true);
     });
 
     this.visible = true;

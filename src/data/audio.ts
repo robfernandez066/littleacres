@@ -6,9 +6,9 @@
  * these directly.
  */
 
-/** Keys of the eight one-shot effects loaded in Preload. */
+/** Keys of the nine one-shot effects loaded in Preload. */
 export type SfxKey =
-  'harvest' | 'plant' | 'coin' | 'tap' | 'fanfare' | 'levelup' | 'bagpop' | 'expand';
+  'harvest' | 'plant' | 'coin' | 'tap' | 'fanfare' | 'levelup' | 'bagpop' | 'expand' | 'confirm';
 
 /** Loader key of the looping background track. */
 export const MUSIC_KEY = 'music';
@@ -53,6 +53,8 @@ export const SFX_DEFS: Record<SfxKey, SfxDef> = {
   levelup: { volume: 0.8, rate: 1.15 },
   bagpop: { volume: 0.5, volumeJitter: 0.1 },
   expand: { volume: 0.7, rate: 1.0 },
+  // Deliberately soft - the user tunes by ear; too-quiet is the correct failure mode.
+  confirm: { volume: 0.4 },
 };
 
 /**

@@ -5,6 +5,7 @@ import atlasPngUrl from '../../assets/atlas.png';
 import ambientMp3Url from '../../assets/audio/ambient.mp3?url';
 import bagpopMp3Url from '../../assets/audio/bagpop.mp3?url';
 import coinMp3Url from '../../assets/audio/coin.mp3?url';
+import confirmMp3Url from '../../assets/audio/confirm.mp3?url';
 import expandMp3Url from '../../assets/audio/expand.mp3?url';
 import fanfareOggUrl from '../../assets/audio/fanfare.ogg?url';
 import harvestMp3Url from '../../assets/audio/harvest.mp3?url';
@@ -15,7 +16,7 @@ import tapOggUrl from '../../assets/audio/tap.ogg?url';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { AMBIENT_KEY, MUSIC_KEY, type SfxKey } from '../data/audio';
 
-/** Loader key -> fingerprinted URL for the eight one-shot effects. */
+/** Loader key -> fingerprinted URL for the nine one-shot effects. */
 const SFX_URLS: Record<SfxKey, string> = {
   harvest: harvestMp3Url,
   plant: plantMp3Url,
@@ -25,6 +26,7 @@ const SFX_URLS: Record<SfxKey, string> = {
   levelup: levelupOggUrl,
   bagpop: bagpopMp3Url,
   expand: expandMp3Url,
+  confirm: confirmMp3Url,
 };
 
 const BACKGROUND_COLOR = 0xfdf6e3;

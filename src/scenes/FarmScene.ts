@@ -27,6 +27,7 @@ import { LevelUpCelebration } from '../ui/LevelUpCelebration';
 import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { ParticleBurst } from '../ui/ParticleBurst';
+import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
 import { SeedBar } from '../ui/SeedBar';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
@@ -111,6 +112,7 @@ export class FarmScene extends Phaser.Scene {
   private popActive: boolean[] = [];
   private refreshAccumulatorMs = 0;
   private seedBar!: SeedBar;
+  private replantChip!: ReplantChip;
   private floatingText!: FloatingText;
   private particles!: ParticleBurst;
   private coinArc!: CoinArc;
@@ -130,6 +132,8 @@ export class FarmScene extends Phaser.Scene {
    * yet this gesture); reset on gesture start/end.
    */
   private gestureMode: 'harvest' | 'plant' | null = null;
+  /** Plots (and their crop) reaped this gesture, offered to the replant chip on gesture end. */
+  private harvestedThisGesture: ReplantEntry[] = [];
 
   constructor() {
     super('Farm');
@@ -148,6 +152,9 @@ export class FarmScene extends Phaser.Scene {
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this, this.audio);
+    this.replantChip = new ReplantChip(this, this.audio, (plantedEntries) =>
+      this.handleReplanted(plantedEntries),
+    );
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
     this.hud = new Hud(this, this.coinArc, this.floatingText, this.audio);
@@ -163,7 +170,7 @@ export class FarmScene extends Phaser.Scene {
 
     // Checked once per scene start, after every other panel/backdrop exists -
     // it blocks field input like any modal, via the same isModalOpen() gate.
-    this.offlineSummaryPanel = new OfflineSummaryPanel(this);
+    this.offlineSummaryPanel = new OfflineSummaryPanel(this, this.audio);
     const offlineSummary = gameState.consumeOfflineSummary();
     if (offlineSummary !== null) this.offlineSummaryPanel.show(offlineSummary);
 
@@ -179,6 +186,7 @@ export class FarmScene extends Phaser.Scene {
     gameState.ensureOrders();
     this.refreshCrops();
     this.seedBar.refresh();
+    this.replantChip.refresh(gameState.getState());
     this.hud.refresh();
     // Onboarding's select-sunwheat step: checked every tick (not just on the
     // tap) so a selection made before the step began still counts. Cheap
@@ -205,6 +213,8 @@ export class FarmScene extends Phaser.Scene {
   private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       this.gestureMode = null;
+      this.harvestedThisGesture = [];
+      this.replantChip.hide();
       this.handlePlotEntered(
         this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount()),
       );
@@ -217,6 +227,13 @@ export class FarmScene extends Phaser.Scene {
     });
     const endGesture = (): void => {
       this.plotTracker.end();
+      if (
+        this.gestureMode === 'harvest' &&
+        this.harvestedThisGesture.length > 0 &&
+        gameState.getState().onboarding.completed
+      ) {
+        this.replantChip.show(this.harvestedThisGesture);
+      }
       this.gestureMode = null;
     };
     this.input.on(Phaser.Input.Events.POINTER_UP, endGesture);
@@ -288,7 +305,10 @@ export class FarmScene extends Phaser.Scene {
         this.gestureMode = 'harvest';
         this.audio.harvestPop();
         this.playHarvestPop(plotIndex);
-        if (plot?.state === 'growing') this.playHarvestJuice(plotIndex, plot.cropId);
+        if (plot?.state === 'growing') {
+          this.playHarvestJuice(plotIndex, plot.cropId);
+          this.harvestedThisGesture.push({ plotIndex, cropId: plot.cropId });
+        }
         return;
       }
       if (this.gestureMode === 'harvest') return;
@@ -327,6 +347,20 @@ export class FarmScene extends Phaser.Scene {
     const state = gameState.getState();
     if (state.plots[plotIndex]?.state !== 'empty') return;
     if (state.coins < CROPS[cropId].seedCost) this.seedBar.flashInsufficientCoins(cropId);
+  }
+
+  /**
+   * The replant chip's juice callback: the chip owns no scene visuals, so it
+   * hands back exactly the plots it actually planted for the usual plant pop
+   * + sparkle burst per plot, mirroring `tryPlant`'s success path.
+   */
+  private handleReplanted(plantedEntries: ReplantEntry[]): void {
+    this.refreshCrops();
+    for (const { plotIndex } of plantedEntries) {
+      this.playPlantPop(plotIndex);
+      const pos = this.plotPositions[plotIndex];
+      if (pos !== undefined) this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+    }
   }
 
   /** Placeholder "plip" on a fresh plant; real particles come later. */
