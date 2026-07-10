@@ -48,6 +48,15 @@ export const DEFAULT_MUSIC_VOLUME = 0.2;
 export const DEFAULT_SFX_VOLUME = 0.7;
 
 /**
+ * The music channel's useful loudness sits in 0..0.4 gain; the slider's
+ * position 0..1 is remapped to gain 0..MUSIC_SLIDER_MAX_GAIN so the full
+ * track covers that usable range instead of clipping most of it into the
+ * bottom 20%. The stored setting is still absolute gain (DEFAULT_MUSIC_VOLUME
+ * unchanged) - only the slider's position <-> gain conversion changes.
+ */
+export const MUSIC_SLIDER_MAX_GAIN = 0.4;
+
+/**
  * Harvest pitch chain: consecutive harvests within the window each raise the
  * playback rate by one step (capped), so a sweep audibly escalates; a gap
  * longer than the window resets the rate to 1.0.

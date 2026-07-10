@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
+import { MUSIC_SLIDER_MAX_GAIN } from '../data/audio';
 import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -84,6 +85,12 @@ interface SliderRow {
   onDrag: (volume: number) => void;
   /** Persist on release (and any release-time feedback, e.g. the sample tap). */
   onCommit: (volume: number) => void;
+  /**
+   * Slider position (0..1) -> stored gain multiplier. 1 for a direct
+   * position-equals-gain row (Sound); MUSIC_SLIDER_MAX_GAIN for Music, so
+   * the full track spans the channel's usable 0..0.4 gain range.
+   */
+  gainScale: number;
 }
 
 export class SettingsPanel {
@@ -154,6 +161,7 @@ export class SettingsPanel {
         getVolume: () => gameState.getState().settings.musicVolume,
         onDrag: (volume) => this.audio.previewMusicVolume(volume),
         onCommit: (volume) => this.audio.setMusicVolume(volume),
+        gainScale: MUSIC_SLIDER_MAX_GAIN,
       }),
       this.buildRow(ROW_SFX_Y, 'Sound', {
         isOn: () => gameState.getState().settings.sfxOn,
@@ -166,6 +174,7 @@ export class SettingsPanel {
           this.audio.setSfxVolume(volume);
           this.audio.sfx('tap');
         },
+        gainScale: 1,
       }),
     );
 
@@ -175,17 +184,17 @@ export class SettingsPanel {
     // handle - or the panel - keeps tracking until the finger lifts.
     scene.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
       if (this.activeRow === null) return;
-      const volume = this.volumeFromPointer(pointer);
-      this.setHandleFromVolume(this.activeRow, volume);
-      this.activeRow.onDrag(volume);
+      const position = this.volumeFromPointer(pointer);
+      this.setHandleFromVolume(this.activeRow, position);
+      this.activeRow.onDrag(position * this.activeRow.gainScale);
     });
     scene.input.on(Phaser.Input.Events.POINTER_UP, (pointer: Phaser.Input.Pointer) => {
       if (this.activeRow === null) return;
       const row = this.activeRow;
       this.activeRow = null;
-      const volume = this.volumeFromPointer(pointer);
-      this.setHandleFromVolume(row, volume);
-      row.onCommit(volume);
+      const position = this.volumeFromPointer(pointer);
+      this.setHandleFromVolume(row, position);
+      row.onCommit(position * row.gainScale);
     });
   }
 
@@ -193,7 +202,7 @@ export class SettingsPanel {
   private buildRow(
     y: number,
     label: string,
-    hooks: Pick<SliderRow, 'isOn' | 'setOn' | 'getVolume' | 'onDrag' | 'onCommit'>,
+    hooks: Pick<SliderRow, 'isOn' | 'setOn' | 'getVolume' | 'onDrag' | 'onCommit' | 'gainScale'>,
   ): SliderRow {
     const labelText = this.scene.add.text(ROW_LABEL_X, y, label, LABEL_STYLE).setOrigin(0, 0.5);
 
@@ -284,9 +293,9 @@ export class SettingsPanel {
     ): void => {
       event.stopPropagation();
       this.activeRow = row;
-      const volume = this.volumeFromPointer(pointer);
-      this.setHandleFromVolume(row, volume);
-      row.onDrag(volume);
+      const position = this.volumeFromPointer(pointer);
+      this.setHandleFromVolume(row, position);
+      row.onDrag(position * row.gainScale);
     };
     handle.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, beginDrag);
     track.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, beginDrag);
@@ -320,7 +329,10 @@ export class SettingsPanel {
     if (!this.visible) return;
     for (const row of this.rows) {
       this.renderToggle(row);
-      if (row !== this.activeRow) this.setHandleFromVolume(row, row.getVolume());
+      if (row !== this.activeRow) {
+        const position = Phaser.Math.Clamp(row.getVolume() / row.gainScale, 0, 1);
+        this.setHandleFromVolume(row, position);
+      }
     }
   }
 
