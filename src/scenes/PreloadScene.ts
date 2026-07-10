@@ -2,8 +2,10 @@ import Phaser from 'phaser';
 
 import atlasJsonUrl from '../../assets/atlas.json?url';
 import atlasPngUrl from '../../assets/atlas.png';
+import ambientMp3Url from '../../assets/audio/ambient.mp3?url';
 import bagpopMp3Url from '../../assets/audio/bagpop.mp3?url';
-import coinOggUrl from '../../assets/audio/coin.ogg?url';
+import coinMp3Url from '../../assets/audio/coin.mp3?url';
+import expandMp3Url from '../../assets/audio/expand.mp3?url';
 import fanfareOggUrl from '../../assets/audio/fanfare.ogg?url';
 import harvestMp3Url from '../../assets/audio/harvest.mp3?url';
 import levelupOggUrl from '../../assets/audio/levelup.ogg?url';
@@ -11,17 +13,18 @@ import musicMp3Url from '../../assets/audio/music.mp3?url';
 import plantMp3Url from '../../assets/audio/plant.mp3?url';
 import tapOggUrl from '../../assets/audio/tap.ogg?url';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
-import { MUSIC_KEY, type SfxKey } from '../data/audio';
+import { AMBIENT_KEY, MUSIC_KEY, type SfxKey } from '../data/audio';
 
-/** Loader key -> fingerprinted URL for the seven one-shot effects. */
+/** Loader key -> fingerprinted URL for the eight one-shot effects. */
 const SFX_URLS: Record<SfxKey, string> = {
   harvest: harvestMp3Url,
   plant: plantMp3Url,
-  coin: coinOggUrl,
+  coin: coinMp3Url,
   tap: tapOggUrl,
   fanfare: fanfareOggUrl,
   levelup: levelupOggUrl,
   bagpop: bagpopMp3Url,
+  expand: expandMp3Url,
 };
 
 const BACKGROUND_COLOR = 0xfdf6e3;
@@ -75,6 +78,7 @@ export class PreloadScene extends Phaser.Scene {
       this.load.audio(key, url);
     }
     this.load.audio(MUSIC_KEY, musicMp3Url);
+    this.load.audio(AMBIENT_KEY, ambientMp3Url);
   }
 
   create(): void {

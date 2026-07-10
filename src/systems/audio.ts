@@ -1,10 +1,14 @@
 import Phaser from 'phaser';
 
 import {
+  AMBIENT_KEY,
+  AMBIENT_MUSIC_FACTOR,
   BAGPOP_RATE_MAX,
   BAGPOP_RATE_MIN,
   COIN_RATE_MAX,
   COIN_RATE_MIN,
+  DUCK_RESTORE_FADE_MS,
+  EXPAND_DUCK_FAILSAFE_MS,
   HARVEST_CHAIN_RATE_MAX,
   HARVEST_CHAIN_RATE_STEP,
   HARVEST_CHAIN_WINDOW_MS,
@@ -32,9 +36,10 @@ const MARKER_NAME = 'clip';
  * through here so the persisted mute settings and channel volumes gate
  * everything in one place. Owns the harvest pitch chain, the coin/bagpop
  * jitters, the per-key concurrency cap, the jingle priority slot, and the
- * looping music track - including the browser autoplay dance (music requested
- * before the first user gesture defers to Phaser's `unlocked` event instead
- * of erroring).
+ * looping music track plus its ambient nature bed, and the expand fanfare's
+ * duck (silences music/ambient/all other sfx for the fanfare's duration) -
+ * including the browser autoplay dance (music requested before the first
+ * user gesture defers to Phaser's `unlocked` event instead of erroring).
  *
  * Constructed by the scene; playback state (chain rate, live counts, music
  * handle) is in-memory only - the on/off + volume settings live in
@@ -45,8 +50,17 @@ export class AudioManager {
   private lastHarvestAt = -Infinity;
   private harvestRate = 1;
   private music: ManagedSound | null = null;
+  /** Looping ambient nature bed, riding the music channel's on/off + volume. */
+  private ambient: ManagedSound | null = null;
   /** Guards against stacking one `unlocked` handler per pre-gesture startMusic call. */
   private musicPendingUnlock = false;
+  /**
+   * True for the duration of the expand fanfare: music/ambient are silenced
+   * (not stopped) and `sfx()` skips every key. Set by `expandFanfare`,
+   * cleared by `unduck` on the fanfare's completion or its failsafe timer,
+   * whichever fires first.
+   */
+  private ducked = false;
   /** Live instance count per key, for the anti-crackle concurrency cap. */
   private readonly liveCounts = new Map<SfxKey, number>();
   /**
@@ -62,9 +76,11 @@ export class AudioManager {
   /**
    * Play a one-shot effect: configured base volume x sfx channel volume
    * (x per-play jitter where configured), base rate x the caller's rate.
-   * A no-op while sfx are muted, and a silent skip at the concurrency cap.
+   * A no-op while sfx are muted or the expand fanfare is ducking everything
+   * else, and a silent skip at the concurrency cap.
    */
   sfx(key: SfxKey, opts: { rate?: number } = {}): void {
+    if (this.ducked) return;
     const settings = gameState.getState().settings;
     if (!settings.sfxOn) return;
     const def = SFX_DEFS[key];
@@ -159,12 +175,64 @@ export class AudioManager {
   }
 
   /**
-   * Start the looping background track; a no-op while music is muted or
-   * already playing. Browser autoplay policy blocks audio before the first
-   * user gesture: while the sound system is locked this defers itself to
-   * Phaser's `unlocked` event (fired on that gesture) instead of erroring.
-   * The deferred call re-checks the setting, so muting before the first
-   * gesture still wins.
+   * The farm-expansion fanfare: plays 'expand' outside the normal `sfx()`
+   * gate (so it isn't silenced by the duck it is about to start), then
+   * silences music/ambient/every other sfx for its duration - the loops keep
+   * playing at zero volume rather than stopping, so their position carries
+   * through. Restores on the clip's `complete` event or the failsafe delay,
+   * whichever comes first. Never ducks if the sound fails to play (sfx muted
+   * or at the concurrency cap).
+   */
+  expandFanfare(): void {
+    const settings = gameState.getState().settings;
+    if (!settings.sfxOn) return;
+    const def = SFX_DEFS.expand;
+    const sound = this.play('expand', def.volume * settings.sfxVolume, def.rate ?? 1);
+    if (sound === null) return;
+    this.ducked = true;
+    this.music?.setVolume(0);
+    this.ambient?.setVolume(0);
+    const unduck = (): void => this.unduck();
+    sound.once(Phaser.Sound.Events.COMPLETE, unduck);
+    this.scene.time.delayedCall(EXPAND_DUCK_FAILSAFE_MS, unduck);
+  }
+
+  /**
+   * End the expand duck: fades music/ambient back in to the CURRENT store
+   * volume (so a slider drag mid-duck applies on restore), unless music was
+   * turned off mid-duck - in which case both tracks are already stopped and
+   * must stay silent. A harmless no-op if already unducked (the complete
+   * event and the failsafe both call this; only the first should act).
+   */
+  private unduck(): void {
+    if (!this.ducked) return;
+    this.ducked = false;
+    const settings = gameState.getState().settings;
+    if (!settings.musicOn) return;
+    if (this.music !== null) {
+      this.scene.tweens.add({
+        targets: this.music,
+        volume: settings.musicVolume,
+        duration: DUCK_RESTORE_FADE_MS,
+      });
+    }
+    if (this.ambient !== null) {
+      this.scene.tweens.add({
+        targets: this.ambient,
+        volume: settings.musicVolume * AMBIENT_MUSIC_FACTOR,
+        duration: DUCK_RESTORE_FADE_MS,
+      });
+    }
+  }
+
+  /**
+   * Start the looping background track and the ambient nature bed riding
+   * alongside it; a no-op while music is muted or both are already playing.
+   * Browser autoplay policy blocks audio before the first user gesture:
+   * while the sound system is locked this defers itself to Phaser's
+   * `unlocked` event (fired on that gesture) instead of erroring. The
+   * deferred call re-checks the setting, so muting before the first gesture
+   * still wins.
    */
   startMusic(): void {
     const settings = gameState.getState().settings;
@@ -181,17 +249,27 @@ export class AudioManager {
     if (this.music === null) {
       this.music = this.scene.sound.add(MUSIC_KEY, { loop: true, volume: settings.musicVolume });
     }
-    this.music.setVolume(gameState.getState().settings.musicVolume);
+    this.music.setVolume(settings.musicVolume);
     if (!this.music.isPlaying) this.music.play();
+
+    if (this.ambient === null) {
+      this.ambient = this.scene.sound.add(AMBIENT_KEY, {
+        loop: true,
+        volume: settings.musicVolume * AMBIENT_MUSIC_FACTOR,
+      });
+    }
+    this.ambient.setVolume(settings.musicVolume * AMBIENT_MUSIC_FACTOR);
+    if (!this.ambient.isPlaying) this.ambient.play();
   }
 
-  /** Persist the music setting and start/stop the track immediately. */
+  /** Persist the music setting and start/stop the track + ambient bed immediately. */
   setMusicOn(on: boolean): void {
     gameState.setMusicOn(on);
     if (on) {
       this.startMusic();
     } else {
       this.music?.stop();
+      this.ambient?.stop();
     }
   }
 
@@ -201,18 +279,32 @@ export class AudioManager {
   }
 
   /**
-   * Apply a music volume to the playing track WITHOUT persisting - the
-   * slider calls this on every drag move so the change is audible live,
-   * then commits once on release via `setMusicVolume`.
+   * Apply a music volume to the playing track and ambient bed WITHOUT
+   * persisting - the slider calls this on every drag move so the change is
+   * audible live, then commits once on release via `setMusicVolume`. A no-op
+   * while the expand duck is silencing both tracks - the value still isn't
+   * persisted here, so nothing is lost; `setMusicVolume` on release restores
+   * it once unducked.
    */
   previewMusicVolume(volume: number): void {
-    this.music?.setVolume(Phaser.Math.Clamp(volume, 0, 1));
+    if (this.ducked) return;
+    const clamped = Phaser.Math.Clamp(volume, 0, 1);
+    this.music?.setVolume(clamped);
+    this.ambient?.setVolume(clamped * AMBIENT_MUSIC_FACTOR);
   }
 
-  /** Persist the music channel volume (store clamps) and apply it to the playing track. */
+  /**
+   * Persist the music channel volume (store clamps) and apply it to the
+   * playing track and ambient bed - unless the expand duck is silencing
+   * both, in which case the store write still happens but the live volume
+   * stays at zero until `unduck` restores it from the store.
+   */
   setMusicVolume(volume: number): void {
     gameState.setMusicVolume(volume);
-    this.music?.setVolume(gameState.getState().settings.musicVolume);
+    if (this.ducked) return;
+    const musicVolume = gameState.getState().settings.musicVolume;
+    this.music?.setVolume(musicVolume);
+    this.ambient?.setVolume(musicVolume * AMBIENT_MUSIC_FACTOR);
   }
 
   /** Persist the sfx channel volume; `sfx()` reads it live, so this is just the store write. */

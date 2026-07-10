@@ -66,8 +66,10 @@ const HAPTIC_LIGHT_MS = 12;
 /** Medium haptic pulse on a successful farm expansion. */
 const HAPTIC_MEDIUM_MS = 25;
 
-/** Delay between each new plot's leaf burst when the farm expands. */
-const EXPAND_BURST_STAGGER_MS = 80;
+/** Delay before each new plot's tile fade-in starts when the farm expands. */
+const EXPAND_REVEAL_STAGGER_MS = 1200;
+/** Duration of each new plot's tile fade-in when the farm expands. */
+const EXPAND_REVEAL_FADE_MS = 2400;
 
 /** Where the floating xp label spawns relative to a plot's tile center. */
 const XP_LABEL_OFFSET_Y = -70;
@@ -228,17 +230,19 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Attempt the farm expansion purchase. On success, builds the new row's
-   * tiles/sprites, plays a staggered leaf burst per new plot, and buzzes;
-   * on failure (insufficient coins - the sign is hidden once already
-   * expanded, so that is the only failure reachable from a tap) nudges the
-   * sign instead.
+   * tiles/sprites (state updates instantly - planting on a still-fading plot
+   * is allowed), then fades each new plot's tile in from alpha 0 on a
+   * staggered timer - a calm reveal with no particle bursts, timed to the
+   * expand fanfare which ducks everything else while it plays; on failure
+   * (insufficient coins - the sign is hidden once already expanded, so that
+   * is the only failure reachable from a tap) nudges the sign instead.
    */
   private tryExpand(): void {
     if (!gameState.expandFarm()) {
       this.expandSign.flashInsufficientCoins();
       return;
     }
-    this.audio.sfx('tap');
+    this.audio.expandFanfare();
     // Expansion adds a row, which recenters the iso origin - reposition every
     // existing plot before building the new row's visuals at the new origin.
     const rowCount = this.rowCount();
@@ -247,10 +251,14 @@ export class FarmScene extends Phaser.Scene {
     }
     for (let index = BASE_PLOT_COUNT; index < EXPANDED_PLOT_COUNT; index++) {
       this.createPlotVisuals(index, rowCount);
-      const stagger = (index - BASE_PLOT_COUNT) * EXPAND_BURST_STAGGER_MS;
-      this.time.delayedCall(stagger, () => {
-        const pos = this.plotPositions[index];
-        if (pos !== undefined) this.particles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
+      const tile = this.plotTiles[index];
+      if (tile === undefined) continue;
+      tile.setAlpha(0);
+      this.tweens.add({
+        targets: tile,
+        alpha: 1,
+        delay: (index - BASE_PLOT_COUNT) * EXPAND_REVEAL_STAGGER_MS,
+        duration: EXPAND_REVEAL_FADE_MS,
       });
     }
     buzz(HAPTIC_MEDIUM_MS);
