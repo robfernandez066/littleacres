@@ -19,6 +19,10 @@ const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
   backgroundColor: '#000000',
+  // Cap rendering at 60fps: on high-refresh displays Phaser otherwise renders
+  // at the full refresh rate (observed 144fps), wasting GPU on a mostly-static
+  // farm and starving the OS compositor (system-wide lag when moving windows).
+  fps: { limit: 60 },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
