@@ -57,8 +57,12 @@ export class DevOverlay {
     this.fpsEl = document.createElement('div');
     this.clockEl = document.createElement('div');
     this.poolsEl = document.createElement('div');
+    // Static: identifies the running build so a stale service-worker cache is
+    // always detectable (missing entirely in builds older than this line).
+    const buildEl = document.createElement('div');
+    buildEl.textContent = `build ${__BUILD_TIME__}`;
     const readouts = document.createElement('div');
-    readouts.append(this.fpsEl, this.clockEl, this.poolsEl);
+    readouts.append(buildEl, this.fpsEl, this.clockEl, this.poolsEl);
     this.root.appendChild(readouts);
 
     this.root.appendChild(this.buildButtons());

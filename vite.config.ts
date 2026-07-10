@@ -3,6 +3,11 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig({
   base: '/littleacres/',
+  // Baked into the bundle at build time; the dev overlay shows it so a stale
+  // service-worker build is always identifiable (see DevOverlay).
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+  },
   server: {
     port: 5177,
     strictPort: true,

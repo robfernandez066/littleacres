@@ -37,6 +37,11 @@ Format:
 **Decision:** COMMIT (user committed + pushed). Accepted as standing conventions: tile diamond 256x128 (2:1), crop frames 128x128 with baseline y=104 and origin (0.5, baseline/size); frame names are a stable API (`<cropId>_<stage>`); generated atlas is committed, regenerated via `npm run gen:assets` (deterministic, zero-dep, never a build step); atlas lives in assets/ and is Vite-imported for fingerprinting; atlas.json in .prettierignore. Demo crops (3 plots) are temporary and must be removed when planting logic lands.
 **Trigger:** T0.3 coder report.
 
+## 2026-07-10 - Build stamp was never built: T1.8 requirement silently dropped, PM review missed it
+**Context:** Diagnosing the fps cap, the user could not find the dev overlay's build stamp - because it does not exist. T1.8's requirement 7 (vite __BUILD_TIME__ define + overlay line) was omitted by the coder, its report's acceptance list skipped the criterion, and the PM review failed to catch the dropped requirement. The PM then repeatedly directed the user to a nonexistent feature.
+**Decision:** PM-direct fix (vite.config define, vite-env.d.ts declaration, DevOverlay line). PM review checklist hardened: verify the report's acceptance list covers EVERY numbered requirement in the prompt - a report that never mentions a requirement is a red flag, not an implicit pass.
+**Trigger:** User unable to find the build stamp.
+
 ## 2026-07-10 - FPS capped at 60 (PM-direct) after system-lag report
 **Context:** User reported window-dragging lagging the whole PC while the game ran. Screenshot diagnosis: Phaser rendering at the display's full 144Hz on a mostly-static scene (confirmed by the dev overlay FPS readout), plus leftover idle Node dev-server processes (user cleanup, harmless). Sign polish rounds T2.6d/e/f also landed prior (plank geometry measured, cost line under title).
 **Decision:** PM-direct: `fps: { limit: 60 }` in the Phaser config. 60fps is the design target (mid-range phones) and indistinguishable for this game; halves desktop GPU load. The full profiling pass remains T2.8. Lesson: high-refresh desktops render uncapped by default - cap early on canvas games.
