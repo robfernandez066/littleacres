@@ -26,6 +26,7 @@ import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
 import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
+import { CropCountdown } from '../ui/CropCountdown';
 import { ParticleBurst } from '../ui/ParticleBurst';
 import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
 import { SeedBar } from '../ui/SeedBar';
@@ -125,6 +126,7 @@ export class FarmScene extends Phaser.Scene {
   private refreshAccumulatorMs = 0;
   private seedBar!: SeedBar;
   private replantChip!: ReplantChip;
+  private cropCountdown!: CropCountdown;
   private floatingText!: FloatingText;
   private particles!: ParticleBurst;
   private coinArc!: CoinArc;
@@ -164,6 +166,7 @@ export class FarmScene extends Phaser.Scene {
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this, this.audio);
+    this.cropCountdown = new CropCountdown(this);
     this.replantChip = new ReplantChip(this, this.audio, (plantedEntries) =>
       this.handleReplanted(plantedEntries),
     );
@@ -199,6 +202,7 @@ export class FarmScene extends Phaser.Scene {
     this.refreshCrops();
     this.seedBar.refresh();
     this.replantChip.refresh(gameState.getState());
+    this.cropCountdown.refresh(gameState.getState());
     this.hud.refresh();
     // Onboarding's select-sunwheat step: checked every tick (not just on the
     // tap) so a selection made before the step began still counts. Cheap
@@ -234,9 +238,9 @@ export class FarmScene extends Phaser.Scene {
       this.gestureMode = null;
       this.harvestedThisGesture = [];
       this.replantChip.hide();
-      this.handlePlotEntered(
-        this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount()),
-      );
+      const plotIndex = this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount());
+      this.maybeShowCountdown(plotIndex);
+      this.handlePlotEntered(plotIndex);
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown) return;
@@ -299,6 +303,24 @@ export class FarmScene extends Phaser.Scene {
     }
     buzz(HAPTIC_MEDIUM_MS);
     this.expandSign.refresh(gameState.getState());
+  }
+
+  /**
+   * A tap's first-contact plot only (never a mid-sweep POINTER_MOVE entry):
+   * shows the live countdown when that plot is growing-but-not-ready, the
+   * one case where both harvest and plant fall through and a tap would
+   * otherwise do nothing. Suppressed while onboarding is active (the
+   * tutorial chip owns countdown duty there) or a modal panel is open.
+   */
+  private maybeShowCountdown(plotIndex: number | null): void {
+    if (plotIndex === null || isModalOpen()) return;
+    const state = gameState.getState();
+    if (!state.onboarding.completed) return;
+    const plot = state.plots[plotIndex];
+    if (plot?.state !== 'growing' || isReady(plot, now())) return;
+    const pos = this.plotPositions[plotIndex];
+    if (pos === undefined) return;
+    this.cropCountdown.show(plotIndex, pos);
   }
 
   /**
