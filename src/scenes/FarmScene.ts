@@ -146,8 +146,14 @@ export class FarmScene extends Phaser.Scene {
    * yet this gesture); reset on gesture start/end.
    */
   private gestureMode: 'harvest' | 'plant' | null = null;
-  /** Plots (and their crop) reaped this gesture, offered to the replant chip on gesture end. */
-  private harvestedThisGesture: ReplantEntry[] = [];
+  /**
+   * Plots (and their crop) reaped since the chip was last dismissed -
+   * accumulates across multiple harvest gestures/sweeps, not just the
+   * current one. A plot already in the list is replaced (defensive dedup),
+   * never duplicated. Cleared only when the chip hides (see the ReplantChip
+   * `onHide` callback below).
+   */
+  private pendingReplant: ReplantEntry[] = [];
 
   constructor() {
     super('Farm');
@@ -167,8 +173,13 @@ export class FarmScene extends Phaser.Scene {
     this.coinArc = new CoinArc(this);
     this.seedBar = new SeedBar(this, this.audio);
     this.cropCountdown = new CropCountdown(this);
-    this.replantChip = new ReplantChip(this, this.audio, (plantedEntries) =>
-      this.handleReplanted(plantedEntries),
+    this.replantChip = new ReplantChip(
+      this,
+      this.audio,
+      (plantedEntries) => this.handleReplanted(plantedEntries),
+      () => {
+        this.pendingReplant = [];
+      },
     );
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
@@ -231,13 +242,14 @@ export class FarmScene extends Phaser.Scene {
    * at most once per gesture courtesy of PlotPointerTracker) is offered to
    * harvest first, then to plant. Harvesting never requires deselecting a
    * seed, and the per-gesture dedup guarantees a just-harvested plot cannot
-   * be replanted within the same sweep.
+   * be replanted within the same sweep. A new gesture only resets
+   * `gestureMode` (which action this sweep has locked to) - it deliberately
+   * leaves `pendingReplant` and the chip alone, so a stray tap or a second
+   * harvest sweep never kills an offer still accumulating from an earlier one.
    */
   private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       this.gestureMode = null;
-      this.harvestedThisGesture = [];
-      this.replantChip.hide();
       const plotIndex = this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount());
       this.maybeShowCountdown(plotIndex);
       this.handlePlotEntered(plotIndex);
@@ -252,10 +264,12 @@ export class FarmScene extends Phaser.Scene {
       this.plotTracker.end();
       if (
         this.gestureMode === 'harvest' &&
-        this.harvestedThisGesture.length > 0 &&
+        this.pendingReplant.length > 0 &&
         gameState.getState().onboarding.completed
       ) {
-        this.replantChip.show(this.harvestedThisGesture);
+        // Show (or re-show) with the FULL accumulated list - the TTL restarts
+        // from this, the most recent harvest, not from the first one.
+        this.replantChip.show([...this.pendingReplant]);
       }
       this.gestureMode = null;
     };
@@ -348,13 +362,20 @@ export class FarmScene extends Phaser.Scene {
         this.playHarvestPop(plotIndex);
         if (plot?.state === 'growing') {
           this.playHarvestJuice(plotIndex, plot.cropId);
-          this.harvestedThisGesture.push({ plotIndex, cropId: plot.cropId });
+          this.pushPendingReplant({ plotIndex, cropId: plot.cropId });
         }
         return;
       }
       if (this.gestureMode === 'harvest') return;
     }
     this.tryPlant(plotIndex);
+  }
+
+  /** Append to `pendingReplant`, replacing (not duplicating) an existing entry for the same plot. */
+  private pushPendingReplant(entry: ReplantEntry): void {
+    const existingIndex = this.pendingReplant.findIndex((e) => e.plotIndex === entry.plotIndex);
+    if (existingIndex === -1) this.pendingReplant.push(entry);
+    else this.pendingReplant[existingIndex] = entry;
   }
 
   /** Leaf burst + floating "+N xp" + light buzz + a crop flight to the bag. */
@@ -399,6 +420,9 @@ export class FarmScene extends Phaser.Scene {
     if (cropId === null) return;
     if (gameState.plantCrop(plotIndex, cropId)) {
       this.gestureMode = 'plant';
+      // A successful manual plant is a change of intent - dismiss any
+      // outstanding replant offer (its `onHide` clears `pendingReplant`).
+      this.replantChip.hide();
       this.audio.sfx('plant');
       this.refreshCrops();
       this.playPlantPop(plotIndex);

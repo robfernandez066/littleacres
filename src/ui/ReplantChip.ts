@@ -14,7 +14,7 @@ export interface ReplantEntry {
 }
 
 /** Real wall-clock lifetime of the chip once shown; a UI timer, not game time. */
-const REPLANT_CHIP_TTL_MS = 5000;
+const REPLANT_CHIP_TTL_MS = 8000;
 
 const CHIP_WIDTH = 520;
 const CHIP_HEIGHT = 96;
@@ -23,10 +23,13 @@ const CHIP_CENTER_Y = 1470;
 /** Above the field/crops, same layer as the seed bar it sits over. */
 const CHIP_DEPTH = 2000;
 
-const TEXT_X = -CHIP_WIDTH / 2 + 32;
-const COIN_OFFSET_X = CHIP_WIDTH / 2 - 108;
+/** Composed-contents budget: copy longer than this shrinks to fit. */
+const CHIP_INNER_WIDTH = CHIP_WIDTH - 40;
+/** Gap from the label's measured right edge to the coin icon's left edge. */
+const LABEL_COIN_GAP = 14;
+/** Gap from the coin icon's right edge to the cost text's left edge. */
+const COIN_COST_GAP = 8;
 const COIN_SCALE = 0.5;
-const COST_TEXT_X = CHIP_WIDTH / 2 - 78;
 
 const DIMMED_ALPHA = 0.5;
 /** Light haptic pulse on a successful replant, matching FarmScene's plant/harvest buzz. */
@@ -68,6 +71,8 @@ export class ReplantChip {
     scene: Phaser.Scene,
     private readonly audio: AudioManager,
     private readonly onReplanted: (plantedEntries: ReplantEntry[]) => void,
+    /** Fired exactly once per visible-to-hidden transition (never on an already-hidden hide()). */
+    private readonly onHide: () => void,
   ) {
     this.container = scene.add
       .container(CHIP_CENTER_X, CHIP_CENTER_Y)
@@ -85,9 +90,11 @@ export class ReplantChip {
       PANEL_SLICE,
       PANEL_SLICE,
     );
-    this.label = scene.add.text(TEXT_X, 0, '', TEXT_STYLE).setOrigin(0, 0.5);
-    this.coinIcon = scene.add.image(COIN_OFFSET_X, 0, ATLAS_KEY, 'coin').setScale(COIN_SCALE);
-    this.costText = scene.add.text(COST_TEXT_X, 0, '', COST_STYLE).setOrigin(0, 0.5);
+    // Positions are placeholders - `layoutContents` composes the real ones
+    // from measured widths the moment the copy is first set.
+    this.label = scene.add.text(0, 0, '', TEXT_STYLE).setOrigin(0, 0.5);
+    this.coinIcon = scene.add.image(0, 0, ATLAS_KEY, 'coin').setScale(COIN_SCALE);
+    this.costText = scene.add.text(0, 0, '', COST_STYLE).setOrigin(0, 0.5);
     this.container.add([this.panel, this.label, this.coinIcon, this.costText]);
 
     this.panel.setInteractive({ useHandCursor: true });
@@ -137,16 +144,51 @@ export class ReplantChip {
     }
     this.entries = remaining;
     const totalCost = remaining.reduce((sum, entry) => sum + CROPS[entry.cropId].seedCost, 0);
-    this.label.setText(this.copyFor(remaining));
-    this.costText.setText(String(totalCost));
+    const label = this.copyFor(remaining);
+    const cost = String(totalCost);
+    if (label !== this.label.text || cost !== this.costText.text) {
+      this.label.setText(label);
+      this.costText.setText(cost);
+      this.layoutContents();
+    }
     this.container.setAlpha(state.coins < totalCost ? DIMMED_ALPHA : 1);
   }
 
-  /** Hide immediately - a new field gesture or a successful replant. */
+  /**
+   * Hide immediately - TTL expiry, a modal opening, a successful replant, or
+   * FarmScene dismissing the offer on a successful manual plant. `onHide`
+   * fires only on an actual visible-to-hidden transition, which is also the
+   * single point FarmScene clears its accumulated `pendingReplant` list.
+   */
   hide(): void {
+    const wasVisible = this.visible;
     this.visible = false;
     this.entries = [];
     this.container.setVisible(false);
+    if (wasVisible) this.onHide();
+  }
+
+  /**
+   * Compose label + coin + cost left-to-right by measured widths and center
+   * the group in the chip. If the composed width would exceed
+   * CHIP_INNER_WIDTH, only the label shrinks (coin and cost stay full size)
+   * - same shrink-to-fit approach as OnboardingGuide's chip.
+   */
+  private layoutContents(): void {
+    this.label.setScale(1);
+    const rawLabelWidth = this.label.width;
+    const coinWidth = this.coinIcon.displayWidth;
+    const costWidth = this.costText.width;
+    const fixedWidth = LABEL_COIN_GAP + coinWidth + COIN_COST_GAP + costWidth;
+    const labelScale = Math.min(1, Math.max(0, (CHIP_INNER_WIDTH - fixedWidth) / rawLabelWidth));
+    this.label.setScale(labelScale);
+    const labelWidth = rawLabelWidth * labelScale;
+    const totalWidth = labelWidth + fixedWidth;
+    const startX = -totalWidth / 2;
+    this.label.setPosition(startX, 0);
+    const coinX = startX + labelWidth + LABEL_COIN_GAP + coinWidth / 2;
+    this.coinIcon.setPosition(coinX, 0);
+    this.costText.setPosition(coinX + coinWidth / 2 + COIN_COST_GAP, 0);
   }
 
   private copyFor(entries: readonly ReplantEntry[]): string {
