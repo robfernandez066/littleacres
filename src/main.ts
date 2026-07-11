@@ -8,8 +8,18 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { installDevTools } from './systems/dev';
 import { gameState } from './systems/gameState';
 import { DevOverlay } from './ui/DevOverlay';
+import { showUpdateToast } from './ui/updateToast';
 
-registerSW({ immediate: true });
+/** Hourly check for long-lived sessions; passive, no UI unless an update is actually waiting. */
+const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
+
+const updateSW = registerSW({
+  immediate: true,
+  onNeedRefresh: () => showUpdateToast(() => void updateSW(true)),
+  onRegisteredSW: (_url, r) => {
+    if (r) setInterval(() => void r.update(), UPDATE_CHECK_INTERVAL_MS);
+  },
+});
 
 gameState.load();
 gameState.startAutosave();
