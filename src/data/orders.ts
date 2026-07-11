@@ -8,8 +8,18 @@ import { CROPS, type CropDef, type CropId } from './crops';
 /** Number of order slots on the board. */
 export const ORDER_SLOTS = 3;
 
-/** How long a skipped slot stays empty before a new order appears. */
-export const SKIP_COOLDOWN_MS = 30_000;
+/**
+ * Skip-cooldown escalation (see `GameStateStore.skipOrder`): each consecutive
+ * skip's cooldown is BASE_MS * GROWTH ** streakCount, capped at MAX_MS - the
+ * sequence is 3s, 15s, 60s, 60s... A gap longer than STREAK_RESET_MS since the
+ * previous skip starts the streak over at 0. Escalation is deliberately mild
+ * and capped low: this game never punishes, it only gently discourages
+ * skip-spamming the board for easy orders.
+ */
+export const SKIP_COOLDOWN_BASE_MS = 3000;
+export const SKIP_COOLDOWN_GROWTH = 5;
+export const SKIP_COOLDOWN_MAX_MS = 60_000;
+export const SKIP_STREAK_RESET_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Reward multipliers over raw sell value / harvest xp. Both are > 1 so

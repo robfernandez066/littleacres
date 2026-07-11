@@ -22,7 +22,10 @@ import {
   generateOrder,
   type Order,
   ORDER_SLOTS,
-  SKIP_COOLDOWN_MS,
+  SKIP_COOLDOWN_BASE_MS,
+  SKIP_COOLDOWN_GROWTH,
+  SKIP_COOLDOWN_MAX_MS,
+  SKIP_STREAK_RESET_MS,
   TEASER_CHANCE,
 } from '../data/orders';
 import { isReady } from './growth';
@@ -144,6 +147,17 @@ export interface OfflineSummary {
   readyCounts: Partial<Record<CropId, number>>;
 }
 
+/**
+ * Skip-cooldown escalation streak (see `GameStateStore.skipOrder`). `count`
+ * is consecutive skips since the streak last reset; `lastAt` is the
+ * game-clock timestamp of the most recent skip, used to detect a gap longer
+ * than `SKIP_STREAK_RESET_MS`.
+ */
+export interface OrderSkipsState {
+  count: number;
+  lastAt: number;
+}
+
 export interface GameStateData {
   /** Schema version. Bump only via the migration list. */
   version: number;
@@ -157,6 +171,8 @@ export interface GameStateData {
   moondust: number;
   /** The order board, always exactly ORDER_SLOTS entries. */
   orders: OrderSlot[];
+  /** Skip-cooldown escalation streak (see `skipOrder`). */
+  orderSkips: OrderSkipsState;
   onboarding: OnboardingState;
   settings: GameSettings;
   createdAt: number;
@@ -286,6 +302,9 @@ function renameCropId(
   };
 }
 
+/** v8 -> v9: adds the skip-cooldown escalation streak, zeroed for existing saves. */
+const v8ToV9: Migration = (raw) => ({ ...raw, orderSkips: { count: 0, lastAt: 0 } });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -295,6 +314,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v5ToV6,
   v6ToV7,
   v7ToV8,
+  v8ToV9,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -309,6 +329,7 @@ export function createDefaultState(version: number): GameStateData {
     seeds: {},
     moondust: 0,
     orders: createPendingOrderSlots(),
+    orderSkips: { count: 0, lastAt: 0 },
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
       musicOn: true,
@@ -377,6 +398,10 @@ function isOrderSlot(value: unknown): value is OrderSlot {
   return value.state === 'open' && isOrder(value.order);
 }
 
+function isOrderSkipsState(value: unknown): value is OrderSkipsState {
+  return isRecord(value) && isFiniteNumber(value.count) && isFiniteNumber(value.lastAt);
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -404,6 +429,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     Array.isArray(raw.orders) &&
     raw.orders.length === ORDER_SLOTS &&
     raw.orders.every(isOrderSlot) &&
+    isOrderSkipsState(raw.orderSkips) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
@@ -793,16 +819,28 @@ export class GameStateStore {
   }
 
   /**
-   * Skip an open order: the slot goes on cooldown until now() +
-   * SKIP_COOLDOWN_MS, when `ensureOrders` will refill it. Returns false
-   * without mutating anything if the slot is not open or the tutorial is
-   * still active (skipping is never a tutorial action).
+   * Skip an open order: the slot goes on cooldown until now() + an escalating
+   * duration (BASE_MS * GROWTH ** streak, capped at MAX_MS), when
+   * `ensureOrders` will refill it. The streak counts consecutive skips and
+   * resets to 0 first if the previous skip was more than
+   * SKIP_STREAK_RESET_MS ago. Returns false without mutating anything if the
+   * slot is not open or the tutorial is still active (skipping is never a
+   * tutorial action).
    */
   skipOrder(slotIndex: number): boolean {
     if (!this.railsAllow('skip')) return false;
     const slot = this.state.orders[slotIndex];
     if (slot === undefined || slot.state !== 'open') return false;
-    this.state.orders[slotIndex] = { state: 'cooldown', readyAt: now() + SKIP_COOLDOWN_MS };
+    const nowMs = now();
+    const skips = this.state.orderSkips;
+    if (nowMs - skips.lastAt > SKIP_STREAK_RESET_MS) skips.count = 0;
+    const cooldownMs = Math.min(
+      SKIP_COOLDOWN_BASE_MS * SKIP_COOLDOWN_GROWTH ** skips.count,
+      SKIP_COOLDOWN_MAX_MS,
+    );
+    this.state.orders[slotIndex] = { state: 'cooldown', readyAt: nowMs + cooldownMs };
+    skips.count++;
+    skips.lastAt = nowMs;
     this.save();
     return true;
   }

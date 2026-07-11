@@ -16,7 +16,14 @@ import {
   ONBOARDING_STEPS,
   REVIEW_ORDER_DWELL_MS,
 } from '../data/onboarding';
-import { type Order, ORDER_SLOTS, SKIP_COOLDOWN_MS } from '../data/orders';
+import {
+  type Order,
+  ORDER_SLOTS,
+  SKIP_COOLDOWN_BASE_MS,
+  SKIP_COOLDOWN_GROWTH,
+  SKIP_COOLDOWN_MAX_MS,
+  SKIP_STREAK_RESET_MS,
+} from '../data/orders';
 import {
   createDefaultState,
   type GameStateData,
@@ -292,21 +299,23 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(7);
-    const { moondust, orders, onboarding, ...v1Save } = createDefaultState(1);
+    expect(MIGRATIONS).toHaveLength(8);
+    const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
     void onboarding;
+    void orderSkips;
     const raw = { ...v1Save, coins: 250, xp: 42, level: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(8);
+    expect(state.version).toBe(9);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
     expect(state.onboarding).toEqual({ completed: true, step: 0, progress: 0, progressB: 0 });
+    expect(state.orderSkips).toEqual({ count: 0, lastAt: 0 });
     // Nothing else was lost in the migration.
     expect(state.coins).toBe(250);
     expect(state.xp).toBe(42);
@@ -315,15 +324,16 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   });
 
   it('migrates a v2 save (no orders) up with three pending slots', () => {
-    const { orders, onboarding, ...v2Save } = createDefaultState(2);
+    const { orders, onboarding, orderSkips, ...v2Save } = createDefaultState(2);
     void orders;
     void onboarding;
+    void orderSkips;
     const raw = { ...v2Save, coins: 99, moondust: 5 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(8);
+    expect(state.version).toBe(9);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -331,17 +341,17 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a fresh save is created at v8 with moondust 0 and three pending slots', () => {
+  it('a fresh save is created at v9 with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(8);
-    expect(store.getState().version).toBe(8);
+    expect(store.currentVersion).toBe(9);
+    expect(store.getState().version).toBe(9);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(8),
+      ...createDefaultState(9),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -370,7 +380,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(8);
+    expect(store.getState().version).toBe(9);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -391,7 +401,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(8),
+      ...createDefaultState(9),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -414,7 +424,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(8);
+    expect(store.getState().version).toBe(9);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -427,7 +437,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
   });
 
   it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(8) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(9) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -454,7 +464,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(8);
+    expect(store.getState().version).toBe(9);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -484,7 +494,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
       { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
     ]) {
-      const bad = createDefaultState(8) as unknown as Record<string, unknown>;
+      const bad = createDefaultState(9) as unknown as Record<string, unknown>;
       bad.settings = settings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
       const store = new GameStateStore({ storage });
@@ -503,7 +513,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
 describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   /** A v6-shaped save speaking 'carrot' everywhere saves store crop ids. */
   function v6CarrotSave(): Record<string, unknown> {
-    const saved = createDefaultState(8) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
     saved.version = 6;
     saved.coins = 77;
     saved.xp = 31;
@@ -539,7 +549,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(8);
+    expect(state.version).toBe(9);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -564,18 +574,18 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   });
 
   it('a carrot-free v6 save migrates untouched apart from the version bump', () => {
-    const saved = createDefaultState(8) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
     saved.version = 6;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(8);
+    expect(store.getState().version).toBe(9);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('a current-version save still speaking carrot resets cleanly (validation, not migration)', () => {
-    const bad = createDefaultState(8) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(9) as unknown as Record<string, unknown>;
     bad.inventory = { carrot: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -588,7 +598,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
 describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', () => {
   /** A v7-shaped save with a chosen onboarding record. */
   function v7Save(onboarding: Record<string, unknown>): string {
-    const saved = createDefaultState(8) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = onboarding;
     return JSON.stringify(saved);
@@ -603,7 +613,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(8);
+    expect(store.getState().version).toBe(9);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -632,6 +642,20 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
       progress: 0,
       progressB: 0,
     });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
+  it('a v8 save (no orderSkips field) gains a zeroed streak and lands at version 9', () => {
+    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    saved.version = 8;
+    delete saved.orderSkips; // a genuine v8 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(9);
+    expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
 });
@@ -748,7 +772,8 @@ describe('harvestPlot', () => {
   });
 
   it('harvests a ready plot after the game clock is warped forward', () => {
-    const store = new GameStateStore({ storage: null });
+    // rng pinned above RADIANT_CHANCE - see the index-13 test above.
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
     completeOnboarding(store);
     expect(store.plantCrop(0, 'sunwheat')).toBe(true);
     advanceTime(CROPS.sunwheat.growMs);
@@ -763,7 +788,8 @@ describe('harvestPlot', () => {
   });
 
   it('accumulates inventory across harvests', () => {
-    const store = new GameStateStore({ storage: null });
+    // rng pinned above RADIANT_CHANCE - see the index-13 test above.
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
     completeOnboarding(store);
     for (let i = 0; i < 2; i++) {
       store.plantCrop(i, 'sunwheat');
@@ -777,8 +803,9 @@ describe('harvestPlot', () => {
 
 describe('sellCrop', () => {
   it('sells the entire stack, adds coins, empties the stack, and persists', () => {
+    // rng pinned above RADIANT_CHANCE - see the index-13 test above.
     const storage = makeStorage();
-    const store = new GameStateStore({ storage });
+    const store = new GameStateStore({ storage, rng: () => 1 });
     completeOnboarding(store);
     for (let i = 0; i < 3; i++) {
       store.plantCrop(i, 'sunwheat');
@@ -926,30 +953,33 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(8);
-    expect(isValidState(base, 8)).toBe(true);
+    const base = createDefaultState(9);
+    expect(isValidState(base, 9)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 8)).toBe(true);
+    expect(isValidState(expanded, 9)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(8);
+    const base = createDefaultState(9);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 8)).toBe(false);
+    expect(isValidState(thirteen, 9)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 8)).toBe(false);
+    expect(isValidState(seventeen, 9)).toBe(false);
   });
 });
 
 describe('plantCrop / harvestPlot on an expanded plot', () => {
   it('plants and harvests on index 13, in the new row', () => {
-    const store = new GameStateStore({ storage: null });
+    // rng pinned above RADIANT_CHANCE: completeOnboarding marks onboarding
+    // completed directly, so harvestPlot's Radiant roll is live here, and an
+    // unseeded rng would flakily yield RADIANT_YIELD_MULT instead of 1.
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
     completeOnboarding(store);
     store.addCoins(EXPANSION_COST);
     expect(store.expandFarm()).toBe(true);
@@ -979,7 +1009,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1087,13 +1117,18 @@ describe('orders', () => {
     const slot = store.getState().orders[0];
     expect(slot?.state).toBe('cooldown');
     if (slot?.state === 'cooldown') {
-      expect(slot.readyAt).toBeGreaterThanOrEqual(before + SKIP_COOLDOWN_MS);
-      expect(slot.readyAt).toBeLessThanOrEqual(now() + SKIP_COOLDOWN_MS);
+      // First skip of a fresh streak: the base cooldown, unescalated.
+      expect(slot.readyAt).toBeGreaterThanOrEqual(before + SKIP_COOLDOWN_BASE_MS);
+      expect(slot.readyAt).toBeLessThanOrEqual(now() + SKIP_COOLDOWN_BASE_MS);
     }
+    const orderSkips = store.getState().orderSkips;
+    expect(orderSkips.count).toBe(1);
+    expect(orderSkips.lastAt).toBeGreaterThanOrEqual(before);
 
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
     expect(reloaded.getState().orders[0]).toEqual(slot);
+    expect(reloaded.getState().orderSkips).toEqual(orderSkips);
   });
 
   it('skipOrder fails on non-open slots and bad indices without mutation', () => {
@@ -1118,9 +1153,59 @@ describe('orders', () => {
     expect(store.skipOrder(0)).toBe(true);
     store.ensureOrders();
     expect(store.getState().orders[0]?.state).toBe('cooldown');
-    advanceTime(SKIP_COOLDOWN_MS + 1);
+    advanceTime(SKIP_COOLDOWN_BASE_MS + 1);
     store.ensureOrders();
     expect(store.getState().orders[0]?.state).toBe('open');
+  });
+
+  it('escalates consecutive skip cooldowns 3s, 15s, 60s, 60s, then stays capped', () => {
+    const store = new GameStateStore({ storage: null, rng: seededRng(7) });
+    completeOnboarding(store);
+    store.ensureOrders();
+    const expectedCooldowns = [
+      SKIP_COOLDOWN_BASE_MS,
+      SKIP_COOLDOWN_BASE_MS * SKIP_COOLDOWN_GROWTH,
+      SKIP_COOLDOWN_MAX_MS,
+      SKIP_COOLDOWN_MAX_MS,
+    ];
+    expect(expectedCooldowns).toEqual([3000, 15_000, 60_000, 60_000]);
+    for (const expectedCooldown of expectedCooldowns) {
+      const before = now();
+      expect(store.skipOrder(0)).toBe(true);
+      const slot = store.getState().orders[0];
+      expect(slot?.state).toBe('cooldown');
+      if (slot?.state === 'cooldown') {
+        expect(slot.readyAt).toBe(before + expectedCooldown);
+      }
+      // Reopen the same slot right as its cooldown elapses, well within the
+      // streak-reset window, so the next iteration's skip is the next one
+      // in the same escalating streak.
+      advanceTime(expectedCooldown);
+      store.ensureOrders();
+    }
+  });
+
+  it('a gap over SKIP_STREAK_RESET_MS resets the streak to the base cooldown', () => {
+    const store = new GameStateStore({ storage: null, rng: seededRng(8) });
+    completeOnboarding(store);
+    store.ensureOrders();
+    expect(store.skipOrder(0)).toBe(true); // streak count 0 -> 1
+    advanceTime(SKIP_COOLDOWN_BASE_MS * SKIP_COOLDOWN_GROWTH);
+    store.ensureOrders();
+    expect(store.skipOrder(0)).toBe(true); // streak count 1 -> 2
+    expect(store.getState().orderSkips.count).toBe(2);
+
+    // A gap longer than the reset window wipes the streak before the next skip.
+    advanceTime(SKIP_STREAK_RESET_MS + 1);
+    store.ensureOrders();
+    const before = now();
+    expect(store.skipOrder(0)).toBe(true);
+    const slot = store.getState().orders[0];
+    expect(slot?.state).toBe('cooldown');
+    if (slot?.state === 'cooldown') {
+      expect(slot.readyAt).toBe(before + SKIP_COOLDOWN_BASE_MS);
+    }
+    expect(store.getState().orderSkips.count).toBe(1);
   });
 });
 
@@ -1132,7 +1217,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -1469,7 +1554,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1502,7 +1587,7 @@ describe('onboarding', () => {
   });
 
   it('once completed, every rails gate is open - zero post-tutorial behavior change', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1555,7 +1640,7 @@ describe('onboarding', () => {
   });
 
   it('a mid-chain save completed via the v7 -> v8 migration never fires the one-shot', () => {
-    const saved = createDefaultState(8) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = { completed: false, step: 5, progress: 1, progressB: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -1566,7 +1651,7 @@ describe('onboarding', () => {
   });
 
   it('loading an already-completed save never fires the one-shot', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1601,7 +1686,7 @@ describe('onboarding', () => {
   });
 
   it('teaser orders return once onboarding is completed', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.level = 2;
     saved.xp = xpForLevel(2);
     saved.onboarding = {
@@ -1712,7 +1797,8 @@ describe('offline growth (app closed during growth)', () => {
     expect(writer.plantCrop(0, 'sunwheat')).toBe(true);
     // The app "closes" here; time passes while nothing is running.
     advanceTime(CROPS.sunwheat.growMs + 1);
-    const reader = new GameStateStore({ storage });
+    // rng pinned above RADIANT_CHANCE - see the index-13 test above.
+    const reader = new GameStateStore({ storage, rng: () => 1 });
     reader.load();
     expect(reader.harvestPlot(0)).toBe(true);
     expect(reader.getState().inventory.sunwheat).toBe(1);
@@ -1729,7 +1815,8 @@ describe('offline growth (app closed during growth)', () => {
       plantedAt: now() - CROPS.sunwheat.growMs - 60_000,
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
-    const store = new GameStateStore({ storage });
+    // rng pinned above RADIANT_CHANCE - see the index-13 test above.
+    const store = new GameStateStore({ storage, rng: () => 1 });
     store.load();
     expect(console.warn).not.toHaveBeenCalled();
     expect(store.harvestPlot(0)).toBe(true);
@@ -1756,7 +1843,7 @@ describe('offline growth (app closed during growth)', () => {
 describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('clamps a future-stamped growing plot to load time; past-stamped plots are untouched', () => {
     const pastPlantedAt = Date.now() - 60_000;
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
@@ -1784,7 +1871,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -1799,7 +1886,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('importSave clamps a future-stamped plot the same way', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.xp = 1;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     const store = new GameStateStore({ storage: makeStorage() });
@@ -1822,7 +1909,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1912,7 +1999,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);
@@ -1981,7 +2068,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on load grants no moondust', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -1993,7 +2080,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on import grants no moondust', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2040,7 +2127,7 @@ describe('Radiant harvest proc', () => {
   });
 
   it('never procs during onboarding, even with an always-proc rng', () => {
-    const saved = createDefaultState(8);
+    const saved = createDefaultState(9);
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.plots[0] = {
