@@ -29,7 +29,7 @@ import {
   SAVE_KEY,
   type SaveStorage,
 } from './gameState';
-import { advanceTime, now } from './time';
+import { advanceTime, getTimeOffsetMs, now } from './time';
 
 /** In-memory Storage stand-in so tests never touch real localStorage. */
 function makeStorage(initial: Record<string, string> = {}): SaveStorage & {
@@ -76,6 +76,11 @@ function completeOnboarding(store: GameStateStore): void {
 
 beforeEach(() => {
   vi.spyOn(console, 'warn').mockImplementation(() => {});
+  vi.spyOn(console, 'info').mockImplementation(() => {});
+  // The dev-clock offset is a module-level singleton (see systems/time.ts)
+  // that would otherwise accumulate across tests via advanceTime() calls -
+  // reset it so each test starts from a clean, real-time-aligned clock.
+  advanceTime(-getTimeOffsetMs());
 });
 
 afterEach(() => {
@@ -1745,6 +1750,69 @@ describe('offline growth (app closed during growth)', () => {
       expect(store.getState().plots[0]).toEqual({ state: 'empty' });
       expect(console.warn).toHaveBeenCalled();
     }
+  });
+});
+
+describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
+  it('clamps a future-stamped growing plot to load time; past-stamped plots are untouched', () => {
+    const pastPlantedAt = Date.now() - 60_000;
+    const saved = createDefaultState(8);
+    saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
+    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
+    saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    const before = Date.now();
+    store.load();
+    const after = Date.now();
+    const state = store.getState();
+    const plot0 = state.plots[0];
+    expect(plot0?.state).toBe('growing');
+    if (plot0?.state === 'growing') {
+      expect(plot0.plantedAt).toBeGreaterThanOrEqual(before);
+      expect(plot0.plantedAt).toBeLessThanOrEqual(after);
+    }
+    // Not yet ready right after clamping - growth restarted from load time.
+    expect(store.harvestPlot(0)).toBe(false);
+    // The past-stamped plot kept its original timestamp exactly.
+    expect(state.plots[1]).toEqual({
+      state: 'growing',
+      cropId: 'starcorn',
+      plantedAt: pastPlantedAt,
+    });
+    expect(console.info).toHaveBeenCalledWith('littleacres: clamped 1 future crop timestamps');
+  });
+
+  it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
+    const saved = createDefaultState(8);
+    saved.xp = 1;
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: Date.now() - CROPS.sunwheat.growMs - 1,
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual(saved);
+    expect(console.info).not.toHaveBeenCalled();
+  });
+
+  it('importSave clamps a future-stamped plot the same way', () => {
+    const saved = createDefaultState(8);
+    saved.xp = 1;
+    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
+    const store = new GameStateStore({ storage: makeStorage() });
+    const before = Date.now();
+    expect(store.importSave(JSON.stringify(saved))).toBe(true);
+    const after = Date.now();
+    const plot0 = store.getState().plots[0];
+    expect(plot0?.state).toBe('growing');
+    if (plot0?.state === 'growing') {
+      expect(plot0.plantedAt).toBeGreaterThanOrEqual(before);
+      expect(plot0.plantedAt).toBeLessThanOrEqual(after);
+    }
+    expect(console.info).toHaveBeenCalledWith('littleacres: clamped 1 future crop timestamps');
   });
 });
 

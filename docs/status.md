@@ -46,7 +46,7 @@ THEN (when sheet + art land): T2.18 content injection (incl. max-level UX) -> T2
 - None.
 
 ## Watch items
-- 2026-07-10: user saw frozen crop growth on the deployed build (warp didn't mature them; resumed spontaneously ~while toggling the orders board). Leading hypothesis: the T1.1-logged dev artifact - warp + plant + refresh leaves plantedAt in the future of the real clock (warp offset is in-memory, never saved), crops freeze until wall clock catches up; panel timing coincidental. No task. If it recurs: dev overlay state inspector, check the frozen plot's plantedAt vs current time; if plantedAt is NOT in the future, export the save immediately and give it to the PM - that would be a real bug.
+- RESOLVED 2026-07-10: frozen crop growth = the T1.1-logged warp artifact, CONFIRMED by save inspection on the third occurrence (plots stamped ~42min in the future after warping through the tutorial and refreshing; drill worked exactly as written). Also a real player risk via device clock set backward. Fix queued as T2.19 (clamp future plantedAt to Date.now() on load/import). Instant unblock when it happens pre-fix: Warp +60m.
 
 ## Notes
 - PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md.

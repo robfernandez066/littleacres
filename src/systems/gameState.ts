@@ -971,6 +971,29 @@ export class GameStateStore {
   }
 
   /**
+   * Reconcile growing plots whose `plantedAt` is in the future of the real
+   * clock (a warped/skewed clock, or a player winding their device clock
+   * back) - such a plot would otherwise freeze at stage 0 until wall time
+   * catches up. Uses `Date.now()` deliberately, not the warpable `now()` -
+   * at load time the in-memory warp offset is always zero, and the point is
+   * to reconcile against reality. Growth restarts from now for any clamped
+   * plot; the warped "progress" is lost, but the plot can never freeze again.
+   */
+  private clampFuturePlantedAt(): void {
+    const nowMs = Date.now();
+    let clampedCount = 0;
+    for (const plot of this.state.plots) {
+      if (plot.state === 'growing' && plot.plantedAt > nowMs) {
+        plot.plantedAt = nowMs;
+        clampedCount++;
+      }
+    }
+    if (clampedCount > 0) {
+      console.info(`littleacres: clamped ${clampedCount} future crop timestamps`);
+    }
+  }
+
+  /**
    * Load from storage. A missing save means a fresh install and yields a
    * default state; a corrupt, invalid, or unmigratable save logs a warning
    * and resets cleanly. Never throws.
@@ -998,6 +1021,7 @@ export class GameStateStore {
       return;
     }
     this.state = restored;
+    this.clampFuturePlantedAt();
     this.offlineSummary = this.computeOfflineSummary();
     this.reconcileLevelSilently();
     this.stepEnteredAt = now();
@@ -1071,6 +1095,7 @@ export class GameStateStore {
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;
+    this.clampFuturePlantedAt();
     this.reconcileLevelSilently();
     this.stepEnteredAt = now();
     this.save();
