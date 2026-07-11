@@ -15,6 +15,10 @@ gameState.load();
 gameState.startAutosave();
 installDevTools(gameState);
 
+void navigator.storage
+  ?.persist?.()
+  ?.then((granted) => console.info('littleacres: persistent storage', granted));
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',

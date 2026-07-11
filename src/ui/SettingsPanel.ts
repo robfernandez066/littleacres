@@ -16,7 +16,7 @@ import { ModalBackdrop } from './ModalBackdrop';
  */
 
 const PANEL_WIDTH = 640;
-const PANEL_HEIGHT = 460;
+const PANEL_HEIGHT = 700;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = DESIGN_HEIGHT / 2;
 /** Above the seed bar (2000), below flying coins (2200) - same as the other panels. */
@@ -29,6 +29,15 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 const ROW_MUSIC_Y = -30;
 const ROW_SFX_Y = 120;
 const ROW_LABEL_X = -PANEL_WIDTH / 2 + 40;
+
+const SAVE_BUTTON_ROW_Y = 270;
+const SAVE_BUTTON_WIDTH = 260;
+const SAVE_BUTTON_HEIGHT = 70;
+const SAVE_BUTTON_GAP = 20;
+const SAVE_BUTTON_LEFT_X = -(SAVE_BUTTON_WIDTH + SAVE_BUTTON_GAP) / 2;
+const SAVE_BUTTON_RIGHT_X = (SAVE_BUTTON_WIDTH + SAVE_BUTTON_GAP) / 2;
+/** How long a transient label (Copied!/Imported!/etc.) stays before reverting. */
+const SAVE_LABEL_REVERT_MS = 1500;
 
 const TOGGLE_X = -105;
 const TOGGLE_WIDTH = 100;
@@ -73,6 +82,13 @@ const TOGGLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+const SAVE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '28px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 /** One channel row's pieces and behavior hooks. */
 interface SliderRow {
   toggleContainer: Phaser.GameObjects.Container;
@@ -100,6 +116,10 @@ export class SettingsPanel {
   /** The row whose handle is being dragged, if any. */
   private activeRow: SliderRow | null = null;
   private visible = false;
+  private exportLabelTimer: Phaser.Time.TimerEvent | null = null;
+  private importLabelTimer: Phaser.Time.TimerEvent | null = null;
+  private exportLabel!: Phaser.GameObjects.Text;
+  private importLabel!: Phaser.GameObjects.Text;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -176,6 +196,13 @@ export class SettingsPanel {
         },
         gainScale: 1,
       }),
+    );
+
+    this.exportLabel = this.buildSaveButton(SAVE_BUTTON_LEFT_X, 'Export Save', () =>
+      this.onExportPress(),
+    );
+    this.importLabel = this.buildSaveButton(SAVE_BUTTON_RIGHT_X, 'Import Save', () =>
+      this.onImportPress(),
     );
 
     // One scene-level move/up pair drives both sliders; registered once and
@@ -301,6 +328,96 @@ export class SettingsPanel {
     track.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, beginDrag);
 
     return row;
+  }
+
+  /** Build one save-management button (Export/Import); returns its label text object. */
+  private buildSaveButton(x: number, label: string, onPress: () => void): Phaser.GameObjects.Text {
+    const button = this.scene.add
+      .nineslice(
+        x,
+        SAVE_BUTTON_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        SAVE_BUTTON_WIDTH,
+        SAVE_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const text = this.scene.add.text(x, SAVE_BUTTON_ROW_Y, label, SAVE_BUTTON_STYLE).setOrigin(0.5);
+    button.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        onPress();
+      },
+    );
+    this.container.add([button, text]);
+    return text;
+  }
+
+  /** Swap a save button's label to a transient message, then revert to its default. */
+  private flashSaveLabel(
+    text: Phaser.GameObjects.Text,
+    getTimer: () => Phaser.Time.TimerEvent | null,
+    setTimer: (timer: Phaser.Time.TimerEvent | null) => void,
+    message: string,
+    defaultLabel: string,
+  ): void {
+    getTimer()?.remove();
+    text.setText(message);
+    setTimer(
+      this.scene.time.delayedCall(SAVE_LABEL_REVERT_MS, () => {
+        text.setText(defaultLabel);
+        setTimer(null);
+      }),
+    );
+  }
+
+  private onExportPress(): void {
+    this.audio.sfx('tap');
+    navigator.clipboard
+      .writeText(gameState.exportSave())
+      .then(() => {
+        this.flashSaveLabel(
+          this.exportLabel,
+          () => this.exportLabelTimer,
+          (t) => (this.exportLabelTimer = t),
+          'Copied!',
+          'Export Save',
+        );
+      })
+      .catch(() => {
+        this.flashSaveLabel(
+          this.exportLabel,
+          () => this.exportLabelTimer,
+          (t) => (this.exportLabelTimer = t),
+          'Copy failed',
+          'Export Save',
+        );
+      });
+  }
+
+  private onImportPress(): void {
+    this.audio.sfx('tap');
+    const text = window.prompt('Paste your save code:');
+    if (text === null || text.trim() === '') return;
+    if (!window.confirm('Replace your current farm with this save? This cannot be undone.')) return;
+    const success = gameState.importSave(text);
+    this.flashSaveLabel(
+      this.importLabel,
+      () => this.importLabelTimer,
+      (t) => (this.importLabelTimer = t),
+      success ? 'Imported!' : 'Invalid save',
+      'Import Save',
+    );
   }
 
   /** Slider value under the pointer, clamped to 0..1. */
