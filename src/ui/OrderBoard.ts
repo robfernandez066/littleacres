@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE, VILLAGER_POSITION } from '../config';
-import { CROPS } from '../data/crops';
+import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS } from '../data/crops';
 import { type Order, ORDER_SLOTS } from '../data/orders';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
@@ -42,16 +42,58 @@ const CARD_START_Y = -250;
 const CARD_SPACING = 300;
 
 /**
- * Y offsets of the two item rows within a card; a 1-item order uses only
- * row 0. Sized against the worst case: two rows, "Glowberry 10/10" in 40px
- * bold, 1.3x icons - nothing may collide with the buttons (left edge x 120)
- * or the card border.
+ * Requested items render as up to 3 "clusters" on one horizontal band,
+ * vertically where the old two stacked item rows used to sit: icon + count
+ * side by side (centered as a pair on the cluster's x), crop name centered
+ * underneath. Size and x spread shrink as item-type count grows so 1, 2, or
+ * 3 types all read clearly. The band is anchored left of card center (not
+ * true center) because the Fulfill/Skip buttons own the right column (left
+ * edge at local x 120, see FULFILL_BUTTON_X/WIDTH below) - every tier's
+ * positions are chosen so the icon+count pair's measured width still clears
+ * that edge with margin, and clears the card's left/top edges too.
+ *
+ * Icons are baseline-anchored (setOrigin(0.5, CROP_BASELINE_Y /
+ * CROP_FRAME_SIZE), same convention FarmScene uses for planted crops) rather
+ * than center-anchored, because the ready-stage art is packed with a fixed
+ * baseline row but each crop's opaque content sits at a different height
+ * within the frame - center-anchoring made crops of different silhouettes
+ * render at visibly different heights. Baseline-anchoring puts every crop's
+ * ready-stage frame (measured directly from assets/atlas.png: opaque pixels
+ * span rows 1-118 of the 128px frame for all 3 crops today, content center
+ * at row 59.5) on one shared ground line, all crops equal.
  */
-const ITEM_ROW_YS = [-88, -16] as const;
-const ITEM_ICON_X = -360;
-const ITEM_ICON_SCALE = 0.52;
-const ITEM_NAME_X = -300;
-const ITEM_COUNT_X = -70;
+const CLUSTER_BASELINE_Y = -35;
+/**
+ * Rows (unscaled frame space) from the baseline anchor (row CROP_BASELINE_Y
+ * = 104) up to the visual content center (row 59.5, measured as above):
+ * 104 - 59.5 = 44.5. Scaled by each tier's iconScale to vertically center
+ * the count text on the icon's rendered content, not its padded frame.
+ */
+const CLUSTER_ICON_CONTENT_OFFSET = 44.5;
+/** Gap between the icon's rendered bottom edge and the name text below it. */
+const CLUSTER_NAME_GAP = 10;
+/** Approximates half a single line's rendered height for Arial bold. */
+const CLUSTER_NAME_HALF_HEIGHT_FACTOR = 0.55;
+
+interface ClusterTier {
+  iconScale: number;
+  countFontSize: number;
+  nameFontSize: number;
+  /** Horizontal gap between the icon and the count text. */
+  gap: number;
+  /** Cluster center x per item-type count - one entry per cluster in this tier. */
+  positions: readonly number[];
+}
+
+/** Indexed by item-type count - 1. Order generates 1-2 types today; the
+ * 3-tier is future-proofing for a later "Major Shipments" system. */
+const CLUSTER_TIERS: readonly ClusterTier[] = [
+  { iconScale: 0.8, countFontSize: 44, nameFontSize: 30, gap: 12, positions: [-170] },
+  { iconScale: 0.72, countFontSize: 40, nameFontSize: 26, gap: 10, positions: [-300, -60] },
+  { iconScale: 0.45, countFontSize: 30, nameFontSize: 22, gap: 8, positions: [-350, -170, 10] },
+];
+/** More than 3 item types (not generated today) renders only the first 3. */
+const MAX_CLUSTERS = 3;
 
 const REWARD_ROW_Y = 62;
 const REWARD_COIN_X = -360;
@@ -161,14 +203,14 @@ const STAMP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   strokeThickness: 8,
 };
 
-interface ItemRow {
+interface ItemCluster {
   icon: Phaser.GameObjects.Image;
-  nameText: Phaser.GameObjects.Text;
   countText: Phaser.GameObjects.Text;
+  nameText: Phaser.GameObjects.Text;
 }
 
 interface OrderCard {
-  itemRows: ItemRow[];
+  clusters: ItemCluster[];
   rewardCoin: Phaser.GameObjects.Image;
   rewardCoinText: Phaser.GameObjects.Text;
   rewardXpText: Phaser.GameObjects.Text;
@@ -319,19 +361,19 @@ export class OrderBoard {
       PANEL_SLICE,
     );
 
-    const itemRows: ItemRow[] = ITEM_ROW_YS.map((rowY) => ({
+    // Icon y is fixed regardless of tier (CLUSTER_BASELINE_Y is shared), so
+    // it is set once here; countText/nameText y depend on the tier's
+    // iconScale and are repositioned every refresh.
+    const clusters: ItemCluster[] = Array.from({ length: MAX_CLUSTERS }, () => ({
       icon: this.scene.add
-        .image(ITEM_ICON_X, y + rowY, ATLAS_KEY, CROPS.sunwheat.stageFrames[2])
-        .setScale(ITEM_ICON_SCALE)
-        .setVisible(false),
-      nameText: this.scene.add
-        .text(ITEM_NAME_X, y + rowY, '', ITEM_NAME_STYLE)
-        .setOrigin(0, 0.5)
+        .image(0, y + CLUSTER_BASELINE_Y, ATLAS_KEY, CROPS.sunwheat.stageFrames[2])
+        .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
         .setVisible(false),
       countText: this.scene.add
-        .text(ITEM_COUNT_X, y + rowY, '', ITEM_COUNT_STYLE)
+        .text(0, y + CLUSTER_BASELINE_Y, '', ITEM_COUNT_STYLE)
         .setOrigin(0, 0.5)
         .setVisible(false),
+      nameText: this.scene.add.text(0, y, '', ITEM_NAME_STYLE).setOrigin(0.5).setVisible(false),
     }));
 
     const rewardCoin = this.scene.add
@@ -402,7 +444,7 @@ export class OrderBoard {
 
     this.container.add([
       cardBg,
-      ...itemRows.flatMap((row) => [row.icon, row.nameText, row.countText]),
+      ...clusters.flatMap((cluster) => [cluster.icon, cluster.countText, cluster.nameText]),
       rewardCoin,
       rewardCoinText,
       rewardXpText,
@@ -415,7 +457,7 @@ export class OrderBoard {
     ]);
 
     return {
-      itemRows,
+      clusters,
       rewardCoin,
       rewardCoinText,
       rewardXpText,
@@ -459,25 +501,52 @@ export class OrderBoard {
     this.setOrderElementsVisible(card, true);
     card.cooldownText.setVisible(false);
 
+    // Defensive: > 3 item types (not generated today) reuses the 3-tier and
+    // only the first 3 clusters render - see MAX_CLUSTERS.
+    const tier = CLUSTER_TIERS[Math.min(Math.max(order.items.length, 1), MAX_CLUSTERS) - 1]!;
     let allCovered = true;
-    for (let row = 0; row < card.itemRows.length; row++) {
-      const itemRow = card.itemRows[row]!;
-      const item = order.items[row];
+    for (let i = 0; i < card.clusters.length; i++) {
+      const cluster = card.clusters[i]!;
+      const item = order.items[i];
       if (item === undefined) {
-        itemRow.icon.setVisible(false);
-        itemRow.nameText.setVisible(false);
-        itemRow.countText.setVisible(false);
+        cluster.icon.setVisible(false);
+        cluster.countText.setVisible(false);
+        cluster.nameText.setVisible(false);
         continue;
       }
       const have = state.inventory[item.cropId] ?? 0;
       const covered = have >= item.count;
       if (!covered) allCovered = false;
-      itemRow.icon.setFrame(CROPS[item.cropId].stageFrames[2]).setVisible(true);
-      itemRow.nameText.setText(CROPS[item.cropId].name).setVisible(true);
-      itemRow.countText
+
+      const clusterX = tier.positions[i] ?? 0;
+      cluster.icon
+        .setFrame(CROPS[item.cropId].stageFrames[2])
+        .setScale(tier.iconScale)
+        .setVisible(true);
+      // Vertically center the count on the icon's rendered content (not its
+      // padded frame) - see CLUSTER_ICON_CONTENT_OFFSET.
+      cluster.countText
+        .setFontSize(tier.countFontSize)
         .setText(`${have}/${item.count}`)
         .setColor(covered ? COVERED_COLOR : SHORT_COLOR)
+        .setY(cluster.icon.y - CLUSTER_ICON_CONTENT_OFFSET * tier.iconScale)
         .setVisible(true);
+      // Name sits below the icon's actual rendered bottom edge (frame row
+      // CROP_FRAME_SIZE scaled from the baseline), not a fixed offset, so it
+      // never collides with a larger tier's icon.
+      const iconBottomY = cluster.icon.y + (CROP_FRAME_SIZE - CROP_BASELINE_Y) * tier.iconScale;
+      cluster.nameText
+        .setFontSize(tier.nameFontSize)
+        .setText(CROPS[item.cropId].name)
+        .setX(clusterX)
+        .setY(iconBottomY + CLUSTER_NAME_GAP + tier.nameFontSize * CLUSTER_NAME_HALF_HEIGHT_FACTOR)
+        .setVisible(true);
+
+      // Center the icon+count pair on clusterX: pairWidth is measured (not
+      // estimated) so it stays exact regardless of digit count in "have/need".
+      const pairWidth = cluster.icon.displayWidth + tier.gap + cluster.countText.width;
+      cluster.icon.setX(clusterX - pairWidth / 2 + cluster.icon.displayWidth / 2);
+      cluster.countText.setX(cluster.icon.x + cluster.icon.displayWidth / 2 + tier.gap);
     }
 
     card.rewardCoinText.setText(String(order.coinReward));
@@ -506,10 +575,10 @@ export class OrderBoard {
 
   /** Show/hide everything an open card owns except the cooldown text and stamp. */
   private setOrderElementsVisible(card: OrderCard, visible: boolean): void {
-    for (const row of card.itemRows) {
-      row.icon.setVisible(visible);
-      row.nameText.setVisible(visible);
-      row.countText.setVisible(visible);
+    for (const cluster of card.clusters) {
+      cluster.icon.setVisible(visible);
+      cluster.countText.setVisible(visible);
+      cluster.nameText.setVisible(visible);
     }
     card.rewardCoin.setVisible(visible);
     card.rewardCoinText.setVisible(visible);
@@ -532,10 +601,12 @@ export class OrderBoard {
 
     this.audio.sfx('fanfare');
 
-    for (const item of order.items) {
+    for (let i = 0; i < order.items.length && i < MAX_CLUSTERS; i++) {
+      const item = order.items[i]!;
+      const cluster = card.clusters[i]!;
       this.villagerArc.fly(
-        card.worldX,
-        card.worldY,
+        PANEL_CENTER_X + cluster.icon.x,
+        PANEL_CENTER_Y + cluster.icon.y,
         item.count,
         undefined,
         CROPS[item.cropId].stageFrames[2],

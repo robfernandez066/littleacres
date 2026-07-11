@@ -223,7 +223,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 ## Parked concepts (not scheduled; revisit at phase gates)
 
 - **Mine scene** (user pitch, 2026-07-10): a second scene with a daily rapid-mine mini-game (simple, satisfying, deliberately UNFAILABLE - GDD forbids skill/timing requirements; rewards scale with participation, not performance). Grants mine XP + random materials; mine levels raise AFK material yields and rare-material odds. Materials become the supply for building/tool upgrade gates already reserved in the GDD economy. Daily cadence must be bonus-framed: no streaks, no loss for missed days. Earliest sensible slot: Phase 6+ (wants buildings, storage caps, and the offline-production framework to exist first).
-- **Major Shipments** - see T4.4 note.
+- **Major Shipments** - see T4.4 note. Known code dependency (found in T2.11): gameState.ts's isOrder save-validator hard-caps order items at <= 2 - must be raised when orders ever carry 3+ item types. The order-card UI already renders up to 3 (CLUSTER_TIERS).
 
 ## Sequencing Notes
 
