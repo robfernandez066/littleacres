@@ -38,8 +38,8 @@ const CHIP_WIDTH = 580;
 const CHIP_HEIGHT = 84;
 /** Copy longer than this shrinks to fit rather than spilling off the chip. */
 const CHIP_TEXT_MAX_WIDTH = CHIP_WIDTH - 40;
-/** Above the seed bar (2000), below the panels (2100). */
-const CHIP_DEPTH = 2050;
+/** Above the panels (2100): tutorial instructions must read over whatever they instruct about. Still below the glow halo (2150) and celebration (2300). */
+const CHIP_DEPTH = 2125;
 
 /** Above the panels (2100), below arcs (2200) and the celebration (2300). */
 const HALO_DEPTH = 2150;
