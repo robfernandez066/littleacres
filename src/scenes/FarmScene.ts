@@ -85,6 +85,18 @@ const XP_LABELS = Object.fromEntries(
 const XP_TEXT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 44 };
 
 /**
+ * Radiant harvest juice: large gold floating text well above the xp-label
+ * layer (-70), so it reads even mid-sweep with "+N xp" labels firing all
+ * around it.
+ */
+const RADIANT_LABEL = 'Radiant! x5';
+const RADIANT_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffd700', fontSize: 68 };
+/** Where the Radiant label spawns relative to a plot's tile center. */
+const RADIANT_LABEL_OFFSET_Y = -140;
+/** Delay before a Radiant proc's second sparkle burst, for a two-stage pop. */
+const RADIANT_SECOND_BURST_DELAY_MS = 150;
+
+/**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
  * a grass field, rendered live from `gameState`, plus the seed bar. One
  * unified field gesture: tapping or sweeping harvests every ready crop the
@@ -201,6 +213,13 @@ export class FarmScene extends Phaser.Scene {
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
     if (gameState.consumeTutorialCompleteEvent()) this.levelUpCelebration.enqueueTutorialComplete();
     this.expandSign.refresh(gameState.getState());
+    const radiantEvents = gameState.consumeRadiantEvents();
+    if (radiantEvents.length > 0) {
+      for (const event of radiantEvents) this.playRadiantJuice(event.plotIndex);
+      // Once per drained batch, not per event - a multi-proc sweep still buzzes/chimes once.
+      buzz(HAPTIC_MEDIUM_MS);
+      this.audio.sfx('radiant');
+    }
   }
 
   /**
@@ -324,6 +343,28 @@ export class FarmScene extends Phaser.Scene {
     this.floatingText.show(pos.x, pos.y + XP_LABEL_OFFSET_Y, XP_LABELS[cropId], XP_TEXT_OPTIONS);
     buzz(HAPTIC_LIGHT_MS);
     this.hud.flyCropToBag(pos.x, pos.y + BURST_OFFSET_Y, cropId);
+  }
+
+  /**
+   * Radiant harvest follow-up flourish: a two-stage sparkle burst + gold
+   * "Radiant! x5" label above the plot. Drained from the store's event queue
+   * on the refresh tick, so it lands ~250ms behind the harvest pop - a
+   * deliberate follow-up beat, not a bug. The buzz/chime for the batch this
+   * event belongs to are fired by the caller, once per batch.
+   */
+  private playRadiantJuice(plotIndex: number): void {
+    const pos = this.plotPositions[plotIndex];
+    if (pos === undefined) return;
+    this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+    this.floatingText.show(
+      pos.x,
+      pos.y + RADIANT_LABEL_OFFSET_Y,
+      RADIANT_LABEL,
+      RADIANT_TEXT_OPTIONS,
+    );
+    this.time.delayedCall(RADIANT_SECOND_BURST_DELAY_MS, () => {
+      this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+    });
   }
 
   /**

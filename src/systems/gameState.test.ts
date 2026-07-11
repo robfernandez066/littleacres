@@ -3,6 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { type CropId, CROPS } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
+import {
+  MOONDUST_PER_LEVEL,
+  RADIANT_CHANCE,
+  RADIANT_MOONDUST_CHANCE,
+  RADIANT_YIELD_MULT,
+} from '../data/moondust';
 import { OFFLINE_SUMMARY_MIN_MS } from '../data/offline';
 import {
   ONBOARDING_ORDER_A,
@@ -49,6 +55,12 @@ function seededRng(seed: number): () => number {
     s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
     return s / 2 ** 32;
   };
+}
+
+/** Returns each given value in order, then repeats the last one forever. */
+function stubRng(...values: number[]): () => number {
+  let i = 0;
+  return () => values[Math.min(i++, values.length - 1)] ?? 0;
 }
 
 /**
@@ -1881,6 +1893,106 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     // though the imported save's own gap would otherwise also qualify.
     expect(store.importSave(JSON.stringify(saved))).toBe(true);
     expect(store.consumeOfflineSummary()).toBeNull();
+  });
+});
+
+describe('moondust from level-ups', () => {
+  it('grants MOONDUST_PER_LEVEL for a single level gained', () => {
+    const store = new GameStateStore({ storage: null });
+    const before = store.getState().moondust;
+    store.addXp(xpForLevel(2));
+    expect(store.getState().level).toBe(2);
+    expect(store.getState().moondust).toBe(before + MOONDUST_PER_LEVEL);
+  });
+
+  it('grants MOONDUST_PER_LEVEL per level on a multi-level jump', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addXp(xpForLevel(3)); // level 1 -> 3 in one jump: 2 levels gained
+    expect(store.getState().level).toBe(3);
+    expect(store.getState().moondust).toBe(2 * MOONDUST_PER_LEVEL);
+  });
+
+  it('a silent reconcile on load grants no moondust', () => {
+    const saved = createDefaultState(8);
+    saved.xp = xpForLevel(3);
+    saved.level = 1;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().level).toBe(3);
+    expect(store.getState().moondust).toBe(0);
+    expect(store.consumeLevelUpEvents()).toEqual([]);
+  });
+
+  it('a silent reconcile on import grants no moondust', () => {
+    const saved = createDefaultState(8);
+    saved.xp = xpForLevel(3);
+    saved.level = 1;
+    const store = new GameStateStore({ storage: makeStorage() });
+    expect(store.importSave(JSON.stringify(saved))).toBe(true);
+    expect(store.getState().level).toBe(3);
+    expect(store.getState().moondust).toBe(0);
+  });
+});
+
+describe('Radiant harvest proc', () => {
+  /** A post-tutorial store with one ready sunwheat plot at index 0. */
+  function readyStore(rng: () => number): GameStateStore {
+    const store = new GameStateStore({ storage: null, rng });
+    completeOnboarding(store);
+    expect(store.plantCrop(0, 'sunwheat')).toBe(true);
+    advanceTime(CROPS.sunwheat.growMs);
+    return store;
+  }
+
+  it('yields RADIANT_YIELD_MULT units and no moondust when the moondust roll fails', () => {
+    const store = readyStore(stubRng(0, RADIANT_MOONDUST_CHANCE));
+    const moondustBefore = store.getState().moondust;
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().inventory.sunwheat).toBe(RADIANT_YIELD_MULT);
+    expect(store.getState().moondust).toBe(moondustBefore);
+    expect(store.consumeRadiantEvents()).toEqual([{ plotIndex: 0, cropId: 'sunwheat' }]);
+  });
+
+  it('yields RADIANT_YIELD_MULT units and +1 moondust when the moondust roll succeeds', () => {
+    const store = readyStore(stubRng(0, 0));
+    const moondustBefore = store.getState().moondust;
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().inventory.sunwheat).toBe(RADIANT_YIELD_MULT);
+    expect(store.getState().moondust).toBe(moondustBefore + 1);
+  });
+
+  it('does not proc when the roll lands at or above RADIANT_CHANCE', () => {
+    const store = readyStore(stubRng(RADIANT_CHANCE));
+    const moondustBefore = store.getState().moondust;
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().inventory.sunwheat).toBe(1);
+    expect(store.getState().moondust).toBe(moondustBefore);
+    expect(store.consumeRadiantEvents()).toEqual([]);
+  });
+
+  it('never procs during onboarding, even with an always-proc rng', () => {
+    const saved = createDefaultState(8);
+    const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
+    saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: now() - CROPS.sunwheat.growMs,
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: stubRng(0, 0) });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().inventory.sunwheat).toBe(1);
+    expect(store.consumeRadiantEvents()).toEqual([]);
+  });
+
+  it('consumeRadiantEvents drains the queue once, then returns empty', () => {
+    const store = readyStore(stubRng(0, 0));
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.consumeRadiantEvents()).toEqual([{ plotIndex: 0, cropId: 'sunwheat' }]);
+    expect(store.consumeRadiantEvents()).toEqual([]);
   });
 });
 

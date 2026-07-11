@@ -2,6 +2,12 @@ import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
 import { CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
+import {
+  MOONDUST_PER_LEVEL,
+  RADIANT_CHANCE,
+  RADIANT_MOONDUST_CHANCE,
+  RADIANT_YIELD_MULT,
+} from '../data/moondust';
 import { OFFLINE_SUMMARY_MIN_MS } from '../data/offline';
 import {
   ONBOARDING_ORDER_A,
@@ -119,6 +125,12 @@ export type RailsAction =
 export interface LevelUpEvent {
   level: number;
   unlockedCropIds: CropId[];
+}
+
+/** One Radiant harvest proc, for the scene's sparkle + floating-text juice. */
+export interface RadiantEvent {
+  plotIndex: number;
+  cropId: CropId;
 }
 
 /**
@@ -436,6 +448,8 @@ export class GameStateStore {
   private autosaveTimer: number | null = null;
   /** Pending level-ups for the scene to celebrate. Transient - never saved. */
   private levelUpQueue: LevelUpEvent[] = [];
+  /** Pending Radiant harvest procs for the scene to celebrate. Transient - never saved. */
+  private radiantQueue: RadiantEvent[] = [];
   /**
    * One-shot flag for the tutorial-complete celebration. Transient - never
    * saved, and set ONLY by chain completion in `advanceOnboardingStep`, so
@@ -524,6 +538,7 @@ export class GameStateStore {
         .filter((crop) => crop.unlockLevel === level)
         .map((crop) => crop.id);
       this.levelUpQueue.push({ level, unlockedCropIds });
+      this.state.moondust += MOONDUST_PER_LEVEL;
     }
     if (newLevel > this.state.level) this.state.level = newLevel;
   }
@@ -542,6 +557,13 @@ export class GameStateStore {
   consumeLevelUpEvents(): LevelUpEvent[] {
     const events = this.levelUpQueue;
     this.levelUpQueue = [];
+    return events;
+  }
+
+  /** Drain and return queued Radiant harvest events; the scene polls this on its refresh tick. */
+  consumeRadiantEvents(): RadiantEvent[] {
+    const events = this.radiantQueue;
+    this.radiantQueue = [];
     return events;
   }
 
@@ -624,7 +646,15 @@ export class GameStateStore {
     if (!isReady(plot, now())) return false;
     if (!this.railsAllow('harvest')) return false;
     this.state.plots[plotIndex] = { state: 'empty' };
-    this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + 1;
+    // Radiant is a rare bonus-yield proc, suppressed during the tutorial so
+    // its scripted economy stays deterministic.
+    const isRadiant = this.state.onboarding.completed && this.rng() < RADIANT_CHANCE;
+    const yieldAmount = isRadiant ? RADIANT_YIELD_MULT : 1;
+    this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + yieldAmount;
+    if (isRadiant) {
+      if (this.rng() < RADIANT_MOONDUST_CHANCE) this.state.moondust += 1;
+      this.radiantQueue.push({ plotIndex, cropId: plot.cropId });
+    }
     this.applyXp(CROPS[plot.cropId].xp);
     if (plot.cropId === 'sunwheat') {
       // Read the step BEFORE tracking: the harvest that completes
@@ -947,6 +977,7 @@ export class GameStateStore {
    */
   load(): void {
     this.levelUpQueue = [];
+    this.radiantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     let raw: string | null;
@@ -1012,6 +1043,7 @@ export class GameStateStore {
   /** Discard the current state for a fresh default one, and persist it. */
   reset(): void {
     this.levelUpQueue = [];
+    this.radiantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
@@ -1035,6 +1067,7 @@ export class GameStateStore {
       return false;
     }
     this.levelUpQueue = [];
+    this.radiantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;

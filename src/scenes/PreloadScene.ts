@@ -12,11 +12,12 @@ import harvestMp3Url from '../../assets/audio/harvest.mp3?url';
 import levelupOggUrl from '../../assets/audio/levelup.ogg?url';
 import musicMp3Url from '../../assets/audio/music.mp3?url';
 import plantMp3Url from '../../assets/audio/plant.mp3?url';
+import radiantMp3Url from '../../assets/audio/radiant.mp3?url';
 import tapOggUrl from '../../assets/audio/tap.ogg?url';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { AMBIENT_KEY, MUSIC_KEY, type SfxKey } from '../data/audio';
 
-/** Loader key -> fingerprinted URL for the nine one-shot effects. */
+/** Loader key -> fingerprinted URL for the ten one-shot effects. */
 const SFX_URLS: Record<SfxKey, string> = {
   harvest: harvestMp3Url,
   plant: plantMp3Url,
@@ -27,6 +28,7 @@ const SFX_URLS: Record<SfxKey, string> = {
   bagpop: bagpopMp3Url,
   expand: expandMp3Url,
   confirm: confirmMp3Url,
+  radiant: radiantMp3Url,
 };
 
 const BACKGROUND_COLOR = 0xfdf6e3;
