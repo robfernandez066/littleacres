@@ -169,10 +169,13 @@ const REWARD_COIN_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+// Identical to the coin value's style: the reward row reads as one matched
+// pair, not a primary and an afterthought (user calls, 2026-07-10).
 const REWARD_XP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '34px',
-  color: '#7a5518',
+  fontSize: '38px',
+  fontStyle: 'bold',
+  color: '#4a3218',
 };
 
 const BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
