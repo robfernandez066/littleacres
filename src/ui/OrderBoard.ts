@@ -26,7 +26,12 @@ import { PooledArc } from './PooledArc';
  */
 
 const PANEL_WIDTH = 960;
-const PANEL_HEIGHT = 1080;
+/**
+ * Grown from 1080 (+240, matching CARD_HEIGHT's +80 x 3 cards) alongside the
+ * card layout below - see CARD_HEIGHT for why. Title/margin gaps are
+ * preserved exactly: CARD_START_Y and CARD_SPACING grew by the same amount.
+ */
+const PANEL_HEIGHT = 1320;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = 960;
 /** Same layer as the inventory panel (2100) - the HUD never shows both at once. */
@@ -37,20 +42,31 @@ const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
 const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 
 const CARD_WIDTH = 880;
-const CARD_HEIGHT = 280;
-const CARD_START_Y = -250;
-const CARD_SPACING = 300;
+/**
+ * Grown from 280 (+80, see T2.20) to fit the "Reward:" label between the
+ * item-cluster band and the reward row (all cards) and to let the reward row
+ * sit near the card's bottom border (REWARD_ROW_Y) without crowding the
+ * relocated buttons - see REWARD_ROW_Y and FULFILL_BUTTON_Y/SKIP_BUTTON_Y.
+ */
+const CARD_HEIGHT = 360;
+const CARD_START_Y = -380;
+const CARD_SPACING = 380;
 
 /**
  * Requested items render as up to 3 "clusters" on one horizontal band,
  * vertically where the old two stacked item rows used to sit: icon + count
- * side by side (centered as a pair on the cluster's x), crop name centered
- * underneath. Size and x spread shrink as item-type count grows so 1, 2, or
- * 3 types all read clearly. The band is anchored left of card center (not
- * true center) because the Fulfill/Skip buttons own the right column (left
- * edge at local x 120, see FULFILL_BUTTON_X/WIDTH below) - every tier's
- * positions are chosen so the icon+count pair's measured width still clears
- * that edge with margin, and clears the card's left/top edges too.
+ * side by side (as a pair), crop name centered underneath. Size shrinks as
+ * item-type count grows so 1, 2, or 3 types all read clearly.
+ *
+ * Left-flow layout (T2.20e): clusters no longer sit at fixed centers. The
+ * first cluster's measured visual left edge - whichever of the icon+count
+ * pair or the name text is wider, they're both centered on the same x -
+ * aligns to CLUSTER_LEFT_MARGIN, the same content margin the premium tag
+ * uses. Each subsequent cluster's left edge sits CLUSTER_ROW_GAP past the
+ * previous cluster's measured right edge. This is all computed from actual
+ * rendered widths every refresh (pairWidth/nameWidth below), never guessed,
+ * so it stays correct regardless of digit count or crop name length. See
+ * T2.20e's measured-bounds report for the button-clearance verification.
  *
  * Icons are baseline-anchored (setOrigin(0.5, CROP_BASELINE_Y /
  * CROP_FRAME_SIZE), same convention FarmScene uses for planted crops) rather
@@ -61,8 +77,13 @@ const CARD_SPACING = 300;
  * ready-stage frame (measured directly from assets/atlas.png: opaque pixels
  * span rows 1-118 of the 128px frame for all 3 crops today, content center
  * at row 59.5) on one shared ground line, all crops equal.
+ *
+ * CLUSTER_BASELINE_Y moved down from -35 (T2.20d) to clear the premium tag
+ * above it, which itself moved down to clear the card frame's painted rim -
+ * see PREMIUM_TAG_TOP_MARGIN and T2.20d's measured-bounds report for the
+ * pixel-scanned verification (tier-1's icon top vs. the tag's bottom).
  */
-const CLUSTER_BASELINE_Y = -35;
+const CLUSTER_BASELINE_Y = -12;
 /**
  * Rows (unscaled frame space) from the baseline anchor (row CROP_BASELINE_Y
  * = 104) up to the visual content center (row 59.5, measured as above):
@@ -79,34 +100,84 @@ interface ClusterTier {
   iconScale: number;
   countFontSize: number;
   nameFontSize: number;
-  /** Horizontal gap between the icon and the count text. */
+  /** Horizontal gap between the icon and the count text within one cluster. */
   gap: number;
-  /** Cluster center x per item-type count - one entry per cluster in this tier. */
-  positions: readonly number[];
 }
 
 /** Indexed by item-type count - 1. Order generates 1-2 types today; the
  * 3-tier is future-proofing for a later "Major Shipments" system. */
 const CLUSTER_TIERS: readonly ClusterTier[] = [
-  { iconScale: 0.8, countFontSize: 44, nameFontSize: 30, gap: 12, positions: [-170] },
-  { iconScale: 0.72, countFontSize: 40, nameFontSize: 26, gap: 10, positions: [-300, -60] },
-  { iconScale: 0.45, countFontSize: 30, nameFontSize: 22, gap: 8, positions: [-350, -170, 10] },
+  { iconScale: 0.8, countFontSize: 44, nameFontSize: 30, gap: 12 },
+  { iconScale: 0.72, countFontSize: 40, nameFontSize: 26, gap: 10 },
+  { iconScale: 0.45, countFontSize: 30, nameFontSize: 22, gap: 8 },
 ];
+/**
+ * Gap between one cluster's measured right edge and the next's measured left
+ * edge, indexed by item-type count - 1 (tier 0/single-item never has a next
+ * cluster, so its entry is unused). Starting values 48/32 per T2.20e,
+ * pixel/metric-verified to still clear the button column - see the
+ * measured-bounds report.
+ */
+const CLUSTER_ROW_GAP: readonly number[] = [0, 48, 32];
 /** More than 3 item types (not generated today) renders only the first 3. */
 const MAX_CLUSTERS = 3;
 
-const REWARD_ROW_Y = 62;
-const REWARD_COIN_X = -360;
+/**
+ * Reward row: three FIXED columns, left to right [xp] [coin] [moondust], so
+ * the two currencies sit adjacent and nothing re-arranges when moondust is
+ * absent (its column just hides) - see T2.20a. Y moved down (was 90) so the
+ * row's bottom edge (the coin icon's, the tallest element) clears the card's
+ * bottom border (CARD_HEIGHT / 2 = 180) by ~24px: 180 - 21.6 - 134 = 24.4.
+ * X positions are measured-verified against the widest realistic values (a
+ * 4-digit coin reward, "9999" at REWARD_COIN_STYLE's 38px bold - about 92px)
+ * so no column ever overlaps its neighbor or the relocated button column
+ * (left edge at local x 176, see FULFILL_BUTTON_X/WIDTH below):
+ *   xp   -360 .. ~-170  (up to "+9999 xp", ~190px)
+ *   coin icon -140 (±21.6), text -105 .. ~-13  ("9999", ~92px)
+ *   moondust icon 30 (±19.2), text 58 .. ~130  ("+99", generous)
+ * leaving >45px clearance to the button column in the worst case.
+ */
+const REWARD_ROW_Y = 134;
+const REWARD_XP_TEXT_X = -360;
+const REWARD_COIN_ICON_X = -140;
 const REWARD_COIN_SCALE = 0.45;
-const REWARD_COIN_TEXT_X = -305;
-const REWARD_XP_TEXT_X = -130;
+const REWARD_COIN_TEXT_X = -105;
+const REWARD_MOONDUST_SCALE = 0.4;
+const REWARD_MOONDUST_ICON_X = 30;
+const REWARD_MOONDUST_TEXT_X = 58;
 
-const FULFILL_BUTTON_X = 240;
+/** Left-aligned above the reward row's leftmost column (xp), on every card. */
+const REWARD_LABEL_CLEARANCE = 6;
+
+/** Premium signal: the card's own bg nineslice tints light moondust blue
+ * (cleared on non-premium/cooldown/pending) plus a small "Premium Order" tag
+ * where the (now-removed) flavor line used to sit. */
+const PREMIUM_BG_TINT = 0xdce8ff;
+/**
+ * Tag top margin from the card's own top edge and left inset from the card's
+ * left edge - verified against RENDERED PIXELS (T2.20d), not PANEL_SLICE:
+ * the nineslice frame's painted dark rim extends past the slice inset, so
+ * slice-based math alone under-clears it. See T2.20d's measured-bounds
+ * report for the final pixel-verified values and how they were checked.
+ */
+const PREMIUM_TAG_TOP_MARGIN = 44;
+const PREMIUM_TAG_LEFT_INSET = 36;
+
+/**
+ * The item-cluster band's left-flow anchor (T2.20e) - the same content
+ * margin the premium tag uses, so a single-item order's cluster sits
+ * directly under the tag position on every card, premium or not.
+ */
+const CLUSTER_LEFT_MARGIN = -CARD_WIDTH / 2 + PREMIUM_TAG_LEFT_INSET;
+
+/** Right edge sits ~24px inside the card's right border (440): 440-24-120. */
+const FULFILL_BUTTON_X = 296;
 const FULFILL_BUTTON_Y = -60;
 const FULFILL_BUTTON_WIDTH = 240;
 const FULFILL_BUTTON_HEIGHT = 100;
-const SKIP_BUTTON_X = 240;
-const SKIP_BUTTON_Y = 55;
+const SKIP_BUTTON_X = 296;
+/** 24px below fulfillButton's bottom edge (-10): 14 (skip top) + 40 (half height). */
+const SKIP_BUTTON_Y = 54;
 const SKIP_BUTTON_WIDTH = 240;
 const SKIP_BUTTON_HEIGHT = 80;
 
@@ -178,6 +249,31 @@ const REWARD_XP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+// Same style family as the coin/xp reward values (see REWARD_COIN_STYLE) -
+// the moondust value reads as a third matched peer, not an afterthought.
+const REWARD_MOONDUST_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '38px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+// Distinct display voice against the game's Arial UI - no webfont loading,
+// Georgia is a system serif available everywhere.
+const PREMIUM_TAG_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '30px',
+  fontStyle: 'bold italic',
+  color: '#3a4a8a',
+};
+
+const REWARD_LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '28px',
+  fontStyle: 'italic',
+  color: '#7a5518',
+};
+
 const BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '32px',
@@ -213,10 +309,19 @@ interface ItemCluster {
 }
 
 interface OrderCard {
+  /** Card body nineslice - tinted PREMIUM_BG_TINT on premium, clearTint otherwise. */
+  cardBg: Phaser.GameObjects.NineSlice;
+  /** "Premium Order" tag, top of card, where the flavor line used to sit. */
+  premiumTag: Phaser.GameObjects.Text;
   clusters: ItemCluster[];
+  /** "Reward:" caption above the reward row, shown on every open card. */
+  rewardLabel: Phaser.GameObjects.Text;
+  rewardXpText: Phaser.GameObjects.Text;
   rewardCoin: Phaser.GameObjects.Image;
   rewardCoinText: Phaser.GameObjects.Text;
-  rewardXpText: Phaser.GameObjects.Text;
+  /** Third reward column, right of coin - premium orders only. */
+  rewardMoondustIcon: Phaser.GameObjects.Image;
+  rewardMoondustText: Phaser.GameObjects.Text;
   fulfillButton: Phaser.GameObjects.NineSlice;
   fulfillText: Phaser.GameObjects.Text;
   skipButton: Phaser.GameObjects.NineSlice;
@@ -364,6 +469,20 @@ export class OrderBoard {
       PANEL_SLICE,
     );
 
+    // Where the (now-removed) flavor line used to sit - the only premium
+    // signal left besides cardBg's tint. Flush with the card's own inner
+    // content edge (PREMIUM_TAG_LEFT_INSET), left of the "Reward:" indent.
+    const premiumTag = this.scene.add
+      .text(
+        -CARD_WIDTH / 2 + PREMIUM_TAG_LEFT_INSET,
+        y - CARD_HEIGHT / 2 + PREMIUM_TAG_TOP_MARGIN,
+        'Premium Order',
+        PREMIUM_TAG_STYLE,
+      )
+      .setOrigin(0, 0)
+      .setLetterSpacing(2)
+      .setVisible(false);
+
     // Icon y is fixed regardless of tier (CLUSTER_BASELINE_Y is shared), so
     // it is set once here; countText/nameText y depend on the tier's
     // iconScale and are repositioned every refresh.
@@ -379,15 +498,37 @@ export class OrderBoard {
       nameText: this.scene.add.text(0, y, '', ITEM_NAME_STYLE).setOrigin(0.5).setVisible(false),
     }));
 
+    // Reward row, left to right: xp, coin (icon + value), moondust (icon +
+    // value, premium only) - all at fixed x, see REWARD_ROW_Y's comment.
+    const rewardXpText = this.scene.add
+      .text(REWARD_XP_TEXT_X, y + REWARD_ROW_Y, '', REWARD_XP_STYLE)
+      .setOrigin(0, 0.5);
     const rewardCoin = this.scene.add
-      .image(REWARD_COIN_X, y + REWARD_ROW_Y, ATLAS_KEY, 'coin')
+      .image(REWARD_COIN_ICON_X, y + REWARD_ROW_Y, ATLAS_KEY, 'coin')
       .setScale(REWARD_COIN_SCALE);
     const rewardCoinText = this.scene.add
       .text(REWARD_COIN_TEXT_X, y + REWARD_ROW_Y, '', REWARD_COIN_STYLE)
       .setOrigin(0, 0.5);
-    const rewardXpText = this.scene.add
-      .text(REWARD_XP_TEXT_X, y + REWARD_ROW_Y, '', REWARD_XP_STYLE)
-      .setOrigin(0, 0.5);
+    const rewardMoondustIcon = this.scene.add
+      .image(REWARD_MOONDUST_ICON_X, y + REWARD_ROW_Y, ATLAS_KEY, 'moondust')
+      .setScale(REWARD_MOONDUST_SCALE)
+      .setVisible(false);
+    const rewardMoondustText = this.scene.add
+      .text(REWARD_MOONDUST_TEXT_X, y + REWARD_ROW_Y, '', REWARD_MOONDUST_STYLE)
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+    // Positioned once (fixed relative to the reward row, independent of
+    // order content) with measured clearance from the coin icon's actual
+    // rendered top edge (the row's tallest element), not a guessed offset.
+    const rewardLabel = this.scene.add
+      .text(
+        REWARD_XP_TEXT_X,
+        rewardCoin.y - rewardCoin.displayHeight / 2 - REWARD_LABEL_CLEARANCE,
+        'Reward:',
+        REWARD_LABEL_STYLE,
+      )
+      .setOrigin(0, 1)
+      .setVisible(false);
 
     const fulfillButton = this.scene.add.nineslice(
       FULFILL_BUTTON_X,
@@ -447,10 +588,14 @@ export class OrderBoard {
 
     this.container.add([
       cardBg,
+      premiumTag,
       ...clusters.flatMap((cluster) => [cluster.icon, cluster.countText, cluster.nameText]),
+      rewardLabel,
+      rewardXpText,
       rewardCoin,
       rewardCoinText,
-      rewardXpText,
+      rewardMoondustIcon,
+      rewardMoondustText,
       fulfillButton,
       fulfillText,
       skipButton,
@@ -460,10 +605,15 @@ export class OrderBoard {
     ]);
 
     return {
+      cardBg,
+      premiumTag,
       clusters,
+      rewardLabel,
+      rewardXpText,
       rewardCoin,
       rewardCoinText,
-      rewardXpText,
+      rewardMoondustIcon,
+      rewardMoondustText,
       fulfillButton,
       fulfillText,
       skipButton,
@@ -506,8 +656,14 @@ export class OrderBoard {
 
     // Defensive: > 3 item types (not generated today) reuses the 3-tier and
     // only the first 3 clusters render - see MAX_CLUSTERS.
-    const tier = CLUSTER_TIERS[Math.min(Math.max(order.items.length, 1), MAX_CLUSTERS) - 1]!;
+    const tierIndex = Math.min(Math.max(order.items.length, 1), MAX_CLUSTERS) - 1;
+    const tier = CLUSTER_TIERS[tierIndex]!;
+    const rowGap = CLUSTER_ROW_GAP[tierIndex] ?? 0;
     let allCovered = true;
+    // Left-flow: each cluster's left edge starts where the previous one's
+    // measured right edge (plus rowGap) left off - see the block comment
+    // above CLUSTER_BASELINE_Y.
+    let nextLeftX = CLUSTER_LEFT_MARGIN;
     for (let i = 0; i < card.clusters.length; i++) {
       const cluster = card.clusters[i]!;
       const item = order.items[i];
@@ -521,7 +677,6 @@ export class OrderBoard {
       const covered = have >= item.count;
       if (!covered) allCovered = false;
 
-      const clusterX = tier.positions[i] ?? 0;
       cluster.icon
         .setFrame(CROPS[item.cropId].stageFrames[2])
         .setScale(tier.iconScale)
@@ -541,19 +696,45 @@ export class OrderBoard {
       cluster.nameText
         .setFontSize(tier.nameFontSize)
         .setText(CROPS[item.cropId].name)
-        .setX(clusterX)
         .setY(iconBottomY + CLUSTER_NAME_GAP + tier.nameFontSize * CLUSTER_NAME_HALF_HEIGHT_FACTOR)
         .setVisible(true);
 
-      // Center the icon+count pair on clusterX: pairWidth is measured (not
-      // estimated) so it stays exact regardless of digit count in "have/need".
+      // This cluster's overall visual width is whichever of the icon+count
+      // pair or the name text is wider - both measured (not estimated) and
+      // centered on the same clusterCenterX, so the cluster's bounding box
+      // is symmetric and its true left/right edges are exact regardless of
+      // digit count in "have/need" or crop name length.
       const pairWidth = cluster.icon.displayWidth + tier.gap + cluster.countText.width;
-      cluster.icon.setX(clusterX - pairWidth / 2 + cluster.icon.displayWidth / 2);
+      const nameWidth = cluster.nameText.width;
+      const clusterWidth = Math.max(pairWidth, nameWidth);
+      const clusterCenterX = nextLeftX + clusterWidth / 2;
+
+      cluster.icon.setX(clusterCenterX - pairWidth / 2 + cluster.icon.displayWidth / 2);
       cluster.countText.setX(cluster.icon.x + cluster.icon.displayWidth / 2 + tier.gap);
+      cluster.nameText.setX(clusterCenterX);
+
+      nextLeftX = clusterCenterX + clusterWidth / 2 + rowGap;
     }
 
     card.rewardCoinText.setText(String(order.coinReward));
     card.rewardXpText.setText(`+${order.xpReward} xp`);
+
+    // Premium signal: tint the card body itself (cleared on non-premium) plus
+    // a small tag where the flavor line used to sit. Moondust column is at a
+    // fixed x (see REWARD_ROW_Y's comment) - only its visibility toggles, so
+    // the xp/coin columns never move when it appears or disappears.
+    const isPremium = order.premium !== undefined;
+    if (isPremium) {
+      card.cardBg.setTint(PREMIUM_BG_TINT);
+    } else {
+      card.cardBg.clearTint();
+    }
+    card.premiumTag.setVisible(isPremium);
+    card.rewardMoondustIcon.setVisible(isPremium);
+    card.rewardMoondustText.setVisible(isPremium);
+    if (isPremium) {
+      card.rewardMoondustText.setText(`+${order.premium!.moondust}`);
+    }
 
     card.fulfillButton.setAlpha(allCovered ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
     card.fulfillText.setAlpha(allCovered ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
@@ -583,6 +764,7 @@ export class OrderBoard {
       cluster.countText.setVisible(visible);
       cluster.nameText.setVisible(visible);
     }
+    card.rewardLabel.setVisible(visible);
     card.rewardCoin.setVisible(visible);
     card.rewardCoinText.setVisible(visible);
     card.rewardXpText.setVisible(visible);
@@ -590,6 +772,15 @@ export class OrderBoard {
     card.fulfillText.setVisible(visible);
     card.skipButton.setVisible(visible);
     card.skipText.setVisible(visible);
+    if (!visible) {
+      // Premium-only elements: refreshOpenCard decides their state per
+      // order, but a card leaving the open state (cooldown/pending) must
+      // clear them unconditionally.
+      card.cardBg.clearTint();
+      card.premiumTag.setVisible(false);
+      card.rewardMoondustIcon.setVisible(false);
+      card.rewardMoondustText.setVisible(false);
+    }
   }
 
   /**

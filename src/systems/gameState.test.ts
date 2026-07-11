@@ -949,6 +949,57 @@ describe('expandFarm', () => {
   });
 });
 
+describe('premium order validation', () => {
+  it('accepts a save containing a premium order, and it survives a reload', () => {
+    const premiumOrder: Order = {
+      items: [{ cropId: 'sunwheat', count: 2 }],
+      coinReward: 20,
+      xpReward: 4,
+      premium: { moondust: 2, flavor: 'A test flavor line' },
+    };
+    const saved = createDefaultState(9);
+    saved.orders[0] = { state: 'open', order: premiumOrder };
+    expect(isValidState(saved, 9)).toBe(true);
+
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().orders[0]).toEqual({ state: 'open', order: premiumOrder });
+  });
+
+  it('accepts an order with no premium field (absence is valid, no version bump)', () => {
+    const saved = createDefaultState(9);
+    saved.orders[0] = {
+      state: 'open',
+      order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 },
+    };
+    expect(isValidState(saved, 9)).toBe(true);
+  });
+
+  it('rejects a malformed premium field: non-positive/non-finite moondust, or a non-string flavor', () => {
+    const baseOrder = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 };
+    const badPremiums = [
+      { moondust: 0, flavor: 'text' },
+      { moondust: -1, flavor: 'text' },
+      { moondust: Number.NaN, flavor: 'text' },
+      { moondust: Infinity, flavor: 'text' },
+      { moondust: 2, flavor: 42 },
+      { moondust: 2 }, // missing flavor
+    ];
+    for (const premium of badPremiums) {
+      const bad = {
+        ...createDefaultState(9),
+        orders: [
+          { state: 'open', order: { ...baseOrder, premium } },
+          { state: 'pending' },
+          { state: 'pending' },
+        ],
+      };
+      expect(isValidState(bad, 9)).toBe(false);
+    }
+  });
+});
+
 describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => {
   const emptyPlot: PlotState = { state: 'empty' };
 
@@ -1051,6 +1102,26 @@ describe('orders', () => {
     expect(a.getState().orders).toEqual(b.getState().orders);
   });
 
+  it('ensureOrders never generates a premium order during the tutorial, even with an rng forced to always roll premium', () => {
+    const store = new GameStateStore({ storage: null, rng: () => 0 });
+    // Onboarding left active (not completed) - the default fresh state.
+    store.ensureOrders();
+    const orders = store.getState().orders;
+    expect(orders.every((slot) => slot.state === 'open' && slot.order.premium === undefined)).toBe(
+      true,
+    );
+  });
+
+  it('ensureOrders can generate premium orders once onboarding is completed', () => {
+    const store = new GameStateStore({ storage: null, rng: () => 0 });
+    completeOnboarding(store);
+    store.ensureOrders();
+    const orders = store.getState().orders;
+    expect(orders.every((slot) => slot.state === 'open' && slot.order.premium !== undefined)).toBe(
+      true,
+    );
+  });
+
   it('fulfillOrder pays exactly the stored rewards, deducts items, and persists', () => {
     const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 });
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -1071,6 +1142,38 @@ describe('orders', () => {
     reloaded.load();
     expect(reloaded.getState().coins).toBe(state.coins);
     expect(reloaded.getState().orders[0]).toEqual({ state: 'pending' });
+  });
+
+  it('fulfillOrder grants premium.moondust to state.moondust when present', () => {
+    const premiumOrder: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 2, flavor: 'A test flavor line' },
+    };
+    const saved = savedStateWithOrder(premiumOrder, { sunwheat: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const moondustBefore = store.getState().moondust;
+
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().moondust).toBe(moondustBefore + 2);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().moondust).toBe(moondustBefore + 2);
+  });
+
+  it('fulfillOrder leaves moondust untouched when the order has no premium field', () => {
+    const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const moondustBefore = store.getState().moondust;
+
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().moondust).toBe(moondustBefore);
   });
 
   it('fulfillOrder fails without mutation when inventory is short on any item', () => {
@@ -1696,14 +1799,17 @@ describe('onboarding', () => {
       progressB: 0,
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
-    const store = new GameStateStore({ storage, rng: () => 0 });
+    // 0.12 sits above PREMIUM_CHANCE (0.1, so the premium roll never hits)
+    // but below TEASER_CHANCE (0.15, so the teaser roll always hits).
+    const store = new GameStateStore({ storage, rng: () => 0.12 });
     store.load();
     store.ensureOrders();
-    // rng 0 always takes the teaser branch: every order teases glowberry.
+    // Every order teases glowberry, and none are premium.
     for (const slot of store.getState().orders) {
       expect(slot.state).toBe('open');
       if (slot.state === 'open') {
         expect(slot.order.items.some((item) => item.cropId === 'glowberry')).toBe(true);
+        expect(slot.order.premium).toBeUndefined();
       }
     }
   });

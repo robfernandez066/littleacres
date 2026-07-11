@@ -22,6 +22,7 @@ import {
   generateOrder,
   type Order,
   ORDER_SLOTS,
+  PREMIUM_CHANCE,
   SKIP_COOLDOWN_BASE_MS,
   SKIP_COOLDOWN_GROWTH,
   SKIP_COOLDOWN_MAX_MS,
@@ -379,6 +380,16 @@ function isOrderItem(value: unknown): boolean {
   );
 }
 
+/** A premium marker: a positive finite moondust amount and a string flavor line. */
+function isOrderPremium(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.moondust) &&
+    value.moondust > 0 &&
+    typeof value.flavor === 'string'
+  );
+}
+
 function isOrder(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -387,7 +398,8 @@ function isOrder(value: unknown): boolean {
     value.items.length <= 2 &&
     value.items.every(isOrderItem) &&
     isFiniteNumber(value.coinReward) &&
-    isFiniteNumber(value.xpReward)
+    isFiniteNumber(value.xpReward) &&
+    (value.premium === undefined || isOrderPremium(value.premium))
   );
 }
 
@@ -772,14 +784,16 @@ export class GameStateStore {
     let changed = false;
     const nowMs = now();
     // No stretch (teaser) orders while the tutorial is running - the first
-    // session must never see a request it cannot fulfill.
+    // session must never see a request it cannot fulfill. Premium orders are
+    // withheld for the same reason: the tutorial has no moondust ceremony.
     const teaserChance = this.state.onboarding.completed ? TEASER_CHANCE : 0;
+    const premiumChance = this.state.onboarding.completed ? PREMIUM_CHANCE : 0;
     for (let i = 0; i < this.state.orders.length; i++) {
       const slot = this.state.orders[i]!;
       if (slot.state === 'pending' || (slot.state === 'cooldown' && slot.readyAt <= nowMs)) {
         this.state.orders[i] = {
           state: 'open',
-          order: generateOrder(this.state.level, this.rng, teaserChance),
+          order: generateOrder(this.state.level, this.rng, teaserChance, premiumChance),
         };
         changed = true;
       }
@@ -790,11 +804,12 @@ export class GameStateStore {
   /**
    * Fulfill an open order: every requested item leaves the inventory, coins
    * gain the order's stored coinReward, xp gains its stored xpReward through
-   * the applyXp choke point (so level-ups ride the celebration queue), and
-   * the slot returns to pending for the next `ensureOrders` to refill.
-   * Returns false without mutating anything if the slot is not open, the
-   * inventory does not cover every item, or the tutorial rails are not on
-   * the deliver step (which permits only slot 0 - the scripted ORDER A).
+   * the applyXp choke point (so level-ups ride the celebration queue),
+   * moondust gains the order's stored premium.moondust if present, and the
+   * slot returns to pending for the next `ensureOrders` to refill. Returns
+   * false without mutating anything if the slot is not open, the inventory
+   * does not cover every item, or the tutorial rails are not on the deliver
+   * step (which permits only slot 0 - the scripted ORDER A).
    */
   fulfillOrder(slotIndex: number): boolean {
     if (!this.railsAllow('fulfill', slotIndex)) return false;
@@ -810,6 +825,7 @@ export class GameStateStore {
     }
     this.state.coins += order.coinReward;
     this.applyXp(order.xpReward);
+    if (order.premium) this.state.moondust += order.premium.moondust;
     this.state.orders[slotIndex] = { state: 'pending' };
     // During the tutorial the rails guarantee this is the scripted slot-0
     // delivery, so the track always matches; post-tutorial it is a no-op.
