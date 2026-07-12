@@ -32,8 +32,8 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
  * button, and stay legible up to "x9999" / "999" without colliding with it -
  * regardless of digit count, not just the values the MVP crops happen to use.
  */
-const ROW_START_Y = -140;
-const ROW_SPACING = 170;
+const ROW_START_Y = -190;
+const ROW_SPACING = 115;
 const ROW_ICON_X = -405;
 const ROW_ICON_SCALE = 0.5;
 const ROW_NAME_X = -352;

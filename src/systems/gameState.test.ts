@@ -1835,14 +1835,15 @@ describe('leveling', () => {
     ]);
   });
 
-  it('queues an event even for levels with no crop unlock', () => {
+  it('queues an event even for the top level, which unlocks no crop', () => {
     const store = new GameStateStore({ storage: null });
     store.addXp(xpForLevel(MAX_LEVEL));
     expect(store.getState().level).toBe(MAX_LEVEL);
     const events = store.consumeLevelUpEvents();
-    expect(events.map((e) => e.level)).toEqual([2, 3, 4, 5]);
-    expect(events.find((e) => e.level === 4)?.unlockedCropIds).toEqual([]);
-    expect(events.find((e) => e.level === 5)?.unlockedCropIds).toEqual([]);
+    expect(events.map((e) => e.level)).toEqual([2, 3, 4, 5, 6]);
+    expect(events.find((e) => e.level === 4)?.unlockedCropIds).toEqual(['moonroot']);
+    expect(events.find((e) => e.level === 5)?.unlockedCropIds).toEqual(['emberpepper']);
+    expect(events.find((e) => e.level === 6)?.unlockedCropIds).toEqual([]);
   });
 
   it('harvesting queues the same kind of event as addXp', () => {

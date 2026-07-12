@@ -12,18 +12,18 @@ import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
  * rule); the bar spans roughly y 1560-1840, inside the 1550-1850 band.
  */
 const BAR_CENTER_Y = 1700;
-const BUTTON_WIDTH = 300;
+const BUTTON_WIDTH = 196;
 const BUTTON_HEIGHT = 280;
-const BUTTON_SPACING = 340;
+const BUTTON_SPACING = 208;
 /** Above the field and crop sprites (whose depth is their screen y). */
 const BAR_DEPTH = 2000;
 
 const ICON_OFFSET_Y = -55;
 const NAME_OFFSET_Y = 45;
 const COST_OFFSET_Y = 100;
-const COIN_OFFSET_X = -36;
-const COIN_SCALE = 0.45;
-const COST_TEXT_X = -8;
+const COIN_OFFSET_X = -24;
+const COIN_SCALE = 0.3;
+const COST_TEXT_X = -5;
 
 const SELECTED_TINT = 0xffe27a;
 const SELECTED_SCALE = 1.06;
@@ -41,14 +41,14 @@ const SHAKE_THROTTLE_MS = 400;
 
 const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '36px',
+  fontSize: '24px',
   fontStyle: 'bold',
   color: NAME_COLOR,
 };
 
 const COST_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '34px',
+  fontSize: '22px',
   fontStyle: 'bold',
   color: COST_COLOR,
 };

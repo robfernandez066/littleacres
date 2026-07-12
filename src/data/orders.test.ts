@@ -164,19 +164,46 @@ describe('generateOrder', () => {
 
   it('a single-item glowberry order (no second item) is still capped', () => {
     // First rng() (0.99) fails the second-item roll; second rng() (0.9)
-    // picks index 2 of the 3 unlocked crops at level 5 (glowberry). The
-    // single-item count equals totalUnits (7), which the cap clamps to 2.
+    // picks index 2 of the 3 unlocked crops at level 3 (glowberry). The
+    // single-item count equals totalUnits (5), which the cap clamps to 2.
     const rng = queuedRng([0.99, 0.9]);
-    const order = generateOrder(5, rng);
+    const order = generateOrder(3, rng);
     expect(order.items).toEqual([{ cropId: 'glowberry', count: 2 }]);
     expect(order.coinReward).toBe(Math.ceil(2 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
     expect(order.xpReward).toBe(Math.ceil(2 * CROPS.glowberry.xp * ORDER_XP_MULTIPLIER));
   });
 
+  it('a single-item moonroot order (no second item) is still capped', () => {
+    // Level 4 unlocks moonroot; totalUnits = 2 + 1*4 = 6, capped to 3. First
+    // rng() (0.99) fails premium; the teaser roll (emberpepper unlocks at 5)
+    // also fails at 0.9; the second-item roll fails too (repeats 0.9); pick
+    // (unlocked) lands on index 3 of the 4 unlocked crops (moonroot).
+    const rng = queuedRng([0.99, 0.9]);
+    const order = generateOrder(4, rng);
+    expect(order.items).toEqual([{ cropId: 'moonroot', count: 3 }]);
+    expect(order.coinReward).toBe(Math.ceil(3 * CROPS.moonroot.sellValue * ORDER_COIN_MULTIPLIER));
+    expect(order.xpReward).toBe(Math.ceil(3 * CROPS.moonroot.xp * ORDER_XP_MULTIPLIER));
+  });
+
+  it('a single-item emberpepper order (no second item) is still capped', () => {
+    // Level 5 has no next unlock, so the teaser branch short-circuits
+    // without a roll; totalUnits = 2 + 1*5 = 7, capped to 2. First rng()
+    // (0.99) fails premium and the second-item roll; pick(unlocked) with 0.9
+    // lands on index 4 of the 5 unlocked crops (emberpepper).
+    const rng = queuedRng([0.99, 0.9]);
+    const order = generateOrder(5, rng);
+    expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
+    expect(order.coinReward).toBe(
+      Math.ceil(2 * CROPS.emberpepper.sellValue * ORDER_COIN_MULTIPLIER),
+    );
+    expect(order.xpReward).toBe(Math.ceil(2 * CROPS.emberpepper.xp * ORDER_XP_MULTIPLIER));
+  });
+
   it('never teases when no crop unlocks at the next level', () => {
-    // Nothing unlocks at level 4+, so even a rng that would always take the
-    // teaser branch yields fully unlocked orders at level 3 and above.
-    for (const level of [3, 4, MAX_LEVEL]) {
+    // Nothing unlocks past level 5 (emberpepper), so even a rng that would
+    // always take the teaser branch yields fully unlocked orders at level 5
+    // and above.
+    for (const level of [5, MAX_LEVEL]) {
       for (const order of sampleOrders(level, 200)) {
         for (const item of order.items) {
           expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
@@ -251,6 +278,21 @@ describe('generateOrder premium orders', () => {
     expect(order.xpReward).toBe(
       Math.ceil((CROPS.sunwheat.xp + 5 * CROPS.starcorn.xp) * ORDER_XP_MULTIPLIER),
     );
+  });
+
+  it('a premium order at level 5 still clamps emberpepper to its cap despite the doubled budget', () => {
+    // Premium roll (0) hits, so the teaser branch short-circuits without a
+    // roll; second-item roll (0.99) fails; pick(unlocked) (0.9) lands on
+    // emberpepper (index 4 of 5); doubled budget (2 + 5) * 2 = 14 clamps to
+    // the cap of 2; moondust (0) rolls the min, flavor (0) rolls the first.
+    const rng = queuedRng([0, 0.99, 0.9, 0, 0]);
+    const order = generateOrder(5, rng);
+    expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
+    expect(order.premium).toEqual({ moondust: PREMIUM_MOONDUST_MIN, flavor: PREMIUM_FLAVORS[0] });
+    expect(order.coinReward).toBe(
+      Math.ceil(2 * CROPS.emberpepper.sellValue * ORDER_COIN_MULTIPLIER),
+    );
+    expect(order.xpReward).toBe(Math.ceil(2 * CROPS.emberpepper.xp * ORDER_XP_MULTIPLIER));
   });
 
   it('moondust rolls the max of the range via one rng call', () => {

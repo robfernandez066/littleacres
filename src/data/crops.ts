@@ -1,5 +1,5 @@
-/** The three MVP crops. All gameplay numbers live here, never in scene/system logic. */
-export type CropId = 'sunwheat' | 'starcorn' | 'glowberry';
+/** All gameplay numbers live here, never in scene/system logic. */
+export type CropId = 'sunwheat' | 'starcorn' | 'glowberry' | 'moonroot' | 'emberpepper';
 
 /** Growth stages per crop: 0 = sprout, 1 = mid, 2 = ready to harvest. */
 export const CROP_STAGES = 3;
@@ -59,7 +59,7 @@ export const CROPS: Record<CropId, CropDef> = {
     seedCost: 12,
     sellValue: 20,
     growMs: 120_000,
-    xp: 5,
+    xp: 9,
     unlockLevel: 2,
   },
   glowberry: {
@@ -70,7 +70,29 @@ export const CROPS: Record<CropId, CropDef> = {
     seedCost: 30,
     sellValue: 55,
     growMs: 300_000,
-    xp: 12,
+    xp: 15,
     unlockLevel: 3,
+  },
+  moonroot: {
+    id: 'moonroot',
+    name: 'Moonroot',
+    pluralName: 'Moonroots',
+    stageFrames: ['moonroot_0', 'moonroot_1', 'moonroot_2'],
+    seedCost: 60,
+    sellValue: 100,
+    growMs: 480_000,
+    xp: 28,
+    unlockLevel: 4,
+  },
+  emberpepper: {
+    id: 'emberpepper',
+    name: 'Emberpepper',
+    pluralName: 'Emberpeppers',
+    stageFrames: ['emberpepper_0', 'emberpepper_1', 'emberpepper_2'],
+    seedCost: 110,
+    sellValue: 210,
+    growMs: 1_200_000,
+    xp: 70,
+    unlockLevel: 5,
   },
 };

@@ -93,7 +93,7 @@ export const ONBOARDING_ORDER_A: Order = {
  * grows toward. Its item counts ARE that step's goals (8 sunwheat, 4
  * starcorn) and the review-order chip derives its copy from these items.
  * Rewards are the standard generator formula, precomputed:
- * coins ceil((8*8 + 4*20) * 1.3) = 188, xp ceil((8*2 + 4*5) * 1.5) = 54.
+ * coins ceil((8*8 + 4*20) * 1.3) = 188, xp ceil((8*2 + 4*9) * 1.5) = 78.
  * Fulfilling it post-tutorial lands level 3 (and glowberry) naturally.
  */
 export const ONBOARDING_ORDER_B: Order = {
@@ -102,7 +102,7 @@ export const ONBOARDING_ORDER_B: Order = {
     { cropId: 'starcorn', count: 4 },
   ],
   coinReward: 188,
-  xpReward: 54,
+  xpReward: 78,
 };
 
 /**

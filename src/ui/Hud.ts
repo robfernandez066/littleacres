@@ -99,6 +99,14 @@ const LEVEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+/** Overlaid on the xp bar fill; empty below the level cap, "MAX" at it. */
+const XP_BAR_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '20px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 const BAG_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '32px',
@@ -117,6 +125,7 @@ export class Hud {
   private readonly coinText: Phaser.GameObjects.Text;
   private readonly levelText: Phaser.GameObjects.Text;
   private readonly xpBarFill: Phaser.GameObjects.Rectangle;
+  private readonly xpBarText: Phaser.GameObjects.Text;
   private readonly moondustText: Phaser.GameObjects.Text;
   private readonly bagContainer: Phaser.GameObjects.Container;
   private readonly bagPanel: Phaser.GameObjects.NineSlice;
@@ -175,6 +184,10 @@ export class Hud {
       )
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
+    this.xpBarText = this.scene.add
+      .text(DESIGN_WIDTH / 2, XP_BAR_Y, '', XP_BAR_TEXT_STYLE)
+      .setOrigin(0.5)
+      .setDepth(HUD_DEPTH + 1);
 
     this.scene.add.image(MOONDUST_X, MOONDUST_Y, ATLAS_KEY, 'moondust').setDepth(HUD_DEPTH);
     this.moondustText = this.scene.add
@@ -415,12 +428,14 @@ export class Hud {
   private updateXpBar(level: number, xp: number): void {
     if (level >= MAX_LEVEL) {
       this.xpBarFill.setScale(1, 1);
+      this.xpBarText.setText('MAX');
       return;
     }
     const cur = xpForLevel(level);
     const next = xpForLevel(level + 1);
     const fraction = next > cur ? Phaser.Math.Clamp((xp - cur) / (next - cur), 0, 1) : 1;
     this.xpBarFill.setScale(fraction, 1);
+    this.xpBarText.setText('');
   }
 
   /** Tween the coin display toward `target`; a no-op if already there. */

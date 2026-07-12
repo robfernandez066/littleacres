@@ -25,8 +25,8 @@ const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
 const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
 const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 
-const ROW_START_Y = -70;
-const ROW_SPACING = 110;
+const ROW_START_Y = -170;
+const ROW_SPACING = 75;
 const ROW_ICON_X = -300;
 const ROW_ICON_SCALE = 0.5;
 const ROW_TEXT_X = -230;
