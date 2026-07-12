@@ -23,7 +23,7 @@
  *   hangs below into the extra 32 rows. The diamond's left/right corners are
  *   assumed to be the widest opaque points (they mark the face's vertical
  *   center) and its top corner the topmost opaque row.
- * - Crops (9): trimmed, scaled to a per-stage height target (stage 2 = 100%
+ * - Crops (15): trimmed, scaled to a per-stage height target (stage 2 = 100%
  *   of the max legal height, stage 1 = 78%, stage 0 = 55% - a glance must
  *   read small -> medium -> full), width still capped at 128, placed on a
  *   128x128 frame horizontally centered (bbox center at x = 64) with the
@@ -31,12 +31,23 @@
  *   little below the anchored baseline so the mound's visual middle sits on
  *   the diamond center, hugging the tile. Width-limited sprites that miss
  *   their height target are logged.
+ * - chest_closed, chest_open: crop treatment with no growth stage - a single
+ *   static object placed at the full (stage-2-equivalent) height target.
  * - coin, moondust, bag, scroll, note, pouch: trimmed, fit into 96x96,
  *   centered. `pouch` is packed as a reserved frame - unused in code today.
  * - sign: trimmed, fit into 192x192, centered.
+ * - hud_crest, gear_icon, button_push, button_slot, button_close (staged as
+ *   xbutton), mere (staged as mere_strip): trimmed, fit into a square frame
+ *   (192/128/256/256/96/384), centered - same treatment as the icons above.
+ * - hud_banner, xpbar_frame, xpbar_fill: trimmed, scaled to a fixed 512px
+ *   width keeping aspect - no fixed square frame.
  * - panel: 128x128 nine-slice source. The border thickness and corner
  *   radius are measured in packed pixels and a safe slice margin is logged -
  *   PANEL_SLICE in src/config.ts must match it.
+ * - plot (T2.21 fix): after the shared tile transform, plot's opaque
+ *   footprint is re-cropped and rescaled onto plot_occupied's measured
+ *   footprint so the two tiles line up flush in a mixed field. Before/after
+ *   extents are logged.
  *
  * Layout is deterministic (fixed frame list, sorted packing order, fixed
  * shelf width), so reruns are byte-stable given identical inputs. Staged
@@ -94,10 +105,50 @@ const CROP_NAMES = [
   'glowberry_0',
   'glowberry_1',
   'glowberry_2',
+  'moonroot_0',
+  'moonroot_1',
+  'moonroot_2',
+  'emberpepper_0',
+  'emberpepper_1',
+  'emberpepper_2',
 ];
 const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch'];
 const SIGN_NAMES = ['sign'];
-const FRAME_NAMES = [...TILE_NAMES, ...CROP_NAMES, ...ICON_NAMES, ...SIGN_NAMES, 'panel'];
+/** Single static objects that sit on a tile like a crop, but have no growth stages. */
+const CHEST_NAMES = ['chest_closed', 'chest_open'];
+/** Square "plain downscale": trim, fit to `size`, center - same treatment as processIcon. */
+const SQUARE_DOWNSCALE_SIZES = {
+  hud_crest: 192,
+  gear_icon: 128,
+  button_push: 256,
+  button_slot: 256,
+  button_close: 96,
+  mere: 384,
+};
+/** Wide "plain downscale, keep aspect": trim, scale to a fixed width, no fixed frame. */
+const WIDE_DOWNSCALE_WIDTHS = {
+  hud_banner: 512,
+  xpbar_frame: 512,
+  xpbar_fill: 512,
+};
+/** Frame name -> staged source filename, for frames whose art was staged under a different name. */
+const SOURCE_FILE_OVERRIDES = {
+  button_close: 'xbutton',
+  mere: 'mere_strip',
+};
+function sourceFileFor(name) {
+  return SOURCE_FILE_OVERRIDES[name] ?? name;
+}
+const FRAME_NAMES = [
+  ...TILE_NAMES,
+  ...CROP_NAMES,
+  ...ICON_NAMES,
+  ...SIGN_NAMES,
+  ...CHEST_NAMES,
+  ...Object.keys(SQUARE_DOWNSCALE_SIZES),
+  ...Object.keys(WIDE_DOWNSCALE_WIDTHS),
+  'panel',
+];
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const stagingDir = join(repoRoot, 'tools', 'art-staging');
@@ -190,7 +241,7 @@ function diamondCornerRow(image) {
  * topmost row anchors at y = 0, landing the diamond center at
  * (TILE_FRAME_WIDTH / 2, TILE_DIAMOND_CENTER_Y) with the lip hanging below.
  */
-function processTile(image, name) {
+function processTileBase(image, name) {
   trim(image, name);
   const cornerRow = diamondCornerRow(image);
   const scaleY = TILE_DIAMOND_HEIGHT / 2 / cornerRow;
@@ -208,6 +259,29 @@ function processTile(image, name) {
   return frame;
 }
 
+function processTile(image, name) {
+  return processTileBase(image, name);
+}
+
+/**
+ * T2.21 art-bug fix: `plot`'s base-transformed footprint doesn't land on the
+ * same opaque bounding box as `plot_occupied`, so it visibly sticks out past
+ * the grid diamond. Re-crop the base-transformed frame to its own opaque
+ * bounds, rescale that crop (independently per axis) onto plot_occupied's
+ * measured bounds, and composite at the same offset - this pins `plot`'s
+ * footprint to `plot_occupied`'s within a pixel or two.
+ */
+function processPlotFootprintFix(image, name, targetBounds) {
+  const base = processTileBase(image, name);
+  const before = opaqueBounds(base);
+  if (before === null) throw new Error(`${name}: image is fully transparent after base transform`);
+  const cropped = base.crop(before);
+  cropped.resize({ w: targetBounds.w, h: targetBounds.h });
+  const frame = blankFrame(TILE_FRAME_WIDTH, TILE_FRAME_HEIGHT);
+  frame.composite(cropped, targetBounds.x, targetBounds.y);
+  return { frame, before };
+}
+
 /**
  * Crop sprite: scale the trimmed art to its growth stage's height target
  * (width capped at CROP_FIT_WIDTH), center horizontally (bbox center at
@@ -216,10 +290,10 @@ function processTile(image, name) {
  * on the diamond center. Logs any sprite the width cap keeps short of its
  * height target.
  */
-function processCrop(image, name) {
-  trim(image, name);
-  const stage = Number(name.at(-1));
-  const targetH = Math.round(CROP_MAX_HEIGHT * CROP_STAGE_HEIGHT_FRACTIONS[stage]);
+/** Shared crop-frame placement: fit trimmed image to `targetH` (width capped at
+ * CROP_FIT_WIDTH), center at x = 64, bottom-pin the lowest opaque row at
+ * CROP_BASELINE_Y + CROP_SINK. */
+function placeOnCropFrame(image, name, targetH) {
   const scale = Math.min(CROP_FIT_WIDTH / image.bitmap.width, targetH / image.bitmap.height);
   const w = Math.max(1, Math.round(image.bitmap.width * scale));
   const h = Math.max(1, Math.round(image.bitmap.height * scale));
@@ -236,6 +310,20 @@ function processCrop(image, name) {
   return frame;
 }
 
+function processCrop(image, name) {
+  trim(image, name);
+  const stage = Number(name.at(-1));
+  const targetH = Math.round(CROP_MAX_HEIGHT * CROP_STAGE_HEIGHT_FRACTIONS[stage]);
+  return placeOnCropFrame(image, name, targetH);
+}
+
+/** Chest: a single static object (no growth stages) that sits on a tile like a
+ * full-size crop - same baseline convention, full (stage-2-equivalent) height target. */
+function processChest(image, name) {
+  trim(image, name);
+  return placeOnCropFrame(image, name, CROP_MAX_HEIGHT);
+}
+
 /** Icon: trim and fit into a `size` x `size` square, centered. */
 function processIcon(image, name, size) {
   trim(image, name);
@@ -246,6 +334,15 @@ function processIcon(image, name, size) {
   const frame = blankFrame(size, size);
   frame.composite(image, Math.round((size - w) / 2), Math.round((size - h) / 2));
   return frame;
+}
+
+/** Wide "plain downscale, keep aspect": trim, then scale to exactly `width`, no fixed frame. */
+function processWide(image, name, width) {
+  trim(image, name);
+  const scale = width / image.bitmap.width;
+  const h = Math.max(1, Math.round(image.bitmap.height * scale));
+  image.resize({ w: width, h });
+  return image;
 }
 
 /** Panel: trim and scale the nine-slice source to exactly PANEL_SIZE square. */
@@ -352,28 +449,52 @@ if (!existsSync(stagingDir)) {
 const staged = readdirSync(stagingDir).filter((f) => f.toLowerCase().endsWith('.png'));
 const stagedNames = new Set(staged.map((f) => f.replace(/\.png$/i, '')));
 
-const missing = FRAME_NAMES.filter((name) => !stagedNames.has(name));
+const missing = FRAME_NAMES.filter((name) => !stagedNames.has(sourceFileFor(name)));
 if (missing.length > 0) {
   console.error(`error: missing staged art for: ${missing.join(', ')}`);
   process.exit(1);
 }
-const ignored = [...stagedNames].filter((name) => !FRAME_NAMES.includes(name)).sort();
+const consumedSourceNames = new Set(FRAME_NAMES.map(sourceFileFor));
+const ignored = [...stagedNames].filter((name) => !consumedSourceNames.has(name)).sort();
 if (ignored.length > 0) {
   console.log(`note: ignoring staged extras (not packed): ${ignored.join(', ')}`);
 }
 
+// T2.21: pre-measure plot_occupied's packed footprint so `plot`'s footprint
+// fix (below) has a target to align to, regardless of iteration order.
+const plotOccupiedRef = await Jimp.read(join(stagingDir, `${sourceFileFor('plot_occupied')}.png`));
+const plotOccupiedTargetBounds = opaqueBounds(processTileBase(plotOccupiedRef, 'plot_occupied'));
+let plotFootprintBefore = null;
+
 const sprites = [];
 // Sorted names = fixed, deterministic packing order.
 for (const name of [...FRAME_NAMES].sort()) {
-  const image = await Jimp.read(join(stagingDir, `${name}.png`));
+  const image = await Jimp.read(join(stagingDir, `${sourceFileFor(name)}.png`));
   let frame;
-  if (TILE_NAMES.includes(name)) frame = processTile(image, name);
+  if (name === 'plot') {
+    const fixed = processPlotFootprintFix(image, name, plotOccupiedTargetBounds);
+    frame = fixed.frame;
+    plotFootprintBefore = fixed.before;
+  } else if (TILE_NAMES.includes(name)) frame = processTile(image, name);
   else if (CROP_NAMES.includes(name)) frame = processCrop(image, name);
+  else if (CHEST_NAMES.includes(name)) frame = processChest(image, name);
   else if (ICON_NAMES.includes(name)) frame = processIcon(image, name, ICON_SIZE);
   else if (SIGN_NAMES.includes(name)) frame = processIcon(image, name, SIGN_SIZE);
+  else if (name in SQUARE_DOWNSCALE_SIZES)
+    frame = processIcon(image, name, SQUARE_DOWNSCALE_SIZES[name]);
+  else if (name in WIDE_DOWNSCALE_WIDTHS)
+    frame = processWide(image, name, WIDE_DOWNSCALE_WIDTHS[name]);
   else frame = processPanel(image, name);
   sprites.push({ name, image: frame });
 }
+
+const plotSprite = sprites.find((s) => s.name === 'plot');
+const plotFootprintAfter = opaqueBounds(plotSprite.image);
+const fmtBounds = (b) => `x=${b.x} y=${b.y} w=${b.w} h=${b.h}`;
+console.log(
+  `plot footprint fix: plot_occupied ${fmtBounds(plotOccupiedTargetBounds)}; ` +
+    `plot before ${fmtBounds(plotFootprintBefore)}; plot after ${fmtBounds(plotFootprintAfter)}`,
+);
 
 if (stagedNames.has('pouch')) {
   console.log('note: pouch packed as a reserved frame (unused in code; a future task wires it up)');

@@ -20,7 +20,7 @@
         "h": 96
       }
     },
-    "coin": {
+    "button_close": {
       "frame": {
         "x": 100,
         "y": 2,
@@ -40,10 +40,190 @@
         "h": 96
       }
     },
-    "glowberry_0": {
+    "button_push": {
       "frame": {
         "x": 198,
         "y": 2,
+        "w": 256,
+        "h": 256
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 256
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 256
+      }
+    },
+    "button_slot": {
+      "frame": {
+        "x": 456,
+        "y": 2,
+        "w": 256,
+        "h": 256
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 256,
+        "h": 256
+      },
+      "sourceSize": {
+        "w": 256,
+        "h": 256
+      }
+    },
+    "chest_closed": {
+      "frame": {
+        "x": 714,
+        "y": 2,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "chest_open": {
+      "frame": {
+        "x": 844,
+        "y": 2,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "coin": {
+      "frame": {
+        "x": 2,
+        "y": 260,
+        "w": 96,
+        "h": 96
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 96,
+        "h": 96
+      },
+      "sourceSize": {
+        "w": 96,
+        "h": 96
+      }
+    },
+    "emberpepper_0": {
+      "frame": {
+        "x": 100,
+        "y": 260,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "emberpepper_1": {
+      "frame": {
+        "x": 230,
+        "y": 260,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "emberpepper_2": {
+      "frame": {
+        "x": 360,
+        "y": 260,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "gear_icon": {
+      "frame": {
+        "x": 490,
+        "y": 260,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "glowberry_0": {
+      "frame": {
+        "x": 620,
+        "y": 260,
         "w": 128,
         "h": 128
       },
@@ -62,8 +242,8 @@
     },
     "glowberry_1": {
       "frame": {
-        "x": 328,
-        "y": 2,
+        "x": 750,
+        "y": 260,
         "w": 128,
         "h": 128
       },
@@ -82,8 +262,8 @@
     },
     "glowberry_2": {
       "frame": {
-        "x": 458,
-        "y": 2,
+        "x": 880,
+        "y": 260,
         "w": 128,
         "h": 128
       },
@@ -102,8 +282,8 @@
     },
     "grass": {
       "frame": {
-        "x": 588,
-        "y": 2,
+        "x": 2,
+        "y": 390,
         "w": 256,
         "h": 160
       },
@@ -118,12 +298,72 @@
       "sourceSize": {
         "w": 256,
         "h": 160
+      }
+    },
+    "hud_banner": {
+      "frame": {
+        "x": 260,
+        "y": 390,
+        "w": 512,
+        "h": 144
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 144
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 144
+      }
+    },
+    "hud_crest": {
+      "frame": {
+        "x": 774,
+        "y": 390,
+        "w": 192,
+        "h": 192
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 192,
+        "h": 192
+      },
+      "sourceSize": {
+        "w": 192,
+        "h": 192
+      }
+    },
+    "mere": {
+      "frame": {
+        "x": 2,
+        "y": 584,
+        "w": 384,
+        "h": 384
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 384,
+        "h": 384
+      },
+      "sourceSize": {
+        "w": 384,
+        "h": 384
       }
     },
     "moondust": {
       "frame": {
-        "x": 846,
-        "y": 2,
+        "x": 388,
+        "y": 584,
         "w": 96,
         "h": 96
       },
@@ -140,10 +380,70 @@
         "h": 96
       }
     },
+    "moonroot_0": {
+      "frame": {
+        "x": 486,
+        "y": 584,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "moonroot_1": {
+      "frame": {
+        "x": 616,
+        "y": 584,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
+    "moonroot_2": {
+      "frame": {
+        "x": 746,
+        "y": 584,
+        "w": 128,
+        "h": 128
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 128,
+        "h": 128
+      },
+      "sourceSize": {
+        "w": 128,
+        "h": 128
+      }
+    },
     "note": {
       "frame": {
-        "x": 2,
-        "y": 164,
+        "x": 876,
+        "y": 584,
         "w": 96,
         "h": 96
       },
@@ -162,8 +462,8 @@
     },
     "panel": {
       "frame": {
-        "x": 100,
-        "y": 164,
+        "x": 2,
+        "y": 970,
         "w": 128,
         "h": 128
       },
@@ -182,8 +482,8 @@
     },
     "plot": {
       "frame": {
-        "x": 230,
-        "y": 164,
+        "x": 132,
+        "y": 970,
         "w": 256,
         "h": 160
       },
@@ -202,8 +502,8 @@
     },
     "plot_occupied": {
       "frame": {
-        "x": 488,
-        "y": 164,
+        "x": 390,
+        "y": 970,
         "w": 256,
         "h": 160
       },
@@ -222,8 +522,8 @@
     },
     "pouch": {
       "frame": {
-        "x": 746,
-        "y": 164,
+        "x": 648,
+        "y": 970,
         "w": 96,
         "h": 96
       },
@@ -242,8 +542,8 @@
     },
     "scroll": {
       "frame": {
-        "x": 844,
-        "y": 164,
+        "x": 746,
+        "y": 970,
         "w": 96,
         "h": 96
       },
@@ -262,8 +562,8 @@
     },
     "sign": {
       "frame": {
-        "x": 2,
-        "y": 326,
+        "x": 844,
+        "y": 970,
         "w": 192,
         "h": 192
       },
@@ -282,8 +582,8 @@
     },
     "starcorn_0": {
       "frame": {
-        "x": 196,
-        "y": 326,
+        "x": 2,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -302,8 +602,8 @@
     },
     "starcorn_1": {
       "frame": {
-        "x": 326,
-        "y": 326,
+        "x": 132,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -322,8 +622,8 @@
     },
     "starcorn_2": {
       "frame": {
-        "x": 456,
-        "y": 326,
+        "x": 262,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -342,8 +642,8 @@
     },
     "sunwheat_0": {
       "frame": {
-        "x": 586,
-        "y": 326,
+        "x": 392,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -362,8 +662,8 @@
     },
     "sunwheat_1": {
       "frame": {
-        "x": 716,
-        "y": 326,
+        "x": 522,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -382,8 +682,8 @@
     },
     "sunwheat_2": {
       "frame": {
-        "x": 846,
-        "y": 326,
+        "x": 652,
+        "y": 1164,
         "w": 128,
         "h": 128
       },
@@ -399,6 +699,46 @@
         "w": 128,
         "h": 128
       }
+    },
+    "xpbar_fill": {
+      "frame": {
+        "x": 2,
+        "y": 1294,
+        "w": 512,
+        "h": 112
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 112
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 112
+      }
+    },
+    "xpbar_frame": {
+      "frame": {
+        "x": 516,
+        "y": 1294,
+        "w": 512,
+        "h": 138
+      },
+      "rotated": false,
+      "trimmed": false,
+      "spriteSourceSize": {
+        "x": 0,
+        "y": 0,
+        "w": 512,
+        "h": 138
+      },
+      "sourceSize": {
+        "w": 512,
+        "h": 138
+      }
     }
   },
   "meta": {
@@ -406,8 +746,8 @@
     "image": "atlas.png",
     "format": "RGBA8888",
     "size": {
-      "w": 976,
-      "h": 520
+      "w": 1038,
+      "h": 1434
     },
     "scale": "1"
   }

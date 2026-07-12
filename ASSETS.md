@@ -39,22 +39,34 @@ future task.
 Frame names are a stable API - code refers to them, so replacement art must
 keep them.
 
-| Frame                          | Size (px) | Notes                                     |
-| ------------------------------ | --------- | ----------------------------------------- |
-| `grass`                        | 256x160   | tile; diamond top face 256x128, lip below |
-| `plot`                         | 256x160   | tile; empty tilled dirt                   |
-| `plot_occupied`                | 256x160   | tile; planted soil (growing plots)        |
-| `sunwheat_0` .. `sunwheat_2`   | 128x128   | growth stages 0 (sprout) - 2 (ready)      |
-| `starcorn_0` .. `starcorn_2`   | 128x128   | growth stages                             |
-| `glowberry_0` .. `glowberry_2` | 128x128   | growth stages; stage 2 glows              |
-| `coin`                         | 96x96     | currency icon                             |
-| `moondust`                     | 96x96     | currency icon                             |
-| `bag`                          | 96x96     | HUD bag button icon                       |
-| `scroll`                       | 96x96     | HUD orders button icon                    |
-| `note`                         | 96x96     | HUD audio button icon                     |
-| `pouch`                        | 96x96     | reserved, unused                          |
-| `sign`                         | 192x192   | ExpandSign signpost                       |
-| `panel`                        | 128x128   | UI 9-slice source                         |
+| Frame                              | Size (px)             | Notes                                        |
+| ---------------------------------- | --------------------- | -------------------------------------------- |
+| `grass`                            | 256x160               | tile; diamond top face 256x128, lip below    |
+| `plot`                             | 256x160               | tile; empty tilled dirt                      |
+| `plot_occupied`                    | 256x160               | tile; planted soil (growing plots)           |
+| `sunwheat_0` .. `sunwheat_2`       | 128x128               | growth stages 0 (sprout) - 2 (ready)         |
+| `starcorn_0` .. `starcorn_2`       | 128x128               | growth stages                                |
+| `glowberry_0` .. `glowberry_2`     | 128x128               | growth stages; stage 2 glows                 |
+| `moonroot_0` .. `moonroot_2`       | 128x128               | growth stages (T2.21; not yet wired up)      |
+| `emberpepper_0` .. `emberpepper_2` | 128x128               | growth stages (T2.21; not yet wired up)      |
+| `chest_closed`, `chest_open`       | 128x128               | crop-style, no growth stage (T2.21; unwired) |
+| `coin`                             | 96x96                 | currency icon                                |
+| `moondust`                         | 96x96                 | currency icon                                |
+| `bag`                              | 96x96                 | HUD bag button icon                          |
+| `scroll`                           | 96x96                 | HUD orders button icon                       |
+| `note`                             | 96x96                 | HUD audio button icon                        |
+| `pouch`                            | 96x96                 | reserved, unused                             |
+| `sign`                             | 192x192               | ExpandSign signpost                          |
+| `panel`                            | 128x128               | UI 9-slice source                            |
+| `mere`                             | 384x384               | staged as `mere_strip.png`; unwired (T2.21)  |
+| `hud_banner`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
+| `hud_crest`                        | 192x192               | plain downscale; unwired (T2.21)             |
+| `xpbar_frame`                      | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
+| `xpbar_fill`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
+| `gear_icon`                        | 128x128               | plain downscale; unwired (T2.21)             |
+| `button_push`                      | 256x256               | future nineslice source; unwired (T2.21)     |
+| `button_slot`                      | 256x256               | plain downscale; unwired (T2.21)             |
+| `button_close`                     | 96x96                 | staged as `xbutton.png`; unwired (T2.21)     |
 
 Crops follow `<cropId>_<stage>` with stages `0..2`; `src/data/crops.ts` maps
 crop ids to their stage frames. New crops should follow the same pattern.
@@ -78,6 +90,18 @@ TILE_FRAME_HEIGHT)`, so grid math and hit-testing never see the taller
   topmost row = top corner) and scales non-uniformly to hit the 256x128 face,
   so masters do not need to be drawn at exactly 2:1.
 
+### `plot` footprint fix (T2.21)
+
+`plot`'s art had a known bug: even after the shared tile transform above, its
+opaque footprint didn't match `plot_occupied`'s, so it visibly stuck out past
+the grid diamond in a mixed field. The packer now re-crops `plot`'s
+transformed frame to its own opaque bounds, rescales that crop onto
+`plot_occupied`'s measured bounds, and composites it at the same offset, so
+the two tiles are always pixel-aligned regardless of source art differences.
+Measured at the current staged art: `plot_occupied` footprint `w=256 h=137`;
+`plot` was `w=256 h=144` before the fix, `w=256 h=137` after (both frames'
+footprint now starts at `x=0 y=0`).
+
 ## Crop sprite anchoring
 
 Crop frames are 128x128 (`CROP_FRAME_SIZE`), anchored on the baseline y = 104
@@ -94,6 +118,25 @@ stage 0 = 55%, so stages read small -> medium -> full at a glance - with
 width capped at 128 (a width-limited sprite that misses its height target is
 logged), then bottom-pin at 104 + 14. Masters just need the plant to touch
 the bottom of its opaque bounds.
+
+`moonroot` and `emberpepper` (added in T2.21) are packed with this exact
+convention, sharing `<cropId>_<stage>` naming. `chest_closed`/`chest_open`
+(also T2.21) are single static objects with no growth stage, so they get the
+same baseline/centering treatment pinned at the full (stage-2-equivalent)
+height target instead of a per-stage fraction.
+
+## New UI art staged, not yet wired up (T2.21)
+
+`mere` (staged as `mere_strip.png`), `hud_banner`, `hud_crest`, `xpbar_frame`,
+`xpbar_fill`, `gear_icon`, `button_push`, `button_slot`, and `button_close`
+(staged as `xbutton.png`) are packed into the atlas but no scene or UI code
+references them yet - a later task wires them up. Square frames (`hud_crest`,
+`gear_icon`, `button_push`, `button_slot`, `button_close`, `mere`) get the
+same trim-fit-center treatment as the icons above, just at their own listed
+size. `hud_banner`, `xpbar_frame`, and `xpbar_fill` are trimmed and scaled to
+a fixed 512px width keeping their source aspect ratio, with no fixed square
+frame (their packed height varies). `button_push` is flagged as a likely
+future nineslice source (like `panel`) but is not measured/sliced as one yet.
 
 ## Icons
 

@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Little Acres - HUD Layout Options</title>
+<style>
+  :root {
+    --cream: #fdf6e3;
+    --wood: #8b5a2b;
+    --wood-dark: #5a3a1a;
+    --field: #55913f;
+    --gold: #f5c542;
+    --gold-rim: #c9932a;
+    --moondust: #9db8ff;
+    --moondust-rim: #6f86c9;
+    --text-brown: #4a3218;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #2b2b2b;
+    font-family: Arial, Helvetica, sans-serif;
+    color: #eee;
+  }
+  h1 {
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-weight: bold;
+    color: var(--gold);
+    margin: 0 0 6px 0;
+    font-size: 26px;
+  }
+  p.intro {
+    margin: 0 0 20px 0;
+    font-size: 14px;
+    color: #ccc;
+    max-width: 900px;
+  }
+  .swatches {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    font-size: 12px;
+  }
+  .swatch {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #1c1c1c;
+    padding: 4px 8px;
+    border-radius: 6px;
+  }
+  .swatch i {
+    width: 14px;
+    height: 14px;
+    border-radius: 3px;
+    display: inline-block;
+  }
+  .options-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 20px;
+    max-width: 1612px;
+    margin: 0 auto;
+  }
+  .option {
+    background: #1c1c1c;
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+  .option h2 {
+    font-family: Georgia, serif;
+    font-style: italic;
+    font-weight: bold;
+    font-size: 18px;
+    color: var(--cream);
+    margin: 0 0 4px 0;
+  }
+  .option .sub {
+    font-size: 12px;
+    color: #999;
+    margin: 0 0 12px 0;
+    text-align: center;
+    min-height: 32px;
+  }
+  .phone-frame-wrap {
+    width: 360px;
+    max-width: 100%;
+  }
+  .phone-frame-wrap svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-radius: 26px;
+  }
+  .zoom-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #888;
+    margin: 14px 0 6px 0;
+    align-self: flex-start;
+  }
+  .zoom-frame-wrap {
+    width: 100%;
+  }
+  .zoom-frame-wrap svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 2px solid #444;
+    border-radius: 6px;
+  }
+  .gear-note {
+    font-size: 11px;
+    color: #999;
+    margin-top: 8px;
+    text-align: center;
+  }
+</style>
+</head>
+<body>
+
+<h1>Little Acres - HUD Layout Options (M1 / M1a)</h1>
+<p class="intro">
+  Candidate layouts for the redesigned top HUD, replacing the loose floating buttons.
+  Each option shows the full phone-proportioned screen (1080x1920, scaled) plus a zoomed view of the top region.
+  Placeholder shapes stand in for final icon art - proportion and placement are what's being judged.
+</p>
+<div class="swatches">
+  <div class="swatch"><i style="background:#fdf6e3;border:1px solid #666"></i>cream panel</div>
+  <div class="swatch"><i style="background:#8b5a2b"></i>wood-brown frame</div>
+  <div class="swatch"><i style="background:#5a3a1a"></i>darker rim</div>
+  <div class="swatch"><i style="background:#55913f"></i>field green</div>
+  <div class="swatch"><i style="background:#f5c542"></i>coin gold</div>
+  <div class="swatch"><i style="background:#9db8ff"></i>moondust blue</div>
+  <div class="swatch"><i style="background:#4a3218"></i>text brown</div>
+</div>
+
+<div class="options-row">
+  <div class="option">
+    <h2>Option A - Banner</h2>
+    <p class="sub">Full-width wood banner strip. Currencies left, level + XP centered, Bag/Orders framed slots right. Gear hangs tiny below the banner's right edge.</p>
+    <div class="phone-frame-wrap"><svg id="phoneA" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="zoom-label">2x zoom - top region</div>
+    <div class="zoom-frame-wrap"><svg id="zoomA" viewBox="0 0 1080 420" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+
+  <div class="option">
+    <h2>Option B - Plaques</h2>
+    <p class="sub">Two corner plaques on the field (currencies left, Bag/Orders right) with a centered level medallion + XP bar. Gear tucked under the left plaque. Closest to current layout.</p>
+    <div class="phone-frame-wrap"><svg id="phoneB" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="zoom-label">2x zoom - top region</div>
+    <div class="zoom-frame-wrap"><svg id="zoomB" viewBox="0 0 1080 420" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+
+  <div class="option">
+    <h2>Option C - Crest</h2>
+    <p class="sub">Central level crest with XP bar beneath, currencies and Bag/Orders hanging off either side on one connected wooden frame. Gear is a micro-button in the extreme top-right corner.</p>
+    <div class="phone-frame-wrap"><svg id="phoneC" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="zoom-label">2x zoom - top region</div>
+    <div class="zoom-frame-wrap"><svg id="zoomC" viewBox="0 0 1080 420" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+
+  <div class="option">
+    <h2>Option D - Banner + Crest</h2>
+    <p class="sub">Option A's full-width banner, but the center carries Option C's level crest as a medallion rising above the banner's top edge, with the XP bar inset beneath it. Currencies left, Bag/Orders framed slots right, tiny gear under the banner's right edge.</p>
+    <div class="phone-frame-wrap"><svg id="phoneD" viewBox="0 0 1080 1920" xmlns="http://www.w3.org/2000/svg"></svg></div>
+    <div class="zoom-label">2x zoom - top region</div>
+    <div class="zoom-frame-wrap"><svg id="zoomD" viewBox="0 0 1080 420" xmlns="http://www.w3.org/2000/svg"></svg></div>
+  </div>
+</div>
+
+<script>
+// ---------- shared icon / element builders (all in a 1080-wide design space) ----------
+
+function coinIcon(cx, cy, r) {
+  return `<g>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="#f5c542" stroke="#c9932a" stroke-width="6"/>
+    <circle cx="${cx - r * 0.32}" cy="${cy - r * 0.32}" r="${r * 0.3}" fill="#fff6d0" opacity="0.55"/>
+    <text x="${cx}" y="${cy + r * 0.32}" font-family="Georgia, serif" font-weight="bold" font-size="${r}" fill="#a06b1a" text-anchor="middle">c</text>
+  </g>`;
+}
+
+function moondustIcon(cx, cy, r) {
+  const pts = `${cx},${cy - r} ${cx + r * 0.72},${cy} ${cx},${cy + r} ${cx - r * 0.72},${cy}`;
+  return `<g>
+    <polygon points="${pts}" fill="#9db8ff" stroke="#6f86c9" stroke-width="6"/>
+    <line x1="${cx}" y1="${cy - r * 0.7}" x2="${cx}" y2="${cy + r * 0.7}" stroke="#e4ecff" stroke-width="4"/>
+  </g>`;
+}
+
+function bagIcon(x, y, w, h) {
+  return `<g>
+    <rect x="${x + w * 0.22}" y="${y}" width="${w * 0.56}" height="${h * 0.34}" rx="${h * 0.1}" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="6"/>
+    <rect x="${x}" y="${y + h * 0.2}" width="${w}" height="${h * 0.8}" rx="${w * 0.12}" fill="#a3703c" stroke="#5a3a1a" stroke-width="6"/>
+    <circle cx="${x + w / 2}" cy="${y + h * 0.62}" r="${w * 0.09}" fill="#f5c542" stroke="#a06b1a" stroke-width="3"/>
+  </g>`;
+}
+
+function ordersIcon(x, y, w, h) {
+  return `<g>
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${w * 0.1}" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="6"/>
+    <rect x="${x + w * 0.16}" y="${y + h * 0.2}" width="${w * 0.68}" height="${h * 0.1}" rx="${h * 0.05}" fill="#8b5a2b"/>
+    <rect x="${x + w * 0.16}" y="${y + h * 0.44}" width="${w * 0.68}" height="${h * 0.1}" rx="${h * 0.05}" fill="#8b5a2b"/>
+    <rect x="${x + w * 0.16}" y="${y + h * 0.68}" width="${w * 0.45}" height="${h * 0.1}" rx="${h * 0.05}" fill="#8b5a2b"/>
+  </g>`;
+}
+
+function gearIcon(cx, cy, r) {
+  return `<g>
+    <circle cx="${cx}" cy="${cy}" r="${r * 1.35}" fill="none" stroke="#5a3a1a" stroke-width="${r * 0.4}" stroke-dasharray="${r * 0.35} ${r * 0.45}"/>
+    <circle cx="${cx}" cy="${cy}" r="${r}" fill="#b0855a" stroke="#5a3a1a" stroke-width="5"/>
+    <circle cx="${cx}" cy="${cy}" r="${r * 0.35}" fill="#5a3a1a"/>
+  </g>`;
+}
+
+function xpBar(x, y, w, h, pct) {
+  return `<g>
+    <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${h / 2}" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="5"/>
+    <rect x="${x + 5}" y="${y + 5}" width="${(w - 10) * pct}" height="${h - 10}" rx="${(h - 10) / 2}" fill="#55913f"/>
+  </g>`;
+}
+
+function levelText(cx, cy, size, fill) {
+  return `<text x="${cx}" y="${cy}" font-family="Georgia, serif" font-weight="bold" font-style="italic" font-size="${size}" fill="${fill}" text-anchor="middle">Lv 5</text>`;
+}
+
+function valueText(x, y, text, size, anchor, fill) {
+  return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-weight="bold" font-size="${size}" fill="${fill}" text-anchor="${anchor}">${text}</text>`;
+}
+
+function captionText(x, y, text, anchor, fill) {
+  return `<text x="${x}" y="${y}" font-family="Arial, sans-serif" font-size="22" fill="${fill}" text-anchor="${anchor}">${text}</text>`;
+}
+
+function plotDiamond(cx, cy, size) {
+  return `<rect x="${cx - size / 2}" y="${cy - size / 2}" width="${size}" height="${size}" rx="8" fill="#7a4a26" stroke="#5a3a1a" stroke-width="4" transform="rotate(45 ${cx} ${cy})"/>`;
+}
+
+function fieldBackground(yStart) {
+  let diamonds = '';
+  const rows = 5, cols = 5;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = 110 + c * 220 + (r % 2 ? 100 : 0);
+      const cy = yStart + 150 + r * 190;
+      if (cy < 1880 && cy > yStart + 20) diamonds += plotDiamond(cx, cy, 64);
+    }
+  }
+  return `<rect x="0" y="${yStart}" width="1080" height="${1920 - yStart}" fill="#55913f"/>${diamonds}`;
+}
+
+const BASE_BG = `<rect x="0" y="0" width="1080" height="1920" fill="#fdf6e3"/>`;
+
+// ---------- Option A: Banner ----------
+function buildOptionA() {
+  const banner = `<rect x="0" y="0" width="1080" height="150" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/>`;
+
+  const coin = coinIcon(140, 52, 38) + valueText(190, 68, '1704', 46, 'start', '#fdf6e3');
+  const moon = moondustIcon(140, 118, 30) + valueText(182, 132, '3', 40, 'start', '#fdf6e3');
+
+  const level = levelText(540, 68, 58, '#fdf6e3') + xpBar(410, 88, 260, 26, 0.6);
+
+  const bagSlot = `<rect x="742" y="18" width="110" height="114" rx="16" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="6"/>` +
+    bagIcon(760, 28, 74, 46) + captionText(797, 122, 'BAG', 'middle', '#4a3218');
+  const ordersSlot = `<rect x="872" y="18" width="110" height="114" rx="16" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="6"/>` +
+    ordersIcon(890, 28, 74, 46) + captionText(927, 122, 'ORDERS', 'middle', '#4a3218');
+
+  const gear = gearIcon(1032, 178, 22) + captionText(1032, 224, 'gear', 'middle', '#ccc');
+
+  const field = fieldBackground(170);
+
+  return BASE_BG + field + banner + coin + moon + level + bagSlot + ordersSlot + gear;
+}
+
+// ---------- Option B: Plaques ----------
+function buildOptionB() {
+  const field = fieldBackground(0);
+
+  const leftPlaque = `<rect x="24" y="30" width="230" height="190" rx="20" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="10"/>`;
+  const coin = coinIcon(90, 92, 38) + valueText(140, 108, '1704', 44, 'start', '#4a3218');
+  const moon = moondustIcon(90, 168, 32) + valueText(132, 182, '3', 40, 'start', '#4a3218');
+
+  const gear = gearIcon(60, 244, 20) + captionText(60, 288, 'gear', 'middle', '#fdf6e3');
+
+  const rightPlaque = `<rect x="826" y="30" width="230" height="190" rx="20" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="10"/>`;
+  const bag = bagIcon(866, 42, 76, 44) + captionText(904, 116, 'BAG', 'middle', '#4a3218');
+  const orders = ordersIcon(866, 134, 76, 44) + captionText(904, 208, 'ORDERS', 'middle', '#4a3218');
+
+  const medallionRing = `<circle cx="540" cy="90" r="72" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/><circle cx="540" cy="90" r="56" fill="#fdf6e3"/>`;
+  const level = levelText(540, 106, 60, '#4a3218');
+  const xp = xpBar(410, 182, 260, 26, 0.6);
+
+  return BASE_BG + field + leftPlaque + coin + moon + gear + rightPlaque + bag + orders + medallionRing + level + xp;
+}
+
+// ---------- Option C: Crest ----------
+function buildOptionC() {
+  const field = fieldBackground(0);
+
+  const beam = `<rect x="120" y="120" width="840" height="120" rx="24" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/>`;
+  const crest = `<path d="M 430 10 L 650 10 Q 670 10 670 30 L 670 230 Q 670 260 640 268 L 540 300 L 440 268 Q 410 260 410 230 L 410 30 Q 410 10 430 10 Z" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/>` +
+    `<path d="M 444 34 L 636 34 L 636 226 Q 636 242 622 248 L 540 274 L 458 248 Q 444 242 444 226 Z" fill="#fdf6e3"/>`;
+
+  const level = levelText(540, 130, 62, '#4a3218');
+  const xp = xpBar(460, 158, 160, 24, 0.6);
+
+  const coinSlot = `<rect x="140" y="100" width="140" height="200" rx="20" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="8"/>`;
+  const coin = coinIcon(178, 148, 30) + valueText(212, 158, '1704', 26, 'start', '#4a3218');
+  const moonInSlot = moondustIcon(178, 232, 26) + valueText(208, 240, '3', 26, 'start', '#4a3218');
+
+  const bagSlot = `<rect x="800" y="100" width="140" height="200" rx="20" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="8"/>`;
+  const bag = bagIcon(830, 116, 66, 44) + captionText(863, 190, 'BAG', 'middle', '#4a3218');
+  const orders = ordersIcon(830, 214, 66, 44) + captionText(863, 288, 'ORDERS', 'middle', '#4a3218');
+
+  const connector = `<rect x="280" y="186" width="130" height="18" fill="#5a3a1a"/><rect x="670" y="186" width="130" height="18" fill="#5a3a1a"/>`;
+
+  const gear = gearIcon(1040, 40, 16) + captionText(1040, 76, 'gear', 'middle', '#fdf6e3');
+
+  return BASE_BG + field + beam + connector + crest + level + xp + coinSlot + coin + moonInSlot + bagSlot + bag + orders + gear;
+}
+
+// ---------- Option D: Banner + Crest ----------
+function buildOptionD() {
+  const banner = `<rect x="0" y="30" width="1080" height="150" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/>`;
+
+  const medallionRing = `<circle cx="540" cy="70" r="66" fill="#8b5a2b" stroke="#5a3a1a" stroke-width="10"/><circle cx="540" cy="70" r="50" fill="#fdf6e3"/>`;
+  const level = levelText(540, 88, 56, '#4a3218');
+  const xp = xpBar(440, 140, 200, 22, 0.6);
+
+  const coin = coinIcon(140, 82, 36) + valueText(186, 98, '1704', 44, 'start', '#fdf6e3');
+  const moon = moondustIcon(140, 148, 28) + valueText(176, 160, '3', 38, 'start', '#fdf6e3');
+
+  const bagSlot = `<rect x="742" y="48" width="110" height="114" rx="16" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="6"/>` +
+    bagIcon(760, 58, 74, 46) + captionText(797, 152, 'BAG', 'middle', '#4a3218');
+  const ordersSlot = `<rect x="872" y="48" width="110" height="114" rx="16" fill="#fdf6e3" stroke="#5a3a1a" stroke-width="6"/>` +
+    ordersIcon(890, 58, 74, 46) + captionText(927, 152, 'ORDERS', 'middle', '#4a3218');
+
+  const gear = gearIcon(1032, 208, 22) + captionText(1032, 254, 'gear', 'middle', '#ccc');
+
+  const field = fieldBackground(200);
+
+  return BASE_BG + field + banner + coin + moon + bagSlot + ordersSlot + gear + medallionRing + level + xp;
+}
+
+const options = { A: buildOptionA(), B: buildOptionB(), C: buildOptionC(), D: buildOptionD() };
+
+for (const key of Object.keys(options)) {
+  document.getElementById('phone' + key).innerHTML = options[key];
+  document.getElementById('zoom' + key).innerHTML = options[key];
+}
+</script>
+
+</body>
+</html>
