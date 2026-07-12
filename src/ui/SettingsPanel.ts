@@ -5,6 +5,7 @@ import { MUSIC_SLIDER_MAX_GAIN } from '../data/audio';
 import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
+import { CreditsPanel } from './CreditsPanel';
 import { ModalBackdrop } from './ModalBackdrop';
 
 /**
@@ -16,7 +17,8 @@ import { ModalBackdrop } from './ModalBackdrop';
  */
 
 const PANEL_WIDTH = 640;
-const PANEL_HEIGHT = 700;
+/** Grown from 700 to fit the Credits button below the save row (T2.26). */
+const PANEL_HEIGHT = 900;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = DESIGN_HEIGHT / 2;
 /** Above the seed bar (2000), below flying coins (2200) - same as the other panels. */
@@ -38,6 +40,10 @@ const SAVE_BUTTON_LEFT_X = -(SAVE_BUTTON_WIDTH + SAVE_BUTTON_GAP) / 2;
 const SAVE_BUTTON_RIGHT_X = (SAVE_BUTTON_WIDTH + SAVE_BUTTON_GAP) / 2;
 /** How long a transient label (Copied!/Imported!/etc.) stays before reverting. */
 const SAVE_LABEL_REVERT_MS = 1500;
+
+const CREDITS_BUTTON_ROW_Y = SAVE_BUTTON_ROW_Y + 110;
+const CREDITS_BUTTON_WIDTH = 300;
+const CREDITS_BUTTON_HEIGHT = 70;
 
 const TOGGLE_X = -105;
 const TOGGLE_WIDTH = 100;
@@ -112,6 +118,7 @@ interface SliderRow {
 export class SettingsPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
+  private readonly creditsPanel: CreditsPanel;
   private readonly rows: SliderRow[] = [];
   /** The row whose handle is being dragged, if any. */
   private activeRow: SliderRow | null = null;
@@ -204,6 +211,9 @@ export class SettingsPanel {
     this.importLabel = this.buildSaveButton(SAVE_BUTTON_RIGHT_X, 'Import Save', () =>
       this.onImportPress(),
     );
+
+    this.creditsPanel = new CreditsPanel(scene, audio);
+    this.buildCreditsButton();
 
     // One scene-level move/up pair drives both sliders; registered once and
     // alive for the scene's lifetime, they are cheap no-ops while nothing is
@@ -361,6 +371,42 @@ export class SettingsPanel {
     );
     this.container.add([button, text]);
     return text;
+  }
+
+  /** The Credits button, below the save row: hides Settings and shows the Credits panel. */
+  private buildCreditsButton(): void {
+    const button = this.scene.add
+      .nineslice(
+        0,
+        CREDITS_BUTTON_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        CREDITS_BUTTON_WIDTH,
+        CREDITS_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const text = this.scene.add
+      .text(0, CREDITS_BUTTON_ROW_Y, 'Credits', SAVE_BUTTON_STYLE)
+      .setOrigin(0.5);
+    button.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        this.audio.sfx('tap');
+        this.hide();
+        this.creditsPanel.show();
+      },
+    );
+    this.container.add([button, text]);
   }
 
   /** Swap a save button's label to a transient message, then revert to its default. */

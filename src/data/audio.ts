@@ -19,8 +19,36 @@ export type SfxKey =
   | 'confirm'
   | 'radiant';
 
-/** Loader key of the looping background track. */
-export const MUSIC_KEY = 'music';
+/** One music track: its loader key plus the credit info shown in CreditsPanel. */
+export interface MusicTrack {
+  key: string;
+  artist: string;
+  title: string;
+  source: 'Pixabay';
+}
+
+/**
+ * The three-song playlist. Credits render FROM this config - no hardcoded
+ * credit strings anywhere else.
+ */
+export const MUSIC_TRACKS: MusicTrack[] = [
+  {
+    key: 'music_andriig',
+    artist: 'andriig',
+    title: 'Agriculture Farming Farm Music',
+    source: 'Pixabay',
+  },
+  {
+    key: 'music_mfcc',
+    artist: 'mfcc',
+    title: 'Agriculture Organic Farming Music',
+    source: 'Pixabay',
+  },
+  { key: 'music_geoffharvey', artist: 'geoffharvey', title: 'Fun On The Farm', source: 'Pixabay' },
+];
+
+/** Crossfade duration (ms) between playlist tracks, and on duck restore. */
+export const MUSIC_FADE_MS = 2000;
 
 /** Loader key of the looping ambient nature bed. */
 export const AMBIENT_KEY = 'ambient';
@@ -105,3 +133,48 @@ export const COIN_RATE_MAX = 1.1;
 /** Bag arrival pitch jitter, same idea as the coin's. */
 export const BAGPOP_RATE_MIN = 0.95;
 export const BAGPOP_RATE_MAX = 1.1;
+
+/** In-place Fisher-Yates shuffle using an injected rng (for testability). */
+function shuffle(indices: number[], rng: () => number): number[] {
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    // Both indices are within bounds by construction (0 <= j <= i < indices.length).
+    const temp = indices[i]!;
+    indices[i] = indices[j]!;
+    indices[j] = temp;
+  }
+  return indices;
+}
+
+/**
+ * Shuffle-bag playlist draw: pop the next track index off `bag`, reshuffling
+ * a fresh bag of every MUSIC_TRACKS index when it runs dry. On a reshuffle,
+ * the new bag's first pick is swapped away from `lastPlayed` (when more than
+ * one track exists) so a cycle boundary never repeats the same track back to
+ * back - mid-cycle draws already can't repeat, since each index appears once
+ * per bag.
+ */
+export function nextTrackIndex(
+  bag: readonly number[],
+  lastPlayed: number | null,
+  rng: () => number,
+): { index: number; bag: number[] } {
+  let pool = [...bag];
+  if (pool.length === 0) {
+    pool = shuffle(
+      MUSIC_TRACKS.map((_, index) => index),
+      rng,
+    );
+    if (pool.length > 1 && pool[0] === lastPlayed) {
+      const swapWith = 1 + Math.floor(rng() * (pool.length - 1));
+      // Both indices are within bounds: swapWith is in [1, pool.length - 1].
+      const temp = pool[0]!;
+      pool[0] = pool[swapWith]!;
+      pool[swapWith] = temp;
+    }
+  }
+  // pool always has at least one element: either bag was non-empty, or it was
+  // just reshuffled from MUSIC_TRACKS (never empty).
+  const index = pool[0]!;
+  return { index, bag: pool.slice(1) };
+}

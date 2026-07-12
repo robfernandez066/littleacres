@@ -10,12 +10,14 @@ import expandMp3Url from '../../assets/audio/expand.mp3?url';
 import fanfareOggUrl from '../../assets/audio/fanfare.ogg?url';
 import harvestMp3Url from '../../assets/audio/harvest.mp3?url';
 import levelupOggUrl from '../../assets/audio/levelup.ogg?url';
-import musicMp3Url from '../../assets/audio/music.mp3?url';
+import musicAndriigMp3Url from '../../assets/audio/music_andriig.mp3?url';
+import musicGeoffharveyMp3Url from '../../assets/audio/music_geoffharvey.mp3?url';
+import musicMfccMp3Url from '../../assets/audio/music_mfcc.mp3?url';
 import plantMp3Url from '../../assets/audio/plant.mp3?url';
 import radiantMp3Url from '../../assets/audio/radiant.mp3?url';
 import tapOggUrl from '../../assets/audio/tap.ogg?url';
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
-import { AMBIENT_KEY, MUSIC_KEY, type SfxKey } from '../data/audio';
+import { AMBIENT_KEY, type SfxKey } from '../data/audio';
 
 /** Loader key -> fingerprinted URL for the ten one-shot effects. */
 const SFX_URLS: Record<SfxKey, string> = {
@@ -38,6 +40,13 @@ const TEXT_COLOR = '#2e4a1f';
 const BAR_WIDTH = 560;
 const BAR_HEIGHT = 28;
 const BAR_PADDING = 4;
+
+/** Loader key + fingerprinted URL for each of the three playlist tracks. */
+const MUSIC_ASSETS: { key: string; url: string }[] = [
+  { key: 'music_andriig', url: musicAndriigMp3Url },
+  { key: 'music_geoffharvey', url: musicGeoffharveyMp3Url },
+  { key: 'music_mfcc', url: musicMfccMp3Url },
+];
 
 /**
  * Loads the texture atlas and shows a centered progress bar driven by the
@@ -81,7 +90,9 @@ export class PreloadScene extends Phaser.Scene {
     for (const [key, url] of Object.entries(SFX_URLS)) {
       this.load.audio(key, url);
     }
-    this.load.audio(MUSIC_KEY, musicMp3Url);
+    for (const asset of MUSIC_ASSETS) {
+      this.load.audio(asset.key, asset.url);
+    }
     this.load.audio(AMBIENT_KEY, ambientMp3Url);
   }
 
