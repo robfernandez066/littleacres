@@ -1,4 +1,10 @@
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
+import {
+  CHEST_COINS_MAX,
+  CHEST_COINS_MIN,
+  CHEST_MOONDUST_AMOUNT,
+  CHEST_MOONDUST_CHANCE,
+} from '../data/chests';
 import { CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
@@ -27,7 +33,6 @@ import {
   SKIP_COOLDOWN_GROWTH,
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
-  TEASER_CHANCE,
 } from '../data/orders';
 import { isReady } from './growth';
 import { now } from './time';
@@ -135,6 +140,19 @@ export interface LevelUpEvent {
 export interface RadiantEvent {
   plotIndex: number;
   cropId: CropId;
+}
+
+/**
+ * One or more chests earned from a single premium fulfillment, for the
+ * scene's ceremony (see `GameStateStore.fulfillOrder`/`consumeChestEvents`).
+ * `coins`/`moondust` are the SUMMED contents across `chests` chests, already
+ * granted to state by the time this is queued - the ceremony is pure
+ * display/juice, like `LevelUpEvent`.
+ */
+export interface ChestEvent {
+  chests: number;
+  coins: number;
+  moondust: number;
 }
 
 /**
@@ -380,13 +398,20 @@ function isOrderItem(value: unknown): boolean {
   );
 }
 
-/** A premium marker: a positive finite moondust amount and a string flavor line. */
+/**
+ * A premium marker: a positive finite moondust amount and a string flavor
+ * line, plus an optional `chests` count (T2.23a) - a positive integer when
+ * present, absent on older saved premium orders (generated below
+ * CHEST_UNLOCK_LEVEL, or before this field existed) - both are valid.
+ */
 function isOrderPremium(value: unknown): boolean {
   return (
     isRecord(value) &&
     isFiniteNumber(value.moondust) &&
     value.moondust > 0 &&
-    typeof value.flavor === 'string'
+    typeof value.flavor === 'string' &&
+    (value.chests === undefined ||
+      (isFiniteNumber(value.chests) && Number.isInteger(value.chests) && value.chests > 0))
   );
 }
 
@@ -488,6 +513,8 @@ export class GameStateStore {
   private levelUpQueue: LevelUpEvent[] = [];
   /** Pending Radiant harvest procs for the scene to celebrate. Transient - never saved. */
   private radiantQueue: RadiantEvent[] = [];
+  /** Pending chest ceremonies for the scene to celebrate. Transient - never saved. */
+  private chestQueue: ChestEvent[] = [];
   /**
    * One-shot flag for the tutorial-complete celebration. Transient - never
    * saved, and set ONLY by chain completion in `advanceOnboardingStep`, so
@@ -602,6 +629,17 @@ export class GameStateStore {
   consumeRadiantEvents(): RadiantEvent[] {
     const events = this.radiantQueue;
     this.radiantQueue = [];
+    return events;
+  }
+
+  /**
+   * Drain and return queued chest events; the scene polls this on its
+   * refresh tick, deferred while a level-up celebration is active (see
+   * FarmScene) so the two ceremonies never fight for the screen.
+   */
+  consumeChestEvents(): ChestEvent[] {
+    const events = this.chestQueue;
+    this.chestQueue = [];
     return events;
   }
 
@@ -783,17 +821,16 @@ export class GameStateStore {
   ensureOrders(): void {
     let changed = false;
     const nowMs = now();
-    // No stretch (teaser) orders while the tutorial is running - the first
-    // session must never see a request it cannot fulfill. Premium orders are
-    // withheld for the same reason: the tutorial has no moondust ceremony.
-    const teaserChance = this.state.onboarding.completed ? TEASER_CHANCE : 0;
+    // No premium orders while the tutorial is running - it has no moondust
+    // ceremony (teaser orders were removed entirely in T2.24, so there is no
+    // longer a second chance to suppress here).
     const premiumChance = this.state.onboarding.completed ? PREMIUM_CHANCE : 0;
     for (let i = 0; i < this.state.orders.length; i++) {
       const slot = this.state.orders[i]!;
       if (slot.state === 'pending' || (slot.state === 'cooldown' && slot.readyAt <= nowMs)) {
         this.state.orders[i] = {
           state: 'open',
-          order: generateOrder(this.state.level, this.rng, teaserChance, premiumChance),
+          order: generateOrder(this.state.level, this.rng, premiumChance),
         };
         changed = true;
       }
@@ -805,11 +842,14 @@ export class GameStateStore {
    * Fulfill an open order: every requested item leaves the inventory, coins
    * gain the order's stored coinReward, xp gains its stored xpReward through
    * the applyXp choke point (so level-ups ride the celebration queue),
-   * moondust gains the order's stored premium.moondust if present, and the
-   * slot returns to pending for the next `ensureOrders` to refill. Returns
-   * false without mutating anything if the slot is not open, the inventory
-   * does not cover every item, or the tutorial rails are not on the deliver
-   * step (which permits only slot 0 - the scripted ORDER A).
+   * moondust gains the order's stored premium.moondust if present, a premium
+   * order carrying `premium.chests` (generated only at CHEST_UNLOCK_LEVEL+ -
+   * see `data/orders.ts`) also grants that many chests immediately (see
+   * `grantChests`), and the slot returns to pending for the next
+   * `ensureOrders` to refill. Returns false without mutating anything if the
+   * slot is not open, the inventory does not cover every item, or the
+   * tutorial rails are not on the deliver step (which permits only slot 0 -
+   * the scripted ORDER A).
    */
   fulfillOrder(slotIndex: number): boolean {
     if (!this.railsAllow('fulfill', slotIndex)) return false;
@@ -825,13 +865,36 @@ export class GameStateStore {
     }
     this.state.coins += order.coinReward;
     this.applyXp(order.xpReward);
-    if (order.premium) this.state.moondust += order.premium.moondust;
+    if (order.premium) {
+      this.state.moondust += order.premium.moondust;
+      if (order.premium.chests) this.grantChests(order.premium.chests);
+    }
     this.state.orders[slotIndex] = { state: 'pending' };
     // During the tutorial the rails guarantee this is the scripted slot-0
     // delivery, so the track always matches; post-tutorial it is a no-op.
     this.trackOnboarding('deliver-sunwheat');
     this.save();
     return true;
+  }
+
+  /**
+   * Roll `count` chests' worth of contents (each: a coin amount uniform in
+   * [CHEST_COINS_MIN, CHEST_COINS_MAX], plus CHEST_MOONDUST_AMOUNT moondust
+   * with CHEST_MOONDUST_CHANCE), sum them, and grant the total to state
+   * immediately - state-first, so a ceremony lost to an app close before the
+   * scene drains `consumeChestEvents` only loses the show, same philosophy
+   * as level-ups. Caller (`fulfillOrder`) owns the save.
+   */
+  private grantChests(count: number): void {
+    let coins = 0;
+    let moondust = 0;
+    for (let i = 0; i < count; i++) {
+      coins += CHEST_COINS_MIN + Math.floor(this.rng() * (CHEST_COINS_MAX - CHEST_COINS_MIN + 1));
+      if (this.rng() < CHEST_MOONDUST_CHANCE) moondust += CHEST_MOONDUST_AMOUNT;
+    }
+    this.state.coins += coins;
+    this.state.moondust += moondust;
+    this.chestQueue.push({ chests: count, coins, moondust });
   }
 
   /**
@@ -1055,6 +1118,7 @@ export class GameStateStore {
   load(): void {
     this.levelUpQueue = [];
     this.radiantQueue = [];
+    this.chestQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     let raw: string | null;
@@ -1122,6 +1186,7 @@ export class GameStateStore {
   reset(): void {
     this.levelUpQueue = [];
     this.radiantQueue = [];
+    this.chestQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
@@ -1146,6 +1211,7 @@ export class GameStateStore {
     }
     this.levelUpQueue = [];
     this.radiantQueue = [];
+    this.chestQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;

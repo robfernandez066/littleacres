@@ -4,13 +4,17 @@ import {
   ATLAS_KEY,
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
+  DIRT_PATH_POSITION,
+  FARMHOUSE_POSITION,
+  NOTICE_BOARD_POSITION,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
+import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
-import { registerCoinArcTest } from '../systems/dev';
+import { registerCoinArcTest, registerHitboxToggle } from '../systems/dev';
 import { gameState } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
@@ -19,6 +23,7 @@ import { isModalOpen } from '../systems/modalPanels';
 import { PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
+import { ChestCeremony } from '../ui/ChestCeremony';
 import { CoinArc } from '../ui/CoinArc';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
@@ -98,6 +103,90 @@ const RADIANT_LABEL_OFFSET_Y = -140;
 const RADIANT_SECOND_BURST_DELAY_MS = 150;
 
 /**
+ * Notice board + farmhouse (T2.22): both structures share the same packed
+ * frame convention (square, 256x256 - see tools/pack-atlas.mjs), displayed
+ * with uniform scale (so the square frame stays square, never distorted),
+ * and depth-sorted by their own y like a crop sprite - see `createNoticeBoard`
+ * and `createFarmhouse`. T2.22a grew the farmhouse to its own, taller display
+ * height (FARMHOUSE_DISPLAY_HEIGHT) when it swapped spots with the notice
+ * board, which keeps the original STRUCTURE_DISPLAY_HEIGHT.
+ */
+const STRUCTURE_FRAME_SIZE = 256;
+const STRUCTURE_DISPLAY_HEIGHT = 240;
+const STRUCTURE_SCALE = STRUCTURE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+/** T2.22a: the farmhouse alone grew to this height when it moved to the board's old, more
+ *  prominent top-right spot - see FARMHOUSE_POSITION's comment in config.ts. */
+const FARMHOUSE_DISPLAY_HEIGHT = 300;
+const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+
+/**
+ * Dirt path ground decal (T2.22b): a single S-curve image connecting the
+ * farmhouse down toward the plot grid's upper-right edge. Packed as a
+ * 288x288 square (same trim-fit-center treatment as the structures above -
+ * see tools/pack-atlas.mjs), displayed at a uniform scale so the square
+ * frame stays undistorted. Fixed at DIRT_PATH_DEPTH, below every
+ * y-depth-sorted object (crops, structures, chest ceremony, the Expand
+ * sign) but above the grass tiles, which render at the default depth (0)
+ * - see `createDirtPath`. Non-interactive; an isolated create call so it
+ * can be pulled independently, same as the farmhouse.
+ */
+const DIRT_PATH_FRAME_SIZE = 288;
+const DIRT_PATH_DISPLAY_WIDTH = 280;
+const DIRT_PATH_SCALE = DIRT_PATH_DISPLAY_WIDTH / DIRT_PATH_FRAME_SIZE;
+const DIRT_PATH_DEPTH = 5;
+/**
+ * The notice board's hit area covers its full display bounds (not just its
+ * trimmed opaque art - the user-facing tap target is the whole roof + board +
+ * both posts) plus this much padding on every side, in DISPLAY px (converted
+ * to native frame units in `createNoticeBoard`, since `hitArea` rectangles
+ * are specified in the texture's own unscaled local space).
+ */
+const NOTICE_BOARD_HIT_PAD_DISPLAY_PX = 20;
+/** Rails-inert dim, per this task's spec (distinct from the HUD icons' BUTTON_INERT_ALPHA). */
+const NOTICE_BOARD_INERT_ALPHA = 0.6;
+
+/**
+ * The "!" badge on the notice board, shown when an open order is fully
+ * coverable. MEASURED (Jimp scan of the packed `notice_board` frame, 256x256
+ * native): the board's opaque art is narrower than its square frame (native
+ * x 45..210) and is a signpost with a peaked roof, so the frame's own top-right
+ * corner (0, 0) sits in empty padding, nowhere near the art - the roof's right
+ * eave (its actual top-right silhouette point) peaks at native (210, ~110).
+ * The badge anchors there, nudged further up-right by BADGE_CORNER_NUDGE so it
+ * hangs off the eave's tip rather than sitting on top of the shingles.
+ */
+const NOTICE_BOARD_CONTENT_RIGHT_NATIVE = 210;
+const NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE = 110;
+const BADGE_CORNER_NUDGE = 10;
+const BADGE_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '48px',
+  fontStyle: 'bold',
+  color: '#f5c542',
+  stroke: '#3a2a10',
+  strokeThickness: 6,
+};
+/** Gentle "new order" bounce: a full up-down cycle every ~1s, subtle (a few px). */
+const BADGE_BOUNCE_OFFSET_Y = -8;
+const BADGE_BOUNCE_HALF_MS = 500;
+
+/**
+ * Dev-only hitbox visualizer (T2.24): the depth a container child's debug
+ * outline is temporarily bumped to while the visualizer is on, so it renders
+ * above everything instead of at its own unused default depth (0) - see
+ * `toggleHitboxDebug`.
+ */
+const HITBOX_DEBUG_DEPTH = 999_999;
+
+/** The subset of a GameObject's shape `toggleHitboxDebug` needs beyond the base
+ *  class (which already declares `parentContainer`) - every object in Phaser's
+ *  own interactive-object list implements `depth`/`setDepth` via its Depth component. */
+interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
+  depth: number;
+  setDepth(value: number): this;
+}
+
+/**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
  * a grass field, rendered live from `gameState`, plus the seed bar. One
  * unified field gesture: tapping or sweeping harvests every ready crop the
@@ -136,6 +225,11 @@ export class FarmScene extends Phaser.Scene {
   private expandSign!: ExpandSign;
   private offlineSummaryPanel!: OfflineSummaryPanel;
   private audio!: AudioManager;
+  private noticeBoardImage!: Phaser.GameObjects.Image;
+  private noticeBoardBadge!: Phaser.GameObjects.Text;
+  /** Cached rails gating so interactivity/alpha only toggle on change (mirrors Hud's pattern). */
+  private noticeBoardEnabled = true;
+  private chestCeremony!: ChestCeremony;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -154,6 +248,8 @@ export class FarmScene extends Phaser.Scene {
    * `onHide` callback below).
    */
   private pendingReplant: ReplantEntry[] = [];
+  /** Container children's own depth, saved while the hitbox visualizer bumps it - see `toggleHitboxDebug`. */
+  private readonly hitboxOriginalDepths = new Map<HitboxDebuggable, number>();
 
   constructor() {
     super('Farm');
@@ -163,6 +259,7 @@ export class FarmScene extends Phaser.Scene {
     this.add.rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR).setOrigin(0, 0);
 
     this.layGrassField();
+    this.createDirtPath();
     this.buildPlotVisuals();
     // Before any UI that plays sounds; startMusic self-defers until the
     // sound system unlocks on the first user gesture.
@@ -184,10 +281,25 @@ export class FarmScene extends Phaser.Scene {
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
     this.hud = new Hud(this, this.coinArc, this.floatingText, this.audio);
+    this.createFarmhouse();
+    this.createNoticeBoard();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
+    registerPulseTarget('orders-button', () => ({
+      x: NOTICE_BOARD_POSITION.x,
+      y: NOTICE_BOARD_POSITION.y,
+      width: STRUCTURE_DISPLAY_HEIGHT,
+      height: STRUCTURE_DISPLAY_HEIGHT,
+      object: this.noticeBoardImage,
+    }));
+    // Applied once immediately (not just on the periodic tick) so a fresh
+    // scene start never shows a flash of full-alpha, interactive board
+    // before the tutorial's rails have had a chance to dim it.
+    this.applyNoticeBoardRailsGating();
+    this.refreshNoticeBoardBadge();
     this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
+    this.chestCeremony = new ChestCeremony(this, this.particles, this.hud);
     this.expandSign = new ExpandSign(this, () => this.tryExpand());
     this.expandSign.refresh(gameState.getState());
     this.setupFieldInput();
@@ -203,6 +315,7 @@ export class FarmScene extends Phaser.Scene {
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
     registerCoinArcTest((n) => this.coinArc.fly(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, n));
+    registerHitboxToggle((enabled) => this.toggleHitboxDebug(enabled));
   }
 
   override update(_time: number, delta: number): void {
@@ -215,6 +328,8 @@ export class FarmScene extends Phaser.Scene {
     this.replantChip.refresh(gameState.getState());
     this.cropCountdown.refresh(gameState.getState());
     this.hud.refresh();
+    this.applyNoticeBoardRailsGating();
+    this.refreshNoticeBoardBadge();
     // Onboarding's select-sunwheat step: checked every tick (not just on the
     // tap) so a selection made before the step began still counts. Cheap
     // no-op whenever the step is not active.
@@ -227,6 +342,14 @@ export class FarmScene extends Phaser.Scene {
     this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
     if (gameState.consumeTutorialCompleteEvent()) this.levelUpCelebration.enqueueTutorialComplete();
+    // Chest events (T2.23a) are deferred behind the level-up celebration: a
+    // fulfillment that both levels up and earns a chest must show the level
+    // celebration first, chest ceremony after - so while it's active, this
+    // simply leaves any earned chests queued in the store (their rewards are
+    // already granted; only the show waits) rather than draining them here.
+    if (!this.levelUpCelebration.isActive()) {
+      this.chestCeremony.enqueue(gameState.consumeChestEvents());
+    }
     this.expandSign.refresh(gameState.getState());
     const radiantEvents = gameState.consumeRadiantEvents();
     if (radiantEvents.length > 0) {
@@ -344,14 +467,21 @@ export class FarmScene extends Phaser.Scene {
    * both silently. A gesture locks to whichever action first succeeds
    * (`gestureMode`), so a harvest sweep cannot plant empty plots it crosses
    * and a plant sweep cannot harvest ready crops it crosses. A level-up
-   * celebration blocks the field entirely - its full-screen backdrop already
-   * eats the tap, this just guards the scene-wide pointer listeners too. An
-   * open modal panel (order board, inventory) blocks it the same way: field
-   * gestures are scene-wide listeners, not per-object hit tests, so panel
-   * hit-testing alone never stops a tap from reaching the field beneath it.
+   * celebration or chest ceremony blocks the field entirely - its full-screen
+   * backdrop already eats the tap, this just guards the scene-wide pointer
+   * listeners too. An open modal panel (order board, inventory) blocks it
+   * the same way: field gestures are scene-wide listeners, not per-object hit
+   * tests, so panel hit-testing alone never stops a tap from reaching the
+   * field beneath it.
    */
   private handlePlotEntered(plotIndex: number | null): void {
-    if (plotIndex === null || this.levelUpCelebration.isActive() || isModalOpen()) return;
+    if (
+      plotIndex === null ||
+      this.levelUpCelebration.isActive() ||
+      this.chestCeremony.isActive() ||
+      isModalOpen()
+    )
+      return;
     if (this.gestureMode !== 'plant') {
       // The crop id must be read before the harvest empties the plot - the
       // floating xp label needs it.
@@ -682,5 +812,186 @@ export class FarmScene extends Phaser.Scene {
     this.tweens.killTweensOf(sprite);
     sprite.setScale(1);
     sprite.clearTint();
+  }
+
+  /**
+   * Decorative farmhouse, no interaction. Kept as one isolated create call
+   * (T2.22) so it can be pulled independently of the notice board if its
+   * baked grass skirt clashes with the tile grass. Its own, taller scale
+   * (T2.22a) - see FARMHOUSE_DISPLAY_HEIGHT.
+   */
+  private createFarmhouse(): void {
+    this.add
+      .image(FARMHOUSE_POSITION.x, FARMHOUSE_POSITION.y, ATLAS_KEY, 'farmhouse')
+      .setScale(FARMHOUSE_SCALE)
+      .setDepth(FARMHOUSE_POSITION.y);
+  }
+
+  /**
+   * Dirt path ground decal (T2.22b), no interaction. Kept as one isolated
+   * create call, same as the farmhouse, so it can be pulled independently -
+   * see DIRT_PATH_POSITION's comment in config.ts for how the position was
+   * measured.
+   */
+  private createDirtPath(): void {
+    this.add
+      .image(DIRT_PATH_POSITION.x, DIRT_PATH_POSITION.y, ATLAS_KEY, 'dirt_path')
+      .setScale(DIRT_PATH_SCALE)
+      .setDepth(DIRT_PATH_DEPTH);
+  }
+
+  /**
+   * The community notice board structure (T2.22, replacing the retired HUD
+   * orders icon; relocated bottom-right of the Expand sign in T2.22a):
+   * tapping it opens the order board via `Hud.toggleOrderBoard` (same
+   * panel-exclusivity + tap sfx as the old button), gated by the same
+   * `railsAllow('orders-button')` query during the tutorial. The "!" badge is
+   * a separate text object refreshed on the scene's periodic tick, anchored
+   * relative to NOTICE_BOARD_POSITION so it rides along unchanged.
+   *
+   * The hit area (T2.22a) covers the WHOLE structure - roof, board face, and
+   * both posts - plus a generous pad, not just the trimmed opaque art: the
+   * full native 256x256 frame already contains all of that, padded by
+   * NOTICE_BOARD_HIT_PAD_DISPLAY_PX converted to native units (hitArea
+   * rectangles are in the texture's own unscaled local space).
+   *
+   * IMPORTANT (found live-testing this task): Phaser's `pointWithinHitArea`
+   * normalizes the local hit-test point by ADDING the object's displayOrigin
+   * before calling `hitAreaCallback` - so a custom `hitArea` rectangle must
+   * be specified in FRAME-relative space (0,0 at the frame's own top-left,
+   * frameSize,frameSize at its bottom-right), never centered on the object's
+   * origin/position, however natural that reads. A center-relative rect
+   * (`-half..+half`) only ever partially, coincidentally overlaps the true
+   * frame-relative region - for this board specifically, that bug silently
+   * dropped taps on roughly the right/bottom third of the frame, which is
+   * exactly the report this task fixes (see NOTICE_BOARD_HIT_PAD's old,
+   * center-relative rect for the pre-fix version - now removed).
+   */
+  private createNoticeBoard(): void {
+    const pad = NOTICE_BOARD_HIT_PAD_DISPLAY_PX / STRUCTURE_SCALE;
+    this.noticeBoardImage = this.add
+      .image(NOTICE_BOARD_POSITION.x, NOTICE_BOARD_POSITION.y, ATLAS_KEY, 'notice_board')
+      .setScale(STRUCTURE_SCALE)
+      .setDepth(NOTICE_BOARD_POSITION.y)
+      .setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(
+          -pad,
+          -pad,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+        ),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: true,
+      });
+    this.noticeBoardImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.hud.toggleOrderBoard();
+    });
+
+    const badgeX =
+      NOTICE_BOARD_POSITION.x +
+      (NOTICE_BOARD_CONTENT_RIGHT_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE +
+      BADGE_CORNER_NUDGE;
+    const badgeY =
+      NOTICE_BOARD_POSITION.y +
+      (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE -
+      BADGE_CORNER_NUDGE;
+    this.noticeBoardBadge = this.add
+      .text(badgeX, badgeY, '!', BADGE_TEXT_STYLE)
+      .setOrigin(0.5)
+      .setDepth(NOTICE_BOARD_POSITION.y + 1)
+      .setVisible(false);
+    // Gentle perpetual bounce so an active badge draws the eye without being
+    // distracting; runs continuously (harmless while hidden) rather than
+    // starting/stopping with visibility, matching the codebase's other
+    // perpetual-tween highlights (SwipeGuide, OnboardingGuide's halo).
+    this.tweens.add({
+      targets: this.noticeBoardBadge,
+      y: badgeY + BADGE_BOUNCE_OFFSET_Y,
+      duration: BADGE_BOUNCE_HALF_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+  }
+
+  /**
+   * Tutorial rails on the notice board, mirroring the old Hud button's
+   * pattern: inert and dimmed (alpha 0.6, per this task's spec) outside the
+   * board-facing steps. Cached flag keeps per-tick work to one boolean check.
+   */
+  private applyNoticeBoardRailsGating(): void {
+    const allowed = gameState.railsAllow('orders-button');
+    if (allowed === this.noticeBoardEnabled) return;
+    this.noticeBoardEnabled = allowed;
+    this.noticeBoardImage.setAlpha(allowed ? 1 : NOTICE_BOARD_INERT_ALPHA);
+    if (allowed) {
+      // No-arg re-enable, so the enlarged hit area set at construction
+      // survives - passing a fresh config here would reset it to the
+      // image's own (smaller) texture-frame bounds.
+      this.noticeBoardImage.setInteractive();
+    } else {
+      this.noticeBoardImage.disableInteractive();
+    }
+  }
+
+  /**
+   * Show the "!" badge iff at least one open order is fully coverable by the
+   * current inventory, and onboarding has completed. The tutorial's own
+   * scripted order (ONBOARDING_ORDER_A) becomes coverable mid-tutorial
+   * (`deliver-sunwheat`) well before the player has been taught the board
+   * exists, and its follow-up (ONBOARDING_ORDER_B) isn't coverable until the
+   * player harvests the `plant-mixed` crops after the tutorial ends anyway -
+   * gating on `onboarding.completed` suppresses the premature badge without
+   * needing to special-case either scripted order.
+   */
+  private refreshNoticeBoardBadge(): void {
+    const state = gameState.getState();
+    const coverable =
+      state.onboarding.completed &&
+      state.orders.some(
+        (slot) => slot.state === 'open' && isOrderCoverable(slot.order, state.inventory),
+      );
+    this.noticeBoardBadge.setVisible(coverable);
+  }
+
+  /**
+   * Dev-only hitbox visualizer (T2.24): draws (or clears) Phaser's own input
+   * debug outline on every object CURRENTLY registered as interactive with
+   * this scene's input plugin - the bag, gear, seed buttons, replant chip,
+   * notice board, and anything else `setInteractive()` has touched, wherever
+   * it lives (Hud, SeedBar, ReplantChip, this scene). `InputPlugin` has no
+   * public accessor for that list, only the internal `_list` it maintains
+   * for its own hit-testing - reading it here is the only way to reach
+   * "every interactive object" without plumbing a registry through every
+   * class that calls `setInteractive()`.
+   *
+   * Container children (the bag, every seed button, the replant chip - each
+   * is the sole interactive child of its own owner-positioned container)
+   * need one extra step: Phaser's debug shape mirrors the target's OWN
+   * `.depth`, but a container child's own depth is left at its unused
+   * default (0) - the CONTAINER carries the real depth - so its outline
+   * would render at depth 0, behind the grass/field, invisible. While
+   * enabled, this bumps such a child's own depth to render its outline on
+   * top; restored on disable. Harmless beyond the outline itself: each of
+   * these containers holds only that one interactive child, so nothing else
+   * depends on its relative depth.
+   */
+  private toggleHitboxDebug(enabled: boolean): void {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const interactiveObjects = (this.input as any)._list as HitboxDebuggable[]; // `any` cast: InputPlugin's interactive-object list (`_list`) is internal/private with no public accessor
+    for (const object of interactiveObjects) {
+      if (enabled) {
+        this.input.enableDebug(object);
+        if (object.parentContainer) {
+          this.hitboxOriginalDepths.set(object, object.depth);
+          object.setDepth(HITBOX_DEBUG_DEPTH);
+        }
+      } else {
+        this.input.removeDebug(object);
+        const originalDepth = this.hitboxOriginalDepths.get(object);
+        if (originalDepth !== undefined) object.setDepth(originalDepth);
+      }
+    }
+    if (!enabled) this.hitboxOriginalDepths.clear();
   }
 }

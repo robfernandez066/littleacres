@@ -37,8 +37,10 @@
  *   centered. `pouch` is packed as a reserved frame - unused in code today.
  * - sign: trimmed, fit into 192x192, centered.
  * - hud_crest, gear_icon, button_push, button_slot, button_close (staged as
- *   xbutton), mere (staged as mere_strip): trimmed, fit into a square frame
- *   (192/128/256/256/96/384), centered - same treatment as the icons above.
+ *   xbutton), mere (staged as mere_strip), notice_board, farmhouse,
+ *   dirt_path: trimmed, fit into a square frame
+ *   (192/128/256/256/96/384/256/256/288), centered - same treatment as the
+ *   icons above.
  * - hud_banner, xpbar_frame, xpbar_fill: trimmed, scaled to a fixed 512px
  *   width keeping aspect - no fixed square frame.
  * - panel: 128x128 nine-slice source. The border thickness and corner
@@ -124,6 +126,9 @@ const SQUARE_DOWNSCALE_SIZES = {
   button_slot: 256,
   button_close: 96,
   mere: 384,
+  notice_board: 256,
+  farmhouse: 256,
+  dirt_path: 288,
 };
 /** Wide "plain downscale, keep aspect": trim, scale to a fixed width, no fixed frame. */
 const WIDE_DOWNSCALE_WIDTHS = {

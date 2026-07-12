@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CHEST_COINS_MAX, CHEST_COINS_MIN, CHEST_MOONDUST_AMOUNT } from '../data/chests';
 import { type CropId, CROPS } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
@@ -647,7 +648,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 });
 
 describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
-  it('a v8 save (no orderSkips field) gains a zeroed streak and lands at version 9', () => {
+  it('a v8 save (no orderSkips field) gains a zeroed streak and migrates through to current', () => {
     const saved = createDefaultState(9) as unknown as Record<string, unknown>;
     saved.version = 8;
     delete saved.orderSkips; // a genuine v8 save never had this field
@@ -998,6 +999,56 @@ describe('premium order validation', () => {
       expect(isValidState(bad, 9)).toBe(false);
     }
   });
+
+  it('accepts a premium.chests of 1 or 2 (T2.23a), and it survives a reload', () => {
+    for (const chests of [1, 2]) {
+      const premiumOrder: Order = {
+        items: [{ cropId: 'sunwheat', count: 2 }],
+        coinReward: 20,
+        xpReward: 4,
+        premium: { moondust: 2, flavor: 'A test flavor line', chests },
+      };
+      const saved = createDefaultState(9);
+      saved.orders[0] = { state: 'open', order: premiumOrder };
+      expect(isValidState(saved, 9)).toBe(true);
+
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().orders[0]).toEqual({ state: 'open', order: premiumOrder });
+    }
+  });
+
+  it('accepts a premium order with no chests field (older saves, or generated below CHEST_UNLOCK_LEVEL)', () => {
+    const premiumOrder: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 1, flavor: 'A test flavor line' },
+    };
+    const saved = createDefaultState(9);
+    saved.orders[0] = { state: 'open', order: premiumOrder };
+    expect(isValidState(saved, 9)).toBe(true);
+  });
+
+  it('rejects a malformed premium.chests: zero, negative, non-integer, or non-finite', () => {
+    const baseOrder = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 };
+    const badChestCounts = [0, -1, 1.5, Number.NaN, Infinity];
+    for (const chests of badChestCounts) {
+      const bad = {
+        ...createDefaultState(9),
+        orders: [
+          {
+            state: 'open',
+            order: { ...baseOrder, premium: { moondust: 1, flavor: 'text', chests } },
+          },
+          { state: 'pending' },
+          { state: 'pending' },
+        ],
+      };
+      expect(isValidState(bad, 9)).toBe(false);
+    }
+  });
 });
 
 describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => {
@@ -1208,6 +1259,124 @@ describe('orders', () => {
     expect(store.fulfillOrder(0)).toBe(true);
     expect(store.getState().level).toBe(2);
     expect(store.consumeLevelUpEvents()).toEqual([{ level: 2, unlockedCropIds: ['starcorn'] }]);
+  });
+
+  describe('chests (T2.23a)', () => {
+    const ONE_CHEST_ORDER: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 2, flavor: 'A test flavor line', chests: 1 },
+    };
+    const TWO_CHEST_ORDER: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 2, flavor: 'A test flavor line', chests: 2 },
+    };
+
+    it("grants one chest's coins/moondust instantly and queues a matching ChestEvent", () => {
+      const saved = savedStateWithOrder(ONE_CHEST_ORDER, { sunwheat: 1 });
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      // fulfillOrder makes no rng calls of its own; grantChests's are the
+      // only two for one chest: the first rolls coins, the second the
+      // moondust chance. rng()=0 rolls the bottom of the coin range and
+      // (0 < CHEST_MOONDUST_CHANCE) hits the moondust bonus.
+      const store = new GameStateStore({ storage, rng: stubRng(0, 0) });
+      store.load();
+      const coinsBefore = store.getState().coins;
+      const moondustBefore = store.getState().moondust;
+
+      expect(store.fulfillOrder(0)).toBe(true);
+      const state = store.getState();
+      // The order's own coinReward, plus the chest's own coin roll - granted together, instantly.
+      expect(state.coins).toBe(coinsBefore + ONE_CHEST_ORDER.coinReward + CHEST_COINS_MIN);
+      expect(state.moondust).toBe(
+        moondustBefore + ONE_CHEST_ORDER.premium!.moondust + CHEST_MOONDUST_AMOUNT,
+      );
+      expect(store.consumeChestEvents()).toEqual([
+        { chests: 1, coins: CHEST_COINS_MIN, moondust: CHEST_MOONDUST_AMOUNT },
+      ]);
+    });
+
+    it('rolls and sums two chests worth of contents for a premium.chests: 2 order', () => {
+      const saved = savedStateWithOrder(TWO_CHEST_ORDER, { sunwheat: 1 });
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      // Four rng calls: chest 1 coins, chest 1 moondust chance, chest 2
+      // coins, chest 2 moondust chance.
+      const store = new GameStateStore({ storage, rng: stubRng(0, 0, 0.999999, 1) });
+      store.load();
+      expect(store.fulfillOrder(0)).toBe(true);
+      // chest 1: coins=MIN, moondust=AMOUNT (0 < chance); chest 2: coins=MAX
+      // (0.999999), moondust=0 (1 is not < the chance).
+      expect(store.consumeChestEvents()).toEqual([
+        { chests: 2, coins: CHEST_COINS_MIN + CHEST_COINS_MAX, moondust: CHEST_MOONDUST_AMOUNT },
+      ]);
+    });
+
+    it('does not queue a chest event on a premium order with no chests field', () => {
+      const order: Order = {
+        items: [{ cropId: 'sunwheat', count: 1 }],
+        coinReward: 10,
+        xpReward: 2,
+        premium: { moondust: 1, flavor: 'text' },
+      };
+      const saved = savedStateWithOrder(order, { sunwheat: 1 });
+      const store = new GameStateStore({
+        storage: makeStorage({ [SAVE_KEY]: JSON.stringify(saved) }),
+        rng: () => 0,
+      });
+      store.load();
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.consumeChestEvents()).toEqual([]);
+    });
+
+    it('does not queue a chest event on a non-premium order', () => {
+      const saved = savedStateWithOrder(TEST_ORDER, { sunwheat: 3, starcorn: 2 });
+      const store = new GameStateStore({
+        storage: makeStorage({ [SAVE_KEY]: JSON.stringify(saved) }),
+        rng: () => 0,
+      });
+      store.load();
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.consumeChestEvents()).toEqual([]);
+    });
+
+    it('consumeChestEvents drains once - a second call returns empty', () => {
+      const saved = savedStateWithOrder(ONE_CHEST_ORDER, { sunwheat: 1 });
+      const store = new GameStateStore({
+        storage: makeStorage({ [SAVE_KEY]: JSON.stringify(saved) }),
+        rng: () => 0,
+      });
+      store.load();
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.consumeChestEvents()).toHaveLength(1);
+      expect(store.consumeChestEvents()).toEqual([]);
+    });
+
+    it('the chest queue clears on load, reset, and importSave without being drained first', () => {
+      const buildStoreWithPendingEvent = (): GameStateStore => {
+        const saved = savedStateWithOrder(ONE_CHEST_ORDER, { sunwheat: 1 });
+        const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+        const store = new GameStateStore({ storage, rng: () => 0 });
+        store.load();
+        expect(store.fulfillOrder(0)).toBe(true);
+        return store;
+      };
+
+      const loadStore = buildStoreWithPendingEvent();
+      loadStore.load();
+      expect(loadStore.consumeChestEvents()).toEqual([]);
+
+      const resetStore = buildStoreWithPendingEvent();
+      resetStore.reset();
+      expect(resetStore.consumeChestEvents()).toEqual([]);
+
+      const importStore = buildStoreWithPendingEvent();
+      const freshExport = new GameStateStore({ storage: null }).exportSave();
+      importStore.importSave(freshExport);
+      expect(importStore.consumeChestEvents()).toEqual([]);
+    });
   });
 
   it('skipOrder puts an open slot on a now()-based cooldown and persists', () => {
@@ -1765,53 +1934,6 @@ describe('onboarding', () => {
     const store = new GameStateStore({ storage });
     store.load();
     expect(store.consumeTutorialCompleteEvent()).toBe(false);
-  });
-
-  it('suppresses teaser orders while onboarding is active', () => {
-    // Mid-tutorial at level 2 (the plant-mixed step after the scripted
-    // level-up): suppression follows the flag, not the level.
-    const saved = savedAtStep(stepIndex('plant-mixed'));
-    saved.level = 2;
-    saved.xp = xpForLevel(2);
-    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
-    // rng stuck at 0 would always pass a nonzero teaser roll.
-    const store = new GameStateStore({ storage, rng: () => 0 });
-    store.load();
-    store.ensureOrders();
-    for (const slot of store.getState().orders) {
-      expect(slot.state).toBe('open');
-      if (slot.state === 'open') {
-        for (const item of slot.order.items) {
-          expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(2);
-        }
-      }
-    }
-  });
-
-  it('teaser orders return once onboarding is completed', () => {
-    const saved = createDefaultState(9);
-    saved.level = 2;
-    saved.xp = xpForLevel(2);
-    saved.onboarding = {
-      completed: true,
-      step: ONBOARDING_STEPS.length,
-      progress: 0,
-      progressB: 0,
-    };
-    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
-    // 0.12 sits above PREMIUM_CHANCE (0.1, so the premium roll never hits)
-    // but below TEASER_CHANCE (0.15, so the teaser roll always hits).
-    const store = new GameStateStore({ storage, rng: () => 0.12 });
-    store.load();
-    store.ensureOrders();
-    // Every order teases glowberry, and none are premium.
-    for (const slot of store.getState().orders) {
-      expect(slot.state).toBe('open');
-      if (slot.state === 'open') {
-        expect(slot.order.items.some((item) => item.cropId === 'glowberry')).toBe(true);
-        expect(slot.order.premium).toBeUndefined();
-      }
-    }
   });
 });
 

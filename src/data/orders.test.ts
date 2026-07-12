@@ -1,20 +1,22 @@
 import { describe, expect, it } from 'vitest';
 
+import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_UNITS } from './chests';
 import { CROPS } from './crops';
 import { MAX_LEVEL } from './levels';
 import {
   generateOrder,
+  isOrderCoverable,
   ORDER_BASE_UNITS,
   ORDER_COIN_MULTIPLIER,
   ORDER_UNIT_CAPS,
   ORDER_UNITS_PER_LEVEL,
   ORDER_XP_MULTIPLIER,
+  type Order,
   PREMIUM_CHANCE,
   PREMIUM_FLAVORS,
   PREMIUM_MOONDUST_MAX,
   PREMIUM_MOONDUST_MIN,
   PREMIUM_UNITS_MULT,
-  TEASER_CHANCE,
 } from './orders';
 
 /** Deterministic Math.random stand-in (32-bit LCG). */
@@ -95,78 +97,29 @@ describe('generateOrder', () => {
     }
   });
 
-  it('includes at most one teaser (next-unlock) crop; everything else is unlocked', () => {
+  it('requests only crops at or below the player level, across levels 1-6 and a spread of rng streams (T2.24 - teaser removal invariant)', () => {
+    // The teaser/stretch-order path (an item from the NEXT level's unlock)
+    // was removed entirely in T2.24 - an order the player cannot yet fulfill
+    // read as a bug, not anticipation. This is the invariant that removal
+    // guarantees: no generated order, at any level or rng stream, ever asks
+    // for a crop above the player's current level.
     for (let level = 1; level <= MAX_LEVEL; level++) {
-      for (const order of sampleOrders(level, 500)) {
-        const teaserItems = order.items.filter(
-          (item) => CROPS[item.cropId].unlockLevel === level + 1,
-        );
-        const unlockedItems = order.items.filter((item) => CROPS[item.cropId].unlockLevel <= level);
-        expect(teaserItems.length).toBeLessThanOrEqual(1);
-        // No item is ever locked beyond the next unlock.
-        expect(teaserItems.length + unlockedItems.length).toBe(order.items.length);
+      for (let seed = 1; seed <= 20; seed++) {
+        for (const order of sampleOrders(level, 50, seed)) {
+          for (const item of order.items) {
+            expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
+          }
+        }
       }
     }
-  });
-
-  it('teaser orders appear at roughly TEASER_CHANCE when a next unlock exists', () => {
-    // At level 1 the teaser is starcorn (unlockLevel 2).
-    const orders = sampleOrders(1, 2000);
-    const teaserCount = orders.filter((order) =>
-      order.items.some((item) => item.cropId === 'starcorn'),
-    ).length;
-    const fraction = teaserCount / orders.length;
-    expect(fraction).toBeGreaterThan(TEASER_CHANCE - 0.07);
-    expect(fraction).toBeLessThan(TEASER_CHANCE + 0.07);
-    // A teaser order always pairs the teaser with one unlocked crop.
-    for (const order of orders) {
-      if (order.items.some((item) => item.cropId === 'starcorn')) {
-        expect(order.items).toHaveLength(2);
-        expect(order.items.some((item) => item.cropId === 'sunwheat')).toBe(true);
-      }
-    }
-  });
-
-  it('a forced teaser roll pairs one unlocked crop with the next unlock', () => {
-    // rng stuck at 0: with premium pinned off, teaser roll passes, first
-    // picks land on index 0, and the split gives the first item exactly 1
-    // unit (starcorn's uncapped).
-    const order = generateOrder(1, () => 0, TEASER_CHANCE, 0);
-    expect(order.premium).toBeUndefined();
-    expect(order.items).toEqual([
-      { cropId: 'sunwheat', count: 1 },
-      { cropId: 'starcorn', count: 2 },
-    ]);
-    expect(order.coinReward).toBe(
-      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.starcorn.sellValue) * ORDER_COIN_MULTIPLIER),
-    );
-    expect(order.xpReward).toBe(
-      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.starcorn.xp) * ORDER_XP_MULTIPLIER),
-    );
-  });
-
-  it('a forced teaser roll at level 2 clamps the glowberry item to its cap', () => {
-    // Same rng-stuck-at-0 shape (premium pinned off), one level later: the
-    // teaser is glowberry (unlocks at 3), whose pre-clamp split count (3)
-    // exceeds its cap (2).
-    const order = generateOrder(2, () => 0, TEASER_CHANCE, 0);
-    expect(order.items).toEqual([
-      { cropId: 'sunwheat', count: 1 },
-      { cropId: 'glowberry', count: 2 },
-    ]);
-    expect(order.coinReward).toBe(
-      Math.ceil((CROPS.sunwheat.sellValue + 2 * CROPS.glowberry.sellValue) * ORDER_COIN_MULTIPLIER),
-    );
-    expect(order.xpReward).toBe(
-      Math.ceil((CROPS.sunwheat.xp + 2 * CROPS.glowberry.xp) * ORDER_XP_MULTIPLIER),
-    );
   });
 
   it('a single-item glowberry order (no second item) is still capped', () => {
-    // First rng() (0.99) fails the second-item roll; second rng() (0.9)
-    // picks index 2 of the 3 unlocked crops at level 3 (glowberry). The
-    // single-item count equals totalUnits (5), which the cap clamps to 2.
-    const rng = queuedRng([0.99, 0.9]);
+    // First rng() (0.99) fails premium; second (0.99) fails the second-item
+    // roll; third (0.9) picks index 2 of the 3 unlocked crops at level 3
+    // (glowberry). The single-item count equals totalUnits (5), which the
+    // cap clamps to 2.
+    const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(3, rng);
     expect(order.items).toEqual([{ cropId: 'glowberry', count: 2 }]);
     expect(order.coinReward).toBe(Math.ceil(2 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
@@ -175,10 +128,9 @@ describe('generateOrder', () => {
 
   it('a single-item moonroot order (no second item) is still capped', () => {
     // Level 4 unlocks moonroot; totalUnits = 2 + 1*4 = 6, capped to 3. First
-    // rng() (0.99) fails premium; the teaser roll (emberpepper unlocks at 5)
-    // also fails at 0.9; the second-item roll fails too (repeats 0.9); pick
-    // (unlocked) lands on index 3 of the 4 unlocked crops (moonroot).
-    const rng = queuedRng([0.99, 0.9]);
+    // rng() (0.99) fails premium; second (0.99) fails the second-item roll;
+    // third (0.9) picks index 3 of the 4 unlocked crops (moonroot).
+    const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(4, rng);
     expect(order.items).toEqual([{ cropId: 'moonroot', count: 3 }]);
     expect(order.coinReward).toBe(Math.ceil(3 * CROPS.moonroot.sellValue * ORDER_COIN_MULTIPLIER));
@@ -186,48 +138,16 @@ describe('generateOrder', () => {
   });
 
   it('a single-item emberpepper order (no second item) is still capped', () => {
-    // Level 5 has no next unlock, so the teaser branch short-circuits
-    // without a roll; totalUnits = 2 + 1*5 = 7, capped to 2. First rng()
-    // (0.99) fails premium and the second-item roll; pick(unlocked) with 0.9
-    // lands on index 4 of the 5 unlocked crops (emberpepper).
-    const rng = queuedRng([0.99, 0.9]);
+    // Level 5; totalUnits = 2 + 1*5 = 7, capped to 2. First rng() (0.99)
+    // fails premium; second (0.99) fails the second-item roll; third (0.9)
+    // picks index 4 of the 5 unlocked crops (emberpepper).
+    const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(5, rng);
     expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
     expect(order.coinReward).toBe(
       Math.ceil(2 * CROPS.emberpepper.sellValue * ORDER_COIN_MULTIPLIER),
     );
     expect(order.xpReward).toBe(Math.ceil(2 * CROPS.emberpepper.xp * ORDER_XP_MULTIPLIER));
-  });
-
-  it('never teases when no crop unlocks at the next level', () => {
-    // Nothing unlocks past level 5 (emberpepper), so even a rng that would
-    // always take the teaser branch yields fully unlocked orders at level 5
-    // and above.
-    for (const level of [5, MAX_LEVEL]) {
-      for (const order of sampleOrders(level, 200)) {
-        for (const item of order.items) {
-          expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
-        }
-      }
-      const forced = generateOrder(level, () => 0, TEASER_CHANCE, 0);
-      for (const item of forced.items) {
-        expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
-      }
-    }
-  });
-
-  it('a teaserChance of 0 suppresses stretch orders even when the roll would hit', () => {
-    // At level 2 the teaser is glowberry; rng stuck at 0 always passes a
-    // nonzero teaser roll (premium pinned off throughout, so the teaser roll
-    // actually runs).
-    const withTeaser = generateOrder(2, () => 0, TEASER_CHANCE, 0);
-    expect(withTeaser.items.some((item) => item.cropId === 'glowberry')).toBe(true);
-
-    const suppressed = generateOrder(2, () => 0, 0, 0);
-    expect(suppressed.items.some((item) => item.cropId === 'glowberry')).toBe(false);
-    for (const item of suppressed.items) {
-      expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(2);
-    }
   });
 
   it('clamps a sub-1 level to level 1 rules', () => {
@@ -244,7 +164,7 @@ describe('generateOrder premium orders', () => {
     expect(order.premium).toBeUndefined();
   });
 
-  it('a forced premium roll (rng stuck at 0) doubles the budget, skips the teaser roll entirely, and rolls min moondust + first flavor', () => {
+  it('a forced premium roll (rng stuck at 0) doubles the budget and rolls min moondust + first flavor', () => {
     // At level 1 only sunwheat is unlocked, so the second-item roll never
     // fires; the sequence is premium roll, pick(unlocked), moondust, flavor.
     const order = generateOrder(1, () => 0);
@@ -255,14 +175,6 @@ describe('generateOrder premium orders', () => {
       },
     ]);
     expect(order.premium).toEqual({ moondust: PREMIUM_MOONDUST_MIN, flavor: PREMIUM_FLAVORS[0] });
-  });
-
-  it('a premium order never also teases, even when the teaser roll would otherwise hit', () => {
-    // rng stuck at 0 would take the teaser branch (starcorn) if premium did
-    // not skip that roll entirely - the premium roll consumes it first.
-    const order = generateOrder(1, () => 0);
-    expect(order.premium).toBeDefined();
-    expect(order.items.some((item) => item.cropId === 'starcorn')).toBe(false);
   });
 
   it('a premium order at level 2 doubles the budget, picks two items, and stores rewards over the bigger items', () => {
@@ -281,10 +193,10 @@ describe('generateOrder premium orders', () => {
   });
 
   it('a premium order at level 5 still clamps emberpepper to its cap despite the doubled budget', () => {
-    // Premium roll (0) hits, so the teaser branch short-circuits without a
-    // roll; second-item roll (0.99) fails; pick(unlocked) (0.9) lands on
-    // emberpepper (index 4 of 5); doubled budget (2 + 5) * 2 = 14 clamps to
-    // the cap of 2; moondust (0) rolls the min, flavor (0) rolls the first.
+    // Premium roll (0) hits; second-item roll (0.99) fails; pick(unlocked)
+    // (0.9) lands on emberpepper (index 4 of 5); doubled budget (2 + 5) * 2
+    // = 14 clamps to the cap of 2; moondust (0) rolls the min, flavor (0)
+    // rolls the first.
     const rng = queuedRng([0, 0.99, 0.9, 0, 0]);
     const order = generateOrder(5, rng);
     expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
@@ -304,7 +216,7 @@ describe('generateOrder premium orders', () => {
   });
 
   it('a premiumChance of 0 suppresses premium orders even when the roll would hit', () => {
-    const order = generateOrder(2, () => 0, TEASER_CHANCE, 0);
+    const order = generateOrder(2, () => 0, 0);
     expect(order.premium).toBeUndefined();
   });
 
@@ -325,5 +237,93 @@ describe('generateOrder premium orders', () => {
     const fraction = orders.filter((order) => order.premium !== undefined).length / orders.length;
     expect(fraction).toBeGreaterThan(PREMIUM_CHANCE - 0.05);
     expect(fraction).toBeLessThan(PREMIUM_CHANCE + 0.05);
+  });
+
+  describe('premium.chests (T2.23a)', () => {
+    it('is absent below CHEST_UNLOCK_LEVEL, even when the total requested would be >= PREMIUM_TWO_CHEST_UNITS', () => {
+      expect(CHEST_UNLOCK_LEVEL).toBeGreaterThan(4);
+      const level = CHEST_UNLOCK_LEVEL - 1;
+      // premium roll (0), second-item roll fails (0.99), pick(unlocked)
+      // lands on sunwheat (0, uncapped) - single-item budget
+      // (ORDER_BASE_UNITS + level) * PREMIUM_UNITS_MULT is >= 12 at this
+      // level, proving the level gate applies regardless of the total.
+      const rng = queuedRng([0, 0.99, 0]);
+      const order = generateOrder(level, rng);
+      const total = order.items.reduce((sum, item) => sum + item.count, 0);
+      expect(total).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_UNITS);
+      expect(order.premium).toBeDefined();
+      expect(order.premium?.chests).toBeUndefined();
+    });
+
+    it('is 1 at/above CHEST_UNLOCK_LEVEL when the total requested is below PREMIUM_TWO_CHEST_UNITS', () => {
+      // premium roll (0), second-item roll fails (0.99), pick(unlocked)
+      // lands on starcorn (index 1 of 5 - 0.2*5=1) whose ORDER_UNIT_CAPS
+      // entry (5) clamps the doubled single-item budget well under
+      // PREMIUM_TWO_CHEST_UNITS.
+      const rng = queuedRng([0, 0.99, 0.2]);
+      const order = generateOrder(CHEST_UNLOCK_LEVEL, rng);
+      const total = order.items.reduce((sum, item) => sum + item.count, 0);
+      expect(total).toBeLessThan(PREMIUM_TWO_CHEST_UNITS);
+      expect(order.premium?.chests).toBe(1);
+    });
+
+    it('is 2 at/above CHEST_UNLOCK_LEVEL when the total requested is >= PREMIUM_TWO_CHEST_UNITS', () => {
+      // premium roll (0), second-item roll fails (0.99), pick(unlocked)
+      // lands on sunwheat (0, uncapped) - nothing clamps the doubled
+      // single-item budget below PREMIUM_TWO_CHEST_UNITS at this level.
+      const rng = queuedRng([0, 0.99, 0]);
+      const order = generateOrder(CHEST_UNLOCK_LEVEL, rng);
+      const total = order.items.reduce((sum, item) => sum + item.count, 0);
+      expect(total).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_UNITS);
+      expect(order.premium?.chests).toBe(2);
+    });
+
+    it('chests is always 1 or 2 (never another value) whenever present across many samples', () => {
+      for (const order of sampleOrders(CHEST_UNLOCK_LEVEL, 500)) {
+        if (order.premium?.chests === undefined) continue;
+        expect([1, 2]).toContain(order.premium.chests);
+      }
+    });
+  });
+});
+
+describe('isOrderCoverable', () => {
+  const singleItemOrder: Order = {
+    items: [{ cropId: 'sunwheat', count: 3 }],
+    coinReward: 10,
+    xpReward: 5,
+  };
+  const twoItemOrder: Order = {
+    items: [
+      { cropId: 'sunwheat', count: 2 },
+      { cropId: 'starcorn', count: 1 },
+    ],
+    coinReward: 20,
+    xpReward: 10,
+  };
+
+  it('is true when inventory meets every item exactly', () => {
+    expect(isOrderCoverable(singleItemOrder, { sunwheat: 3 })).toBe(true);
+    expect(isOrderCoverable(twoItemOrder, { sunwheat: 2, starcorn: 1 })).toBe(true);
+  });
+
+  it('is true when inventory exceeds every item', () => {
+    expect(isOrderCoverable(singleItemOrder, { sunwheat: 10 })).toBe(true);
+    expect(isOrderCoverable(twoItemOrder, { sunwheat: 5, starcorn: 4 })).toBe(true);
+  });
+
+  it('is false when any single item is short', () => {
+    expect(isOrderCoverable(singleItemOrder, { sunwheat: 2 })).toBe(false);
+    expect(isOrderCoverable(twoItemOrder, { sunwheat: 2, starcorn: 0 })).toBe(false);
+    expect(isOrderCoverable(twoItemOrder, { sunwheat: 1, starcorn: 5 })).toBe(false);
+  });
+
+  it('is false when the inventory is missing an item entirely (undefined, not 0)', () => {
+    expect(isOrderCoverable(singleItemOrder, {})).toBe(false);
+    expect(isOrderCoverable(twoItemOrder, { sunwheat: 2 })).toBe(false);
+  });
+
+  it('ignores extra inventory crops the order does not ask for', () => {
+    expect(isOrderCoverable(singleItemOrder, { sunwheat: 3, glowberry: 99 })).toBe(true);
   });
 });

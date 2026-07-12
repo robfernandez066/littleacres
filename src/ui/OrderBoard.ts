@@ -149,6 +149,30 @@ const REWARD_MOONDUST_TEXT_X = 58;
 /** Left-aligned above the reward row's leftmost column (xp), on every card. */
 const REWARD_LABEL_CLEARANCE = 6;
 
+/**
+ * Chest reward line (T2.23a): on a chest-carrying premium card only, a
+ * chest_closed icon + "N Treasure Chest(s)" beneath the reward row. The
+ * whole reward row (and its "Reward:" label) shifts up by CHEST_LINE_NUDGE_Y
+ * on such cards ONLY, to make room below - MEASURED and live-verified
+ * against TWO competing clearances (a taller nudge helps one and hurts the
+ * other, so both the nudge and the chest line's own footprint had to move):
+ * - Bottom: the card's own border (CARD_HEIGHT / 2 = 180 from center) below
+ *   the chest line.
+ * - Top: the single-item cluster's name text (e.g. "Sunwheat", bottom edge
+ *   ~50 from center) below the nudged "Reward:" label - too tall a nudge
+ *   pushes the row (and its label, which tracks it at a fixed
+ *   REWARD_LABEL_CLEARANCE gap) up into that name text instead.
+ * A first pass (nudge 30, full-size chest icon/gap) left the bottom too
+ * tight; nudging further to clear it (46) then crowded the top instead - the
+ * two constraints don't overlap at the original chest-line size at all.
+ * Shrinking the chest line itself (icon scale 0.3 -> 0.24, gap 10 -> 6) freed
+ * enough room that nudge 20 clears both, confirmed live.
+ */
+const CHEST_LINE_NUDGE_Y = 20;
+const CHEST_LINE_GAP = 6;
+const CHEST_ICON_SCALE = 0.24;
+const CHEST_LINE_ICON_TEXT_GAP = 10;
+
 /** Premium signal: the card's own bg nineslice tints light moondust blue
  * (cleared on non-premium/cooldown/pending) plus a small "Premium Order" tag
  * where the (now-removed) flavor line used to sit. */
@@ -267,6 +291,15 @@ const PREMIUM_TAG_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#3a4a8a',
 };
 
+// Same Georgia voice as the premium tag (T2.23a), non-italic so "N Treasure
+// Chest(s)" reads as a reward line, not another decorative label.
+const CHEST_LINE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '32px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 const REWARD_LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '28px',
@@ -322,6 +355,9 @@ interface OrderCard {
   /** Third reward column, right of coin - premium orders only. */
   rewardMoondustIcon: Phaser.GameObjects.Image;
   rewardMoondustText: Phaser.GameObjects.Text;
+  /** Chest reward line (T2.23a) - visible only on a chest-carrying premium order. */
+  chestIcon: Phaser.GameObjects.Image;
+  chestText: Phaser.GameObjects.Text;
   fulfillButton: Phaser.GameObjects.NineSlice;
   fulfillText: Phaser.GameObjects.Text;
   skipButton: Phaser.GameObjects.NineSlice;
@@ -331,6 +367,9 @@ interface OrderCard {
   /** Static world position of the card center, for arc/label origins. */
   worldX: number;
   worldY: number;
+  /** The card's own local y offset within the container (CARD_START_Y + slotIndex * CARD_SPACING) -
+   *  needed to reposition the reward row/label on the CHEST_LINE_NUDGE_Y toggle every refresh. */
+  cardY: number;
 }
 
 export class OrderBoard {
@@ -530,6 +569,20 @@ export class OrderBoard {
       .setOrigin(0, 1)
       .setVisible(false);
 
+    // Chest reward line (T2.23a): icon + text positioned every refresh
+    // (see refreshOpenCard), since their y tracks the reward row's own
+    // CHEST_LINE_NUDGE_Y toggle - the y given here is just a safe initial
+    // value before the first refresh.
+    const chestIcon = this.scene.add
+      .image(REWARD_XP_TEXT_X, y + REWARD_ROW_Y, ATLAS_KEY, 'chest_closed')
+      .setOrigin(0, 0.5)
+      .setScale(CHEST_ICON_SCALE)
+      .setVisible(false);
+    const chestText = this.scene.add
+      .text(REWARD_XP_TEXT_X, y + REWARD_ROW_Y, '', CHEST_LINE_STYLE)
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+
     const fulfillButton = this.scene.add.nineslice(
       FULFILL_BUTTON_X,
       y + FULFILL_BUTTON_Y,
@@ -596,6 +649,8 @@ export class OrderBoard {
       rewardCoinText,
       rewardMoondustIcon,
       rewardMoondustText,
+      chestIcon,
+      chestText,
       fulfillButton,
       fulfillText,
       skipButton,
@@ -614,6 +669,8 @@ export class OrderBoard {
       rewardCoinText,
       rewardMoondustIcon,
       rewardMoondustText,
+      chestIcon,
+      chestText,
       fulfillButton,
       fulfillText,
       skipButton,
@@ -622,6 +679,7 @@ export class OrderBoard {
       stampText,
       worldX,
       worldY,
+      cardY: y,
     };
   }
 
@@ -736,6 +794,33 @@ export class OrderBoard {
       card.rewardMoondustText.setText(`+${order.premium!.moondust}`);
     }
 
+    // Chest reward line (T2.23a): the whole reward row (+ its label) shifts
+    // up by CHEST_LINE_NUDGE_Y on a chest-carrying card only - see that
+    // constant's comment for the measured clearance math.
+    const chests = order.premium?.chests;
+    const hasChests = chests !== undefined && chests > 0;
+    const rowY = card.cardY + REWARD_ROW_Y - (hasChests ? CHEST_LINE_NUDGE_Y : 0);
+    card.rewardXpText.setY(rowY);
+    card.rewardCoin.setY(rowY);
+    card.rewardCoinText.setY(rowY);
+    card.rewardMoondustIcon.setY(rowY);
+    card.rewardMoondustText.setY(rowY);
+    card.rewardLabel.setY(rowY - card.rewardCoin.displayHeight / 2 - REWARD_LABEL_CLEARANCE);
+    card.chestIcon.setVisible(hasChests);
+    card.chestText.setVisible(hasChests);
+    if (hasChests) {
+      const chestLineY =
+        rowY +
+        card.rewardCoin.displayHeight / 2 +
+        CHEST_LINE_GAP +
+        card.chestIcon.displayHeight / 2;
+      card.chestIcon.setY(chestLineY).setX(REWARD_XP_TEXT_X);
+      card.chestText
+        .setY(chestLineY)
+        .setX(card.chestIcon.x + card.chestIcon.displayWidth + CHEST_LINE_ICON_TEXT_GAP)
+        .setText(`${chests} Treasure Chest${chests! > 1 ? 's' : ''}`);
+    }
+
     card.fulfillButton.setAlpha(allCovered ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
     card.fulfillText.setAlpha(allCovered ? BUTTON_ENABLED_ALPHA : BUTTON_DISABLED_ALPHA);
     if (allCovered) {
@@ -780,6 +865,8 @@ export class OrderBoard {
       card.premiumTag.setVisible(false);
       card.rewardMoondustIcon.setVisible(false);
       card.rewardMoondustText.setVisible(false);
+      card.chestIcon.setVisible(false);
+      card.chestText.setVisible(false);
     }
   }
 

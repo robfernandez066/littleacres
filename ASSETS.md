@@ -39,34 +39,37 @@ future task.
 Frame names are a stable API - code refers to them, so replacement art must
 keep them.
 
-| Frame                              | Size (px)             | Notes                                        |
-| ---------------------------------- | --------------------- | -------------------------------------------- |
-| `grass`                            | 256x160               | tile; diamond top face 256x128, lip below    |
-| `plot`                             | 256x160               | tile; empty tilled dirt                      |
-| `plot_occupied`                    | 256x160               | tile; planted soil (growing plots)           |
-| `sunwheat_0` .. `sunwheat_2`       | 128x128               | growth stages 0 (sprout) - 2 (ready)         |
-| `starcorn_0` .. `starcorn_2`       | 128x128               | growth stages                                |
-| `glowberry_0` .. `glowberry_2`     | 128x128               | growth stages; stage 2 glows                 |
-| `moonroot_0` .. `moonroot_2`       | 128x128               | growth stages (T2.21; not yet wired up)      |
-| `emberpepper_0` .. `emberpepper_2` | 128x128               | growth stages (T2.21; not yet wired up)      |
-| `chest_closed`, `chest_open`       | 128x128               | crop-style, no growth stage (T2.21; unwired) |
-| `coin`                             | 96x96                 | currency icon                                |
-| `moondust`                         | 96x96                 | currency icon                                |
-| `bag`                              | 96x96                 | HUD bag button icon                          |
-| `scroll`                           | 96x96                 | HUD orders button icon                       |
-| `note`                             | 96x96                 | HUD audio button icon                        |
-| `pouch`                            | 96x96                 | reserved, unused                             |
-| `sign`                             | 192x192               | ExpandSign signpost                          |
-| `panel`                            | 128x128               | UI 9-slice source                            |
-| `mere`                             | 384x384               | staged as `mere_strip.png`; unwired (T2.21)  |
-| `hud_banner`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
-| `hud_crest`                        | 192x192               | plain downscale; unwired (T2.21)             |
-| `xpbar_frame`                      | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
-| `xpbar_fill`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)             |
-| `gear_icon`                        | 128x128               | plain downscale; unwired (T2.21)             |
-| `button_push`                      | 256x256               | future nineslice source; unwired (T2.21)     |
-| `button_slot`                      | 256x256               | plain downscale; unwired (T2.21)             |
-| `button_close`                     | 96x96                 | staged as `xbutton.png`; unwired (T2.21)     |
+| Frame                              | Size (px)             | Notes                                         |
+| ---------------------------------- | --------------------- | --------------------------------------------- |
+| `grass`                            | 256x160               | tile; diamond top face 256x128, lip below     |
+| `plot`                             | 256x160               | tile; empty tilled dirt                       |
+| `plot_occupied`                    | 256x160               | tile; planted soil (growing plots)            |
+| `sunwheat_0` .. `sunwheat_2`       | 128x128               | growth stages 0 (sprout) - 2 (ready)          |
+| `starcorn_0` .. `starcorn_2`       | 128x128               | growth stages                                 |
+| `glowberry_0` .. `glowberry_2`     | 128x128               | growth stages; stage 2 glows                  |
+| `moonroot_0` .. `moonroot_2`       | 128x128               | growth stages (T2.21; not yet wired up)       |
+| `emberpepper_0` .. `emberpepper_2` | 128x128               | growth stages (T2.21; not yet wired up)       |
+| `chest_closed`, `chest_open`       | 128x128               | crop-style, no growth stage (T2.21; unwired)  |
+| `coin`                             | 96x96                 | currency icon                                 |
+| `moondust`                         | 96x96                 | currency icon                                 |
+| `bag`                              | 96x96                 | HUD bag button icon                           |
+| `scroll`                           | 96x96                 | HUD orders button icon                        |
+| `note`                             | 96x96                 | HUD audio button icon                         |
+| `pouch`                            | 96x96                 | reserved, unused                              |
+| `sign`                             | 192x192               | ExpandSign signpost                           |
+| `panel`                            | 128x128               | UI 9-slice source                             |
+| `notice_board`                     | 256x256               | FarmScene notice board structure (T2.22)      |
+| `farmhouse`                        | 256x256               | FarmScene decorative farmhouse (T2.22)        |
+| `dirt_path`                        | 288x288               | FarmScene ground decal, house->field (T2.22b) |
+| `mere`                             | 384x384               | staged as `mere_strip.png`; unwired (T2.21)   |
+| `hud_banner`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)              |
+| `hud_crest`                        | 192x192               | plain downscale; unwired (T2.21)              |
+| `xpbar_frame`                      | 512 wide, keep aspect | plain downscale; unwired (T2.21)              |
+| `xpbar_fill`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)              |
+| `gear_icon`                        | 128x128               | plain downscale; unwired (T2.21)              |
+| `button_push`                      | 256x256               | future nineslice source; unwired (T2.21)      |
+| `button_slot`                      | 256x256               | plain downscale; unwired (T2.21)              |
+| `button_close`                     | 96x96                 | staged as `xbutton.png`; unwired (T2.21)      |
 
 Crops follow `<cropId>_<stage>` with stages `0..2`; `src/data/crops.ts` maps
 crop ids to their stage frames. New crops should follow the same pattern.
@@ -137,6 +140,17 @@ size. `hud_banner`, `xpbar_frame`, and `xpbar_fill` are trimmed and scaled to
 a fixed 512px width keeping their source aspect ratio, with no fixed square
 frame (their packed height varies). `button_push` is flagged as a likely
 future nineslice source (like `panel`) but is not measured/sliced as one yet.
+
+`notice_board` and `farmhouse` (added in T2.22) get the same square
+trim-fit-center treatment at 256x256 and are wired up immediately:
+`src/scenes/FarmScene.ts` renders both structures on the farm (the notice
+board opens the order board on tap; the farmhouse is decorative).
+
+`dirt_path` (added in T2.22b) gets the same square trim-fit-center treatment
+at 288x288 and is wired up immediately as a non-interactive ground decal
+(`FarmScene.createDirtPath`), connecting the farmhouse down toward the plot
+grid's upper-right edge. See `DIRT_PATH_POSITION` in `src/config.ts` for how
+its placement was measured.
 
 ## Icons
 

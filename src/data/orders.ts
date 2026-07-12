@@ -1,3 +1,4 @@
+import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_UNITS } from './chests';
 import { CROPS, type CropDef, type CropId } from './crops';
 
 /**
@@ -29,22 +30,14 @@ export const ORDER_COIN_MULTIPLIER = 1.3;
 export const ORDER_XP_MULTIPLIER = 1.5;
 
 /**
- * Chance an order is a "stretch" order teasing the next unlock: one of its
- * items is the crop unlocking at level + 1 (when such a crop exists).
- */
-export const TEASER_CHANCE = 0.15;
-
-/**
- * Chance a non-teaser order asks for two distinct crops instead of one
- * (only when at least two crops are unlocked).
+ * Chance an order asks for two distinct crops instead of one (only when at
+ * least two crops are unlocked).
  */
 export const SECOND_ITEM_CHANCE = 0.45;
 
 /**
  * Chance an order is "premium": a rarity-tier order with a doubled unit
  * budget, a flavor line, and a moondust reward on top of the usual coins/xp.
- * Rolled FIRST, before the teaser roll - a premium order never also teases
- * (see `generateOrder`).
  */
 export const PREMIUM_CHANCE = 0.1;
 
@@ -97,8 +90,21 @@ export interface Order {
   items: OrderItem[];
   coinReward: number;
   xpReward: number;
-  /** Present only on the ~1-in-10 "premium" orders (see PREMIUM_CHANCE). */
-  premium?: { moondust: number; flavor: string };
+  /**
+   * Present only on the ~1-in-10 "premium" orders (see PREMIUM_CHANCE).
+   * `chests` (T2.23a) is present only when the order was generated at
+   * CHEST_UNLOCK_LEVEL+ - 1 or 2 chests, granted the instant the order is
+   * fulfilled (see `systems/gameState.ts`'s `fulfillOrder`/`grantChests`).
+   */
+  premium?: { moondust: number; flavor: string; chests?: number };
+}
+
+/** Whether every item an order requests is covered by the given inventory counts. */
+export function isOrderCoverable(
+  order: Order,
+  inventory: Partial<Record<CropId, number>>,
+): boolean {
+  return order.items.every((item) => (inventory[item.cropId] ?? 0) >= item.count);
 }
 
 /** Uniform pick; the clamp guards rng implementations that can return 1. */
@@ -114,16 +120,13 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
  * Shape rules:
  * - Premium roll first: with `premiumChance` the order becomes "premium" - a
  *   doubled unit budget plus a moondust reward and flavor line (see
- *   `Order.premium`). A premium order never also teases: the teaser roll is
- *   skipped entirely (not just failed) so the rng sequence is pinned the same
- *   way regardless of whether callers care about premium orders.
- * - Otherwise (or when not premium), teaser roll: with `teaserChance` (and
- *   only when a crop unlocks at exactly level + 1) the order pairs one
- *   unlocked crop with that teaser crop - a stretch order previewing the next
- *   unlock. Callers may override the chance (onboarding passes 0 so the first
- *   session never sees an unfulfillable stretch order).
- * - Otherwise items come from unlocked crops only: two distinct ones with
- *   SECOND_ITEM_CHANCE (when two exist), else one.
+ *   `Order.premium`).
+ * - Items come from unlocked crops only (T2.24: teaser/stretch orders
+ *   previewing the next unlock were removed - an order the player cannot yet
+ *   fulfill read as a bug, not anticipation; that job belongs to the seed
+ *   bar's visible locked crops instead): two distinct ones with
+ *   SECOND_ITEM_CHANCE (when two exist), else one. Every generated item's
+ *   crop is always at or below the player's level.
  * - Total units are ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level
  *   (x PREMIUM_UNITS_MULT for a premium order), split randomly across the
  *   items with every item getting at least 1, then each item is clamped to
@@ -133,25 +136,26 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
  * - A premium order's moondust (one rng call, integer in
  *   [PREMIUM_MOONDUST_MIN, PREMIUM_MOONDUST_MAX]) and flavor (one rng call
  *   into PREMIUM_FLAVORS) are rolled last, after items and rewards.
+ * - A premium order generated at CHEST_UNLOCK_LEVEL+ also carries
+ *   `premium.chests`: 2 when the order's total requested units (summed
+ *   across its final, post-clamp items) is >= PREMIUM_TWO_CHEST_UNITS, else
+ *   1. Deterministic from the already-rolled items - no extra rng call.
+ *   Absent below CHEST_UNLOCK_LEVEL.
  */
 export function generateOrder(
   level: number,
   rng: () => number = Math.random,
-  teaserChance: number = TEASER_CHANCE,
   premiumChance: number = PREMIUM_CHANCE,
 ): Order {
   // Level 1 always unlocks at least one crop, so `unlocked` is never empty.
   const effectiveLevel = Math.max(1, Math.floor(level));
   const allCrops = Object.values(CROPS);
   const unlocked = allCrops.filter((crop) => crop.unlockLevel <= effectiveLevel);
-  const teasers = allCrops.filter((crop) => crop.unlockLevel === effectiveLevel + 1);
 
   const isPremium = rng() < premiumChance;
 
   const chosen: CropDef[] = [];
-  if (!isPremium && teasers.length > 0 && rng() < teaserChance) {
-    chosen.push(pick(unlocked, rng), pick(teasers, rng));
-  } else if (unlocked.length >= 2 && rng() < SECOND_ITEM_CHANCE) {
+  if (unlocked.length >= 2 && rng() < SECOND_ITEM_CHANCE) {
     const first = pick(unlocked, rng);
     const rest = unlocked.filter((crop) => crop.id !== first.id);
     chosen.push(first, pick(rest, rng));
@@ -185,6 +189,10 @@ export function generateOrder(
       PREMIUM_MOONDUST_MIN + Math.floor(rng() * (PREMIUM_MOONDUST_MAX - PREMIUM_MOONDUST_MIN + 1));
     const flavor = pick(PREMIUM_FLAVORS, rng);
     order.premium = { moondust, flavor };
+    if (effectiveLevel >= CHEST_UNLOCK_LEVEL) {
+      const totalRequested = items.reduce((sum, item) => sum + item.count, 0);
+      order.premium.chests = totalRequested >= PREMIUM_TWO_CHEST_UNITS ? 2 : 1;
+    }
   }
   return order;
 }

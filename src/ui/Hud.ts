@@ -1,12 +1,6 @@
 import Phaser from 'phaser';
 
-import {
-  ATLAS_KEY,
-  BAG_POSITION,
-  DESIGN_WIDTH,
-  HUD_COIN_POSITION,
-  ORDERS_BUTTON_POSITION,
-} from '../config';
+import { ATLAS_KEY, BAG_POSITION, DESIGN_WIDTH, HUD_COIN_POSITION } from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import type { AudioManager } from '../systems/audio';
@@ -131,16 +125,31 @@ const MOONDUST_X = 345;
 const MOONDUST_TEXT_OFFSET_X = 50;
 
 /**
- * Bag/orders: bare icons (no `button_slot` backing - it read as clutter, per
- * T2.13a), 90px with a generous 110px-square hit area centered on each icon
- * so the enlarged tap target doesn't require enlarging the art itself.
- * Positioned right side of the banner, vertically centered at
+ * Bag: a bare icon (no `button_slot` backing - it read as clutter, per
+ * T2.13a), 90px. Positioned right side of the banner, vertically centered at
  * BANNER_CENTER_Y, clear of the crest's right overhang edge (540 + 160/2 =
  * 620 - the bag's own left edge at 834 - 45 = 789 clears it with room to
  * spare) and of the right vine.
  */
 const BUTTON_ICON_DISPLAY_SIZE = 90;
-const BUTTON_HIT_AREA_SIZE = 110;
+/**
+ * The bag's hit area (T2.24), per CLAUDE.md's hit-area rule: MEASURED (Jimp
+ * opaque-bounds scan of the packed `bag` frame) rather than the old
+ * origin-centered guess this used before (BUTTON_HIT_AREA_SIZE, a plain
+ * square centered at the object's origin) - that was the same class of bug
+ * root-caused in T2.22a: a center-relative rectangle only partially,
+ * coincidentally overlaps the true FRAME-relative region Phaser tests
+ * against (hitArea is in the texture's own unscaled, top-left-origin local
+ * space), so it silently drops taps on part of the visible sprite. The bag's
+ * opaque content spans native x=[6,90], y=[0,96] within its 96x96 native
+ * frame (packed to ICON_SIZE by tools/pack-atlas.mjs) - full height, ~6px
+ * trimmed each side horizontally.
+ */
+const BAG_OPAQUE_BOUNDS = { x: 6, y: 0, w: 84, h: 96 };
+const BAG_ICON_NATIVE_SIZE = 96;
+/** Pad beyond BAG_OPAQUE_BOUNDS, in DISPLAY px (converted to native units via
+ *  the icon's own display/native scale - hitArea rectangles are unscaled). */
+const BAG_HIT_PAD_DISPLAY_PX = 20;
 
 /**
  * Gear (settings) icon, hanging just below the banner's bottom edge (158) -
@@ -232,11 +241,8 @@ export class Hud {
   private readonly moondustText: Phaser.GameObjects.Text;
   private readonly bagContainer: Phaser.GameObjects.Container;
   private readonly bagIcon: Phaser.GameObjects.Image;
-  private readonly ordersContainer: Phaser.GameObjects.Container;
-  private readonly ordersIcon: Phaser.GameObjects.Image;
   /** Cached rails gating so interactivity/alpha only toggle on change. */
   private bagEnabled = true;
-  private ordersEnabled = true;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
   private readonly orderBoard: OrderBoard;
@@ -246,6 +252,22 @@ export class Hud {
   private coinTween: Phaser.Tweens.Tween | null = null;
   /** While true, the periodic refresh leaves the coin ticker to in-flight coin arcs. */
   private coinArcsAnimating = false;
+  /**
+   * While true, the periodic refresh leaves the coin ticker alone for a
+   * DIFFERENT reason than `coinArcsAnimating`: a chest's coins have already
+   * been granted to state (T2.23a - `fulfillOrder` grants instantly) but the
+   * ceremony celebrating them hasn't reached its dismiss beat yet, which may
+   * be many ticks away (deferred behind a level-up celebration). Kept as its
+   * own flag rather than reusing `coinArcsAnimating`: that one is cleared by
+   * the ORDER's own coin arc finishing (a few hundred ms after fulfillment),
+   * which would otherwise let the drift silently reveal the chest's bonus
+   * coins long before its ceremony does. Set synchronously in `fulfillOrder`
+   * (same tick as the grant, before any refresh can run) via
+   * `holdCoinDisplay`; cleared the instant `flyChestCoins` starts the real
+   * fly - `coinArcsAnimating` (already managed by `flyCoinsToCounter`) takes
+   * over blocking duty for the fly's own short duration from there.
+   */
+  private chestPending = false;
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
   private readonly settingsPanel: SettingsPanel;
 
@@ -362,27 +384,6 @@ export class Hud {
       object: this.bagContainer,
     }));
 
-    // Orders button: same bare-icon styling as the bag, beside it.
-    this.ordersContainer = this.scene.add
-      .container(ORDERS_BUTTON_POSITION.x, ORDERS_BUTTON_POSITION.y)
-      .setDepth(HUD_DEPTH);
-    this.ordersIcon = this.buildBareIcon('scroll');
-    this.ordersContainer.add(this.ordersIcon);
-    this.ordersIcon.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.audio.sfx('tap');
-      this.inventoryPanel.hide();
-      this.settingsPanel.hide();
-      this.orderBoard.toggle(gameState.getState());
-    });
-    // Nothing else ever scales the orders container, so it is safe to breathe.
-    registerPulseTarget('orders-button', () => ({
-      x: ORDERS_BUTTON_POSITION.x,
-      y: ORDERS_BUTTON_POSITION.y,
-      width: BUTTON_ICON_DISPLAY_SIZE,
-      height: BUTTON_ICON_DISPLAY_SIZE,
-      object: this.ordersContainer,
-    }));
-
     this.cropArc = new CropArc(this.scene);
 
     this.inventoryPanel = new InventoryPanel(
@@ -416,21 +417,37 @@ export class Hud {
   }
 
   /**
+   * Open/close the order board from an external trigger (the farm's notice
+   * board structure - T2.22, replacing the old HUD orders icon): the exact
+   * same panel-exclusivity behavior the old button had, closing
+   * inventory/settings first.
+   */
+  toggleOrderBoard(): void {
+    this.audio.sfx('tap');
+    this.inventoryPanel.hide();
+    this.settingsPanel.hide();
+    this.orderBoard.toggle(gameState.getState());
+  }
+
+  /**
    * A bare, centered icon (no background frame, no label - the tutorial's
-   * glow teaches it) with a hit area larger than its own art, so the tap
-   * target stays generous without enlarging the icon.
+   * glow teaches it) with a hit area covering its own measured opaque
+   * bounds plus a pad - see BAG_OPAQUE_BOUNDS's comment. FRAME-relative
+   * (0,0 at the icon's own native top-left), never centered on the object's
+   * origin/position - see CLAUDE.md's hit-area rule.
    */
   private buildBareIcon(iconFrame: string): Phaser.GameObjects.Image {
-    const halfHit = BUTTON_HIT_AREA_SIZE / 2;
+    const scale = BUTTON_ICON_DISPLAY_SIZE / BAG_ICON_NATIVE_SIZE;
+    const pad = BAG_HIT_PAD_DISPLAY_PX / scale;
     return this.scene.add
       .image(0, 0, ATLAS_KEY, iconFrame)
       .setDisplaySize(BUTTON_ICON_DISPLAY_SIZE, BUTTON_ICON_DISPLAY_SIZE)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
-          -halfHit,
-          -halfHit,
-          BUTTON_HIT_AREA_SIZE,
-          BUTTON_HIT_AREA_SIZE,
+          BAG_OPAQUE_BOUNDS.x - pad,
+          BAG_OPAQUE_BOUNDS.y - pad,
+          BAG_OPAQUE_BOUNDS.w + pad * 2,
+          BAG_OPAQUE_BOUNDS.h + pad * 2,
         ),
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
@@ -458,7 +475,7 @@ export class Hud {
     this.updateXpBar(state.level, state.xp);
     this.moondustText.setText(formatCurrency(state.moondust));
 
-    if (!this.coinArcsAnimating) this.driftCoinsTo(state.coins);
+    if (!this.coinArcsAnimating && !this.chestPending) this.driftCoinsTo(state.coins);
 
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
@@ -484,12 +501,13 @@ export class Hud {
   }
 
   /**
-   * Tutorial rails on the HUD buttons, from the store's railsAllow choke
-   * point (no rules here): the bag is inert and dimmed for the whole
-   * tutorial, the Orders button only lives during the board-facing steps.
-   * The cached flags keep the per-tick work to two boolean checks;
-   * interactivity and alpha only change on a transition. Post-tutorial both
-   * are always allowed, so this never touches them again.
+   * Tutorial rails on the bag button, from the store's railsAllow choke
+   * point (no rules here): inert and dimmed for the whole tutorial. The
+   * cached flag keeps the per-tick work to one boolean check; interactivity
+   * and alpha only change on a transition. Post-tutorial it is always
+   * allowed, so this never touches it again. (The Orders button's own rails
+   * gating moved to FarmScene in T2.22, alongside the notice board structure
+   * it now lives on.)
    */
   private applyRailsGating(): void {
     const bagAllowed = gameState.railsAllow('bag-button');
@@ -503,16 +521,6 @@ export class Hud {
         this.bagIcon.setInteractive();
       } else {
         this.bagIcon.disableInteractive();
-      }
-    }
-    const ordersAllowed = gameState.railsAllow('orders-button');
-    if (ordersAllowed !== this.ordersEnabled) {
-      this.ordersEnabled = ordersAllowed;
-      this.ordersContainer.setAlpha(ordersAllowed ? 1 : BUTTON_INERT_ALPHA);
-      if (ordersAllowed) {
-        this.ordersIcon.setInteractive();
-      } else {
-        this.ordersIcon.disableInteractive();
       }
     }
   }
@@ -606,6 +614,35 @@ export class Hud {
   }
 
   /**
+   * Suspend the coin display's normal drift-toward-state tween without
+   * starting a flight (see `chestPending`'s comment for why this is a
+   * separate flag from `coinArcsAnimating`). Called synchronously from
+   * `fulfillOrder`, in the same tick `gameState.fulfillOrder` grants a
+   * chest's coins to state (T2.23a - chests grant instantly), well before
+   * the ceremony celebrating them reaches its dismiss beat and actually
+   * flies the coins - without this the periodic refresh would silently
+   * drift the counter to the new total in the meantime.
+   */
+  holdCoinDisplay(): void {
+    this.chestPending = true;
+  }
+
+  /**
+   * Fly a chest's already-granted coins from (worldX, worldY) to the HUD
+   * counter, with the same batched arrival ticker as selling/fulfilling.
+   * `before` is the coin total immediately prior to the grant (see
+   * `holdCoinDisplay`, which must have been called when that grant happened).
+   */
+  flyChestCoins(worldX: number, worldY: number, before: number, gained: number): void {
+    this.chestPending = false;
+    if (gained <= 0) {
+      this.coinArcsAnimating = false;
+      return;
+    }
+    this.flyCoinsToCounter(worldX, worldY, before, gained);
+  }
+
+  /**
    * Batched coin arcs from a world point to the HUD coin, with the equal
    * per-arrival ticker bump and a final true-up to `before + gained`. Shared
    * choreography between selling a stack and fulfilling an order.
@@ -654,7 +691,10 @@ export class Hud {
    * (both board-owned), coins arc to the HUD counter with the usual ticker
    * choreography, a floating "+N xp" label, and a medium buzz. Level-ups
    * queued by the payout ride the existing celebration flow on the next
-   * refresh tick.
+   * refresh tick; a chest event (T2.23a - `order.premium.chests`) rides its
+   * own ceremony the same way, but must hold the coin display here,
+   * synchronously in this same call, before any refresh tick can see the
+   * chest's already-granted coins - see `holdCoinDisplay`'s comment.
    */
   private fulfillOrder(slotIndex: number, worldX: number, worldY: number): void {
     const slot = gameState.getState().orders[slotIndex];
@@ -662,6 +702,7 @@ export class Hud {
     const { order } = slot;
     const before = gameState.getState().coins;
     if (!gameState.fulfillOrder(slotIndex)) return;
+    if (order.premium?.chests) this.holdCoinDisplay();
 
     this.orderBoard.playFulfillJuice(slotIndex, order);
     this.flyCoinsToCounter(worldX, worldY, before, order.coinReward);

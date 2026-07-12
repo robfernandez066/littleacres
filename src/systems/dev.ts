@@ -17,6 +17,13 @@ export interface DevTools {
   harvest(plotIndex: number): boolean;
   /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
   testCoinArc?(n: number): void;
+  /**
+   * Toggle Phaser's input debug outlines on every currently interactive
+   * object in the Farm scene (T2.24). Registered by FarmScene. Objects made
+   * interactive AFTER the toggle is turned on need it re-clicked to pick
+   * them up too - see the overlay button's own title.
+   */
+  toggleHitboxes?(enabled: boolean): void;
 }
 
 declare global {
@@ -56,4 +63,12 @@ export function installDevTools(store: GameStateStore): void {
  */
 export function registerCoinArcTest(test: (n: number) => void): void {
   if (window.dev !== undefined) window.dev.testCoinArc = test;
+}
+
+/**
+ * Late-bind `dev.toggleHitboxes` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerHitboxToggle(toggle: (enabled: boolean) => void): void {
+  if (window.dev !== undefined) window.dev.toggleHitboxes = toggle;
 }

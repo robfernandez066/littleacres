@@ -119,6 +119,15 @@ export class DevOverlay {
       this.refresh();
     });
 
+    // Title itself carries the caveat (T2.24): objects made interactive
+    // AFTER this is turned on (e.g. a panel opened later) need it re-toggled
+    // to pick them up too - see `registerHitboxToggle`'s doc comment.
+    let hitboxesOn = false;
+    addButton('Hitboxes (re-toggle to refresh)', () => {
+      hitboxesOn = !hitboxesOn;
+      window.dev?.toggleHitboxes?.(hitboxesOn);
+    });
+
     return bar;
   }
 

@@ -102,7 +102,7 @@ Restore the farm -> unlock new crops, buildings, machines, workers, land -> vill
 - Order board with 3 active order slots (MVP as shipped; grows to 5 with rarity tiers in Phase 3 T3.6 - reconciled 2026-07-10 per design review, implementation is the decision of record).
 - No deadlines early. Timed premium orders introduced later for bonus rewards - always opt-in bonus, never a loss if missed.
 - Orders grant coins + XP; bigger orders can grant chests or Moondust.
-- Order generation weights toward crops the player can actually grow (with occasional stretch orders that tease the next unlock).
+- Order generation requests only crops the player can actually grow. (Stretch/teaser orders were tried and removed 2026-07-10 - an unfulfillable order reads as a bug, not anticipation. Anticipation lives in the seed bar's visible locked crops instead.)
 
 ### 4.5 Randomness (level B: some excitement, mostly predictable)
 
