@@ -30,6 +30,7 @@ import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
+import { MoondustArc } from '../ui/MoondustArc';
 import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { CropCountdown } from '../ui/CropCountdown';
@@ -221,6 +222,7 @@ export class FarmScene extends Phaser.Scene {
   private floatingText!: FloatingText;
   private particles!: ParticleBurst;
   private coinArc!: CoinArc;
+  private moondustArc!: MoondustArc;
   private hud!: Hud;
   private levelUpCelebration!: LevelUpCelebration;
   private onboardingGuide!: OnboardingGuide;
@@ -270,6 +272,7 @@ export class FarmScene extends Phaser.Scene {
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
+    this.moondustArc = new MoondustArc(this);
     this.cropInfoCard = new CropInfoCard(this, this.audio);
     this.seedBar = new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop));
     this.cropCountdown = new CropCountdown(this);
@@ -283,7 +286,7 @@ export class FarmScene extends Phaser.Scene {
     );
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
-    this.hud = new Hud(this, this.coinArc, this.floatingText, this.audio);
+    this.hud = new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio);
     this.createFarmhouse();
     this.createNoticeBoard();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));

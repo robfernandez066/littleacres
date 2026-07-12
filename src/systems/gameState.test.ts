@@ -1294,9 +1294,15 @@ describe('orders', () => {
       expect(state.moondust).toBe(
         moondustBefore + ONE_CHEST_ORDER.premium!.moondust + CHEST_MOONDUST_AMOUNT,
       );
-      expect(store.consumeChestEvents()).toEqual([
-        { chests: 1, coins: CHEST_COINS_MIN, moondust: CHEST_MOONDUST_AMOUNT },
+      const events = store.consumeChestEvents();
+      expect(events).toEqual([
+        { contents: [{ coins: CHEST_COINS_MIN, moondust: CHEST_MOONDUST_AMOUNT }] },
       ]);
+      // Per-chest entries sum to exactly what was granted above.
+      expect(events[0]!.contents.reduce((sum, c) => sum + c.coins, 0)).toBe(CHEST_COINS_MIN);
+      expect(events[0]!.contents.reduce((sum, c) => sum + c.moondust, 0)).toBe(
+        CHEST_MOONDUST_AMOUNT,
+      );
     });
 
     it('rolls and sums two chests worth of contents for a premium.chests: 2 order', () => {
@@ -1308,10 +1314,24 @@ describe('orders', () => {
       store.load();
       expect(store.fulfillOrder(0)).toBe(true);
       // chest 1: coins=MIN, moondust=AMOUNT (0 < chance); chest 2: coins=MAX
-      // (0.999999), moondust=0 (1 is not < the chance).
-      expect(store.consumeChestEvents()).toEqual([
-        { chests: 2, coins: CHEST_COINS_MIN + CHEST_COINS_MAX, moondust: CHEST_MOONDUST_AMOUNT },
+      // (0.999999), moondust=0 (1 is not < the chance). Individual rolls
+      // preserved, not summed.
+      const events = store.consumeChestEvents();
+      expect(events).toEqual([
+        {
+          contents: [
+            { coins: CHEST_COINS_MIN, moondust: CHEST_MOONDUST_AMOUNT },
+            { coins: CHEST_COINS_MAX, moondust: 0 },
+          ],
+        },
       ]);
+      // Per-chest entries sum to exactly what fulfillOrder granted to state.
+      expect(events[0]!.contents.reduce((sum, c) => sum + c.coins, 0)).toBe(
+        CHEST_COINS_MIN + CHEST_COINS_MAX,
+      );
+      expect(events[0]!.contents.reduce((sum, c) => sum + c.moondust, 0)).toBe(
+        CHEST_MOONDUST_AMOUNT,
+      );
     });
 
     it('does not queue a chest event on a premium order with no chests field', () => {

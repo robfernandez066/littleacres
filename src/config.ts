@@ -35,6 +35,14 @@ export const PANEL_SLICE = 18;
 export const HUD_COIN_POSITION = { x: 110, y: 86 } as const;
 
 /**
+ * Screen position of the HUD moondust counter (design space): same banner
+ * row as the coin counter (y matches HUD_COIN_POSITION), x=345 per the
+ * currency row's layout budget (see Hud.ts's currency-row comment). Moondust
+ * arcs fly here (T2.23c).
+ */
+export const HUD_MOONDUST_POSITION = { x: 345, y: 86 } as const;
+
+/**
  * Screen position of the HUD bag button (design space): the only bare icon
  * on the banner's right side, vertically centered in the strip. Harvested
  * crops fly here. The orders button retired in T2.22 (orders now open from

@@ -15,6 +15,8 @@ export interface DevTools {
   getTimeOffsetMs(): number;
   plant(plotIndex: number, cropId: CropId): boolean;
   harvest(plotIndex: number): boolean;
+  /** Overwrite every order slot with a fresh forced-premium order (T2.27). */
+  fillBoardPremium(): void;
   /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
   testCoinArc?(n: number): void;
   /**
@@ -54,6 +56,7 @@ export function installDevTools(store: GameStateStore): void {
     getTimeOffsetMs: () => getTimeOffsetMs(),
     plant: (plotIndex, cropId) => store.plantCrop(plotIndex, cropId),
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
+    fillBoardPremium: () => store.devFillBoardPremium(),
   };
 }
 

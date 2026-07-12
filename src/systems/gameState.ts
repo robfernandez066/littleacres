@@ -145,14 +145,14 @@ export interface RadiantEvent {
 /**
  * One or more chests earned from a single premium fulfillment, for the
  * scene's ceremony (see `GameStateStore.fulfillOrder`/`consumeChestEvents`).
- * `coins`/`moondust` are the SUMMED contents across `chests` chests, already
- * granted to state by the time this is queued - the ceremony is pure
- * display/juice, like `LevelUpEvent`.
+ * `contents` holds one entry per chest with its own individual roll
+ * (T2.23b - was a single summed coins/moondust pair, so the ceremony could
+ * show each chest's own loot rather than one blended total); already
+ * granted to state (summed) by the time this is queued - the ceremony is
+ * pure display/juice, like `LevelUpEvent`.
  */
 export interface ChestEvent {
-  chests: number;
-  coins: number;
-  moondust: number;
+  contents: { coins: number; moondust: number }[];
 }
 
 /**
@@ -839,6 +839,24 @@ export class GameStateStore {
   }
 
   /**
+   * Dev-only (T2.27): overwrite every order slot with a freshly generated
+   * order forced premium (premiumChance 1), all open, one save. At
+   * CHEST_UNLOCK_LEVEL+ these naturally carry chests, same as any other
+   * premium order - below that they're chestless premium, which is correct
+   * (not a bug), matching what `generateOrder` would produce for a real
+   * premium roll at the player's current level.
+   */
+  devFillBoardPremium(): void {
+    for (let i = 0; i < this.state.orders.length; i++) {
+      this.state.orders[i] = {
+        state: 'open',
+        order: generateOrder(this.state.level, this.rng, 1),
+      };
+    }
+    this.save();
+  }
+
+  /**
    * Fulfill an open order: every requested item leaves the inventory, coins
    * gain the order's stored coinReward, xp gains its stored xpReward through
    * the applyXp choke point (so level-ups ride the celebration queue),
@@ -880,21 +898,28 @@ export class GameStateStore {
   /**
    * Roll `count` chests' worth of contents (each: a coin amount uniform in
    * [CHEST_COINS_MIN, CHEST_COINS_MAX], plus CHEST_MOONDUST_AMOUNT moondust
-   * with CHEST_MOONDUST_CHANCE), sum them, and grant the total to state
-   * immediately - state-first, so a ceremony lost to an app close before the
-   * scene drains `consumeChestEvents` only loses the show, same philosophy
-   * as level-ups. Caller (`fulfillOrder`) owns the save.
+   * with CHEST_MOONDUST_CHANCE), grant the summed total to state immediately
+   * - state-first, so a ceremony lost to an app close before the scene
+   * drains `consumeChestEvents` only loses the show, same philosophy as
+   * level-ups - and queue the individual per-chest rolls (T2.23b) so the
+   * ceremony can show each chest's own loot. Caller (`fulfillOrder`) owns
+   * the save.
    */
   private grantChests(count: number): void {
-    let coins = 0;
-    let moondust = 0;
+    const contents: { coins: number; moondust: number }[] = [];
+    let totalCoins = 0;
+    let totalMoondust = 0;
     for (let i = 0; i < count; i++) {
-      coins += CHEST_COINS_MIN + Math.floor(this.rng() * (CHEST_COINS_MAX - CHEST_COINS_MIN + 1));
-      if (this.rng() < CHEST_MOONDUST_CHANCE) moondust += CHEST_MOONDUST_AMOUNT;
+      const coins =
+        CHEST_COINS_MIN + Math.floor(this.rng() * (CHEST_COINS_MAX - CHEST_COINS_MIN + 1));
+      const moondust = this.rng() < CHEST_MOONDUST_CHANCE ? CHEST_MOONDUST_AMOUNT : 0;
+      contents.push({ coins, moondust });
+      totalCoins += coins;
+      totalMoondust += moondust;
     }
-    this.state.coins += coins;
-    this.state.moondust += moondust;
-    this.chestQueue.push({ chests: count, coins, moondust });
+    this.state.coins += totalCoins;
+    this.state.moondust += totalMoondust;
+    this.chestQueue.push({ contents });
   }
 
   /**

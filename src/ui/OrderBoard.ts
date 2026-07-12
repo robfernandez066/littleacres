@@ -129,24 +129,45 @@ const MAX_CLUSTERS = 3;
  * down (was 90) so the row's bottom edge (the coin icon's, the tallest
  * element) clears the card's bottom border (CARD_HEIGHT / 2 = 180) by ~24px:
  * 180 - 21.6 - 134 = 24.4.
- * X positions are measured-verified against the widest realistic values (a
- * 4-digit coin reward, "9999" at REWARD_COIN_STYLE's 38px bold - about 92px)
- * so no column ever overlaps its neighbor or the relocated button column
- * (left edge at local x 176, see FULFILL_BUTTON_X/WIDTH below):
- *   xp   -360 .. ~-170  (up to "+9999 xp", ~190px)
- *   coin icon -140 (±21.6), text -105 .. ~-13  ("9999", ~92px)
- *   moondust icon 30 (±19.2), text 58 .. ~130  ("+99", generous)
- *   chest icon (T2.25) - see REWARD_CHEST_ICON_X's own comment
- * leaving >45px clearance to the button column in the worst case.
+ *
+ * X positions (T2.23b even-gap rework - moondust dropped its "+" to read as
+ * a bare number like coin, so the whole row was re-measured and re-spaced):
+ * every neighbor-to-neighbor GAP (measured edge to edge - text left-aligned
+ * from its own X, icons centered on theirs) is the same ~32px, computed from
+ * REWARD_XP_TEXT_X (unchanged anchor, -360) forward using the widest
+ * realistic value per column, all measured live via canvas measureText at
+ * each style's real font (bold Arial, 38px for xp/coin/moondust):
+ *   xp        "+110 xp"  138.40px   right edge -221.60
+ *   coin icon 43.2px (96px frame @ REWARD_COIN_SCALE 0.45), text "9999" 84.54px
+ *   moondust  38.4px (96px frame @ REWARD_MOONDUST_SCALE 0.4), text "2" 21.13px
+ *     (bare, PREMIUM_MOONDUST_MAX is 2 - a single digit is the true worst case)
+ *   chest icon 43.2px (128px frame @ CHEST_ICON_SCALE, matched to the coin
+ *     icon's display size) plus its "x2" badge (24.47px wide, 22px bold Arial,
+ *     centered on the icon's bottom-right corner - see CHEST_BADGE_OFFSET)
+ * Final column X's, each solved so the previous column's measured right edge
+ * plus the 32px gap lands on this column's left edge (icon-to-text within a
+ * column, coin's and moondust's alike, is a separate fixed 16px):
+ *   xp          -360            (right edge -221.60)
+ *   coin icon   -168    (±21.6  -> left edge -189.60, 32.0px clear of xp)
+ *   coin text   -130.4          (right edge -45.86)
+ *   moondust icon  5.33 (±19.2  -> left edge -13.87, 32.0px clear of coin text)
+ *   moondust text 40.53         (right edge 62.13)
+ *   chest icon   115.27 (±21.6  -> left edge 93.67, 31.5px clear of moondust
+ *     text; right edge 136.87; badge right edge ~149.1)
+ * leaving 176 - 149.1 = ~26.9px clearance from the badge (the row's true
+ * rightmost pixel) to the button column (left edge at local x 176, see
+ * FULFILL_BUTTON_X/WIDTH below) - still >= the 16px floor. Verified live in
+ * the browser against a 4-digit coin reward, a 2-chest x2 badge, and the
+ * "+110 xp" / "2" widest text together on one card (T2.23b's report).
  */
 const REWARD_ROW_Y = 134;
 const REWARD_XP_TEXT_X = -360;
-const REWARD_COIN_ICON_X = -140;
+const REWARD_COIN_ICON_X = -168;
 const REWARD_COIN_SCALE = 0.45;
-const REWARD_COIN_TEXT_X = -105;
+const REWARD_COIN_TEXT_X = -130.4;
 const REWARD_MOONDUST_SCALE = 0.4;
-const REWARD_MOONDUST_ICON_X = 30;
-const REWARD_MOONDUST_TEXT_X = 58;
+const REWARD_MOONDUST_ICON_X = 5.33;
+const REWARD_MOONDUST_TEXT_X = 40.53;
 
 /** Left-aligned above the reward row's leftmost column (xp), on every card. */
 const REWARD_LABEL_CLEARANCE = 6;
@@ -159,17 +180,11 @@ const REWARD_LABEL_CLEARANCE = 6;
  * reward row sits at its one fixed REWARD_ROW_Y on every card again.
  * Sized to match the coin icon's rendered display height (both are square
  * frames: coin 96px @ 0.45 = 43.2px, chest 128px, so scale = 0.45 * 96/128).
- * X measured live (canvas measureText, REWARD_MOONDUST_STYLE's bold 38px
- * Arial) against the true widest moondust value - "+2" (PREMIUM_MOONDUST_MAX
- * is 2, so the "~130/generous" estimate in REWARD_ROW_Y's comment above never
- * actually renders) - "+2" measures 43.3px, so the moondust column's real
- * worst-case right edge is 58 + 43.3 = 101.3, not ~130:
- *   moondust text right edge ~101.3
- *   chest icon 135 (±21.6) -> left edge 113.4 (12px clear of moondust text),
- *     right edge 156.6 (19.4px clear of the button column's left edge, 176)
- * Both clearances live-verified in the browser (T2.25's report).
+ * X is the fourth even-gap column - see the block comment above REWARD_ROW_Y
+ * for the full measured derivation and the badge's clearance to the button
+ * column.
  */
-const REWARD_CHEST_ICON_X = 135;
+const REWARD_CHEST_ICON_X = 115.27;
 const CHEST_ICON_SCALE = (REWARD_COIN_SCALE * 96) / 128;
 /** Both axes: half the chest icon's square display size (128 * scale / 2),
  * so the badge centers exactly on the icon's bottom-right corner point. */
@@ -794,7 +809,9 @@ export class OrderBoard {
     card.rewardMoondustIcon.setVisible(isPremium);
     card.rewardMoondustText.setVisible(isPremium);
     if (isPremium) {
-      card.rewardMoondustText.setText(`+${order.premium!.moondust}`);
+      // Bare number, matching the coin value's format (T2.23b) - the unit
+      // label is what makes xp's "+N xp" a different element class.
+      card.rewardMoondustText.setText(String(order.premium!.moondust));
     }
 
     // Chest reward icon (T2.25): fourth reward-row column, fixed x/y like

@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 
+import { MAX_LEVEL } from '../data/levels';
 import { gameState } from '../systems/gameState';
 import { getPoolStatsRegistry } from '../systems/pool';
 import { advanceTime, getTimeOffsetMs } from '../systems/time';
@@ -116,6 +117,14 @@ export class DevOverlay {
     });
     addButton('Warp +60m', () => {
       advanceTime(3_600_000);
+      this.refresh();
+    });
+    addButton('Max level', () => {
+      window.dev?.setLevel(MAX_LEVEL);
+      this.refresh();
+    });
+    addButton('Premium board', () => {
+      window.dev?.fillBoardPremium();
       this.refresh();
     });
 

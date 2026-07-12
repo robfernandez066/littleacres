@@ -1,6 +1,12 @@
 import Phaser from 'phaser';
 
-import { ATLAS_KEY, BAG_POSITION, DESIGN_WIDTH, HUD_COIN_POSITION } from '../config';
+import {
+  ATLAS_KEY,
+  BAG_POSITION,
+  DESIGN_WIDTH,
+  HUD_COIN_POSITION,
+  HUD_MOONDUST_POSITION,
+} from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import type { AudioManager } from '../systems/audio';
@@ -11,6 +17,7 @@ import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
 import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
+import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
 import { SettingsPanel } from './SettingsPanel';
 
@@ -106,21 +113,20 @@ const COIN_DRIFT_DURATION_MS = 300;
  * Currency icons: ONE horizontal row inside the slim strip (T2.13a had them
  * stacked in two rows, which only fit a taller banner that's gone now),
  * vertically centered at BANNER_CENTER_Y. The coin icon sits exactly at
- * HUD_COIN_POSITION - the shared constant CoinArc also flies to - so
- * arriving coins land right on the counter. HUD_COIN_POSITION.x is 110, not
- * flush against the left slice boundary (60): live review at coins=100193
- * showed the coin icon visibly overlapping the left vine curl (native x
- * 2..51, unscaled 1:1 in the slice) at x=85 - 110 clears it with a real
- * margin. Layout budget: the crest's left overhang edge sits at
+ * HUD_COIN_POSITION and the moondust icon at HUD_MOONDUST_POSITION - the
+ * shared constants CoinArc/MoondustArc also fly to (T2.23c) - so arriving
+ * coins/moondust land right on their counters. HUD_COIN_POSITION.x is 110,
+ * not flush against the left slice boundary (60): live review at
+ * coins=100193 showed the coin icon visibly overlapping the left vine curl
+ * (native x 2..51, unscaled 1:1 in the slice) at x=85 - 110 clears it with a
+ * real margin. Layout budget: the crest's left overhang edge sits at
  * 540 - 160/2 = 460, so coin icon + text + gap + moondust icon + text must
  * all land left of that even at a 5-digit coin count (MEASURED live: at
  * coins=100193 the coin text alone reaches ~x=290 at this offset - moondust
  * follows with room to spare assuming a realistic 1-2 digit moondust count).
  */
 const CURRENCY_ICON_SIZE = 60;
-const CURRENCY_Y = BANNER_CENTER_Y;
 const COIN_TEXT_OFFSET_X = 50;
-const MOONDUST_X = 345;
 /** Matches COIN_TEXT_OFFSET_X so both counts left-align on their first digit. */
 const MOONDUST_TEXT_OFFSET_X = 50;
 
@@ -268,16 +274,37 @@ export class Hud {
    * over blocking duty for the fly's own short duration from there.
    */
   private chestPending = false;
+
+  /**
+   * Animated display value; ticks toward `gameState`'s true moondust count -
+   * mirrors `coinDisplay` exactly (T2.23c).
+   */
+  private readonly moondustDisplay = { value: 0 };
+  private moondustTween: Phaser.Tweens.Tween | null = null;
+  /** While true, the periodic refresh leaves the moondust ticker to in-flight moondust arcs. */
+  private moondustArcsAnimating = false;
+  /**
+   * Same hold-during-a-deferred-ceremony gate as `chestPending`, for
+   * moondust: a chest's bonus moondust is granted to state instantly at
+   * fulfillment but its arc doesn't fly until the ceremony's dismiss beat,
+   * which may be many ticks away. Set synchronously in `fulfillOrder`
+   * alongside `chestPending` via `holdMoondustDisplay`; cleared the instant
+   * `flyChestMoondust` runs.
+   */
+  private moondustPending = false;
+
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
   private readonly settingsPanel: SettingsPanel;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly coinArc: CoinArc,
+    private readonly moondustArc: MoondustArc,
     private readonly floatingText: FloatingText,
     private readonly audio: AudioManager,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
+    this.moondustDisplay.value = gameState.getState().moondust;
 
     // Banner strip first, so everything else on the banner draws on top of it.
     this.scene.add
@@ -337,11 +364,16 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
     this.scene.add
-      .image(MOONDUST_X, CURRENCY_Y, ATLAS_KEY, 'moondust')
+      .image(HUD_MOONDUST_POSITION.x, HUD_MOONDUST_POSITION.y, ATLAS_KEY, 'moondust')
       .setDisplaySize(CURRENCY_ICON_SIZE, CURRENCY_ICON_SIZE)
       .setDepth(HUD_DEPTH);
     this.moondustText = this.scene.add
-      .text(MOONDUST_X + MOONDUST_TEXT_OFFSET_X, CURRENCY_Y, '0', CURRENCY_STYLE)
+      .text(
+        HUD_MOONDUST_POSITION.x + MOONDUST_TEXT_OFFSET_X,
+        HUD_MOONDUST_POSITION.y,
+        formatCurrency(this.moondustDisplay.value),
+        CURRENCY_STYLE,
+      )
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
@@ -485,9 +517,9 @@ export class Hud {
 
     this.updateLevelText(state.level);
     this.updateXpBar(state.level, state.xp);
-    this.moondustText.setText(formatCurrency(state.moondust));
 
     if (!this.coinArcsAnimating && !this.chestPending) this.driftCoinsTo(state.coins);
+    if (!this.moondustArcsAnimating && !this.moondustPending) this.driftMoondustTo(state.moondust);
 
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
@@ -676,6 +708,88 @@ export class Hud {
     });
   }
 
+  /** Tween the moondust display toward `target`; a no-op if already there. Mirrors `driftCoinsTo`. */
+  private driftMoondustTo(target: number): void {
+    if (Math.round(this.moondustDisplay.value) === target) return;
+    this.moondustTween?.stop();
+    this.moondustTween = this.scene.tweens.add({
+      targets: this.moondustDisplay,
+      value: target,
+      duration: COIN_DRIFT_DURATION_MS,
+      ease: 'Sine.easeOut',
+      onUpdate: () => this.moondustText.setText(formatCurrency(this.moondustDisplay.value)),
+    });
+  }
+
+  /**
+   * Suspend the moondust display's normal drift-toward-state tween without
+   * starting a flight - mirrors `holdCoinDisplay` exactly (T2.23c), for the
+   * same reason: a chest's bonus moondust grants to state instantly at
+   * fulfillment (see `gameState.fulfillOrder`/`grantChests`), well before the
+   * ceremony celebrating it reaches its dismiss beat and actually flies it.
+   */
+  holdMoondustDisplay(): void {
+    this.moondustPending = true;
+  }
+
+  /**
+   * Fly a multi-chest event's already-granted moondust to the HUD counter.
+   * Unlike `flyChestCoins` (one combined arc - the ceremony sums every
+   * chest's coins into a single launch point), each chest shows its own
+   * moondust icon, so `origins` carries one launch point + count per chest
+   * that actually rolled moondust > 0; every arrival across every origin
+   * shares one ticker and one final true-up to `before + totalGained`.
+   * `before` is the moondust total immediately prior to the chest grant (see
+   * `holdMoondustDisplay`, which must have been called when that grant
+   * happened).
+   */
+  flyChestMoondust(
+    origins: readonly { x: number; y: number; count: number }[],
+    before: number,
+    totalGained: number,
+  ): void {
+    this.moondustPending = false;
+    if (totalGained <= 0) {
+      this.moondustArcsAnimating = false;
+      return;
+    }
+    this.flyMoondustToCounter(origins, before, totalGained);
+  }
+
+  /**
+   * Batched moondust arcs from one or more origins to the HUD moondust
+   * counter, with an equal per-arrival ticker bump shared across every
+   * origin and a final true-up to `before + totalGained` on the very last
+   * arrival - mirrors `flyCoinsToCounter`, generalized to more than one
+   * launch point.
+   */
+  private flyMoondustToCounter(
+    origins: readonly { x: number; y: number; count: number }[],
+    before: number,
+    totalGained: number,
+  ): void {
+    this.moondustTween?.stop();
+    this.moondustArcsAnimating = true;
+    const target = before + totalGained;
+    const arrivals = origins.reduce(
+      (sum, origin) => sum + Math.min(Math.max(origin.count, 0), MAX_MOONDUST_PER_FLY),
+      0,
+    );
+    const share = Math.floor(totalGained / arrivals);
+    let arrived = 0;
+
+    for (const origin of origins) {
+      if (origin.count <= 0) continue;
+      this.moondustArc.fly(origin.x, origin.y, origin.count, () => {
+        arrived++;
+        this.moondustDisplay.value =
+          arrived >= arrivals ? target : this.moondustDisplay.value + share;
+        this.moondustText.setText(formatCurrency(this.moondustDisplay.value));
+        if (arrived >= arrivals) this.moondustArcsAnimating = false;
+      });
+    }
+  }
+
   /**
    * Sell an entire crop stack: batched coin arcs from the sell button to the
    * HUD coin, an equal per-arrival ticker bump with a final true-up, a
@@ -701,23 +815,40 @@ export class Hud {
    * Fulfill an order: the store validates and pays out, then one beat of
    * juice - goods arc from the card to the villager and the card stamps
    * (both board-owned), coins arc to the HUD counter with the usual ticker
-   * choreography, a floating "+N xp" label, and a medium buzz. Level-ups
-   * queued by the payout ride the existing celebration flow on the next
-   * refresh tick; a chest event (T2.23a - `order.premium.chests`) rides its
-   * own ceremony the same way, but must hold the coin display here,
+   * choreography, a premium order's own moondust reward arcs there too
+   * (T2.23c - from the same world point the coins launch from), a floating
+   * "+N xp" label, and a medium buzz. Level-ups queued by the payout ride the
+   * existing celebration flow on the next refresh tick; a chest event
+   * (T2.23a - `order.premium.chests`) rides its own ceremony the same way -
+   * its bonus coins AND moondust - but must hold both displays here,
    * synchronously in this same call, before any refresh tick can see the
-   * chest's already-granted coins - see `holdCoinDisplay`'s comment.
+   * chest's already-granted totals - see `holdCoinDisplay`/
+   * `holdMoondustDisplay`'s comments. The order's OWN moondust reward is
+   * never held, even when chests are present: it flies immediately here,
+   * exactly like the order's own coinReward - only the chest's bonus on top
+   * of it is deferred.
    */
   private fulfillOrder(slotIndex: number, worldX: number, worldY: number): void {
     const slot = gameState.getState().orders[slotIndex];
     if (slot === undefined || slot.state !== 'open') return;
     const { order } = slot;
-    const before = gameState.getState().coins;
+    const coinsBefore = gameState.getState().coins;
+    const moondustBefore = gameState.getState().moondust;
     if (!gameState.fulfillOrder(slotIndex)) return;
-    if (order.premium?.chests) this.holdCoinDisplay();
+    if (order.premium?.chests) {
+      this.holdCoinDisplay();
+      this.holdMoondustDisplay();
+    }
 
     this.orderBoard.playFulfillJuice(slotIndex, order);
-    this.flyCoinsToCounter(worldX, worldY, before, order.coinReward);
+    this.flyCoinsToCounter(worldX, worldY, coinsBefore, order.coinReward);
+    if (order.premium) {
+      this.flyMoondustToCounter(
+        [{ x: worldX, y: worldY, count: order.premium.moondust }],
+        moondustBefore,
+        order.premium.moondust,
+      );
+    }
     this.floatingText.show(worldX, worldY + FULFILL_XP_LABEL_OFFSET_Y, `+${order.xpReward} xp`, {
       color: '#fff3c4',
       fontSize: 44,
