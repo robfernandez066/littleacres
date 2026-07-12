@@ -24,6 +24,8 @@ const PANEL_DEPTH = 2100;
 const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
 const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
 const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
+/** Minimum gap (px) the title's shrink-to-fit must leave clear of the close X. */
+const TITLE_CLOSE_CLEARANCE_PX = 16;
 
 const ROW_START_Y = -170;
 const ROW_SPACING = 75;
@@ -77,6 +79,7 @@ export class OfflineSummaryPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
   private readonly titleText: Phaser.GameObjects.Text;
+  private readonly closeButton: Phaser.GameObjects.Text;
   /** One pooled row per crop type - shown/positioned only for crops with a nonzero ready count. */
   private readonly rowIcons: Phaser.GameObjects.Image[] = [];
   private readonly rowTexts: Phaser.GameObjects.Text[] = [];
@@ -117,12 +120,12 @@ export class OfflineSummaryPanel {
     );
 
     this.titleText = scene.add.text(0, TITLE_Y, '', TITLE_STYLE).setOrigin(0.5);
-    const closeButton = scene.add
+    this.closeButton = scene.add
       .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
       .setOrigin(0.5)
       .setPadding(16)
       .setInteractive({ useHandCursor: true });
-    closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
+    this.closeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.hide());
 
     const confirmButton = scene.add
       .nineslice(
@@ -144,7 +147,7 @@ export class OfflineSummaryPanel {
       this.hide();
     });
 
-    this.container.add([bg, this.titleText, closeButton, confirmButton, confirmText]);
+    this.container.add([bg, this.titleText, this.closeButton, confirmButton, confirmText]);
 
     Object.values(CROPS).forEach((crop, index) => {
       const y = ROW_START_Y + index * ROW_SPACING;
@@ -162,7 +165,15 @@ export class OfflineSummaryPanel {
   /** Populate and show the panel from a computed offline summary. */
   show(summary: OfflineSummary): void {
     this.titleText.setText(`While You Were Away for ${formatAwayDuration(summary.elapsedMs)}`);
-    this.titleText.setScale(Math.min(1, (PANEL_WIDTH - 80) / this.titleText.width));
+    // The title is centered on the panel (origin 0.5, x=0), so its scaled
+    // half-width must clear the close button's left edge by the clearance -
+    // capped at the old flat width too, for a short duration's title.
+    const closeLeftEdge = CLOSE_OFFSET_X - this.closeButton.width / 2;
+    const maxTitleWidth = Math.min(
+      PANEL_WIDTH - 80,
+      (closeLeftEdge - TITLE_CLOSE_CLEARANCE_PX) * 2,
+    );
+    this.titleText.setScale(Math.min(1, maxTitleWidth / this.titleText.width));
     const readyCrops = Object.values(CROPS).filter(
       (crop) => (summary.readyCounts[crop.id] ?? 0) > 0,
     );

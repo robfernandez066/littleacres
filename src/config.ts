@@ -26,16 +26,23 @@ export const TILE_DIAMOND_CENTER_Y = 64;
 export const PANEL_SLICE = 18;
 
 /**
- * Screen position of the HUD coin counter (design space). Coin arcs fly here;
- * the counter itself renders here starting next task.
+ * Screen position of the HUD coin counter (design space), on the banner's
+ * left side, vertically centered in the slim strip (y 14..158, center 86).
+ * x=110, not flush against the left slice boundary (60): live review found
+ * the coin icon visibly overlapping the left vine curl (native x 2..51,
+ * unscaled 1:1 in the slice) at x=85. Coin arcs fly here.
  */
-export const HUD_COIN_POSITION = { x: 140, y: 120 } as const;
+export const HUD_COIN_POSITION = { x: 110, y: 86 } as const;
 
-/** Screen position of the HUD bag button (design space); harvested crops fly here. */
-export const BAG_POSITION = { x: 940, y: 190 } as const;
+/**
+ * Screen position of the HUD bag button (design space): the left of the two
+ * bare icons on the banner's right side, vertically centered in the strip.
+ * Harvested crops fly here.
+ */
+export const BAG_POSITION = { x: 834, y: 86 } as const;
 
-/** Screen position of the HUD orders button, stacked below the bag. */
-export const ORDERS_BUTTON_POSITION = { x: 940, y: 310 } as const;
+/** Screen position of the HUD orders button: the right of the two banner icons. */
+export const ORDERS_BUTTON_POSITION = { x: 950, y: 86 } as const;
 
 /**
  * Off-screen-right point the fulfilled order goods fly to - "handed to the
