@@ -430,6 +430,18 @@ export class Hud {
   }
 
   /**
+   * Close every Hud-owned panel (bag/orders/settings) - used when an
+   * externally owned modal exclusive with them (the crop info card, T2.15)
+   * opens, mirroring the same closing calls `toggleOrderBoard` and the
+   * bag/gear handlers already make for each other.
+   */
+  closePanels(): void {
+    this.inventoryPanel.hide();
+    this.orderBoard.hide();
+    this.settingsPanel.hide();
+  }
+
+  /**
    * A bare, centered icon (no background frame, no label - the tutorial's
    * glow teaches it) with a hit area covering its own measured opaque
    * bounds plus a pad - see BAG_OPAQUE_BOUNDS's comment. FRAME-relative

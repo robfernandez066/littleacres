@@ -35,6 +35,21 @@ export interface CropDef {
   xp: number;
   /** Minimum player level required to plant. */
   unlockLevel: number;
+  /** Flavor line shown on the crop's info card. Config only, no save impact. */
+  flavor: string;
+}
+
+/**
+ * Human-readable grow time for the info card: "30 sec" under a minute,
+ * "2 min" for whole minutes, "2 min 30 sec" otherwise. A pure function (not a
+ * UI file) so it stays unit-testable without a Phaser scene.
+ */
+export function formatGrowMs(ms: number): string {
+  const totalSec = Math.round(ms / 1000);
+  if (totalSec < 60) return `${totalSec} sec`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  return sec === 0 ? `${min} min` : `${min} min ${sec} sec`;
 }
 
 /** Balance numbers are provisional and will be tuned later. */
@@ -49,6 +64,7 @@ export const CROPS: Record<CropId, CropDef> = {
     growMs: 30_000,
     xp: 2,
     unlockLevel: 1,
+    flavor: 'The first thing every farmer plants, and the last thing they stop loving.',
   },
   starcorn: {
     id: 'starcorn',
@@ -61,6 +77,7 @@ export const CROPS: Record<CropId, CropDef> = {
     growMs: 120_000,
     xp: 9,
     unlockLevel: 2,
+    flavor: 'Each kernel holds a little starlight from the night it was sown.',
   },
   glowberry: {
     id: 'glowberry',
@@ -72,6 +89,7 @@ export const CROPS: Record<CropId, CropDef> = {
     growMs: 300_000,
     xp: 15,
     unlockLevel: 3,
+    flavor: 'Villagers swear the mere glows a touch brighter after every harvest.',
   },
   moonroot: {
     id: 'moonroot',
@@ -83,6 +101,7 @@ export const CROPS: Record<CropId, CropDef> = {
     growMs: 480_000,
     xp: 28,
     unlockLevel: 4,
+    flavor: 'It grows by moonlight, and sulks a little on cloudy nights.',
   },
   emberpepper: {
     id: 'emberpepper',
@@ -94,5 +113,6 @@ export const CROPS: Record<CropId, CropDef> = {
     growMs: 1_200_000,
     xp: 70,
     unlockLevel: 5,
+    flavor: 'Warm to the touch, warmer in a stew. It never seems to burn out.',
   },
 };

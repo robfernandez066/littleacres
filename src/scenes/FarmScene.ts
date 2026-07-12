@@ -10,7 +10,7 @@ import {
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
 } from '../config';
-import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropId } from '../data/crops';
+import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
@@ -25,6 +25,7 @@ import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { ChestCeremony } from '../ui/ChestCeremony';
 import { CoinArc } from '../ui/CoinArc';
+import { cropToInfoDef, CropInfoCard } from '../ui/CropInfoCard';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
@@ -214,6 +215,7 @@ export class FarmScene extends Phaser.Scene {
   private popActive: boolean[] = [];
   private refreshAccumulatorMs = 0;
   private seedBar!: SeedBar;
+  private cropInfoCard!: CropInfoCard;
   private replantChip!: ReplantChip;
   private cropCountdown!: CropCountdown;
   private floatingText!: FloatingText;
@@ -268,7 +270,8 @@ export class FarmScene extends Phaser.Scene {
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);
-    this.seedBar = new SeedBar(this, this.audio);
+    this.cropInfoCard = new CropInfoCard(this, this.audio);
+    this.seedBar = new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop));
     this.cropCountdown = new CropCountdown(this);
     this.replantChip = new ReplantChip(
       this,
@@ -403,6 +406,16 @@ export class FarmScene extends Phaser.Scene {
   /** Current row count (3 base, 4 once expanded), derived from saved plot count. */
   private rowCount(): number {
     return gameState.getState().plots.length / FARM_COLS;
+  }
+
+  /**
+   * Open the crop info card from a seed bar "i" tap: closes the bag/orders/
+   * settings panels first, the established panel-exclusivity behavior (see
+   * `Hud.closePanels`), then shows the tapped crop's info.
+   */
+  private showCropInfo(crop: CropDef): void {
+    this.hud.closePanels();
+    this.cropInfoCard.show(cropToInfoDef(crop));
   }
 
   /**

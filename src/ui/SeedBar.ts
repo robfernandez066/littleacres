@@ -39,6 +39,24 @@ const SHAKE_DISTANCE = 10;
 /** Min gap between insufficient-coins nudges so a drag cannot spam them. */
 const SHAKE_THROTTLE_MS = 400;
 
+/**
+ * Info badge: a small drawn circle at the button's top-right corner, hanging
+ * half off the corner. 30px diameter with a 48px square hit area (T2.15, per
+ * CLAUDE.md's hit-area rule) - FRAME-RELATIVE to the circle's own 30x30
+ * geometry (0,0 at its top-left), not centered on its display origin.
+ */
+const BADGE_RADIUS = 15;
+const BADGE_OFFSET_X = BUTTON_WIDTH / 2 - 12;
+const BADGE_OFFSET_Y = -BUTTON_HEIGHT / 2 + 12;
+const BADGE_HIT_SIZE = 48;
+const BADGE_COLOR = 0x4a3218;
+const BADGE_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '22px',
+  fontStyle: 'italic bold',
+  color: '#fff3c4',
+};
+
 const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '24px',
@@ -87,6 +105,7 @@ export class SeedBar {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly audio: AudioManager,
+    private readonly onInfoTap: (crop: CropDef) => void,
   ) {
     const crops = Object.values(CROPS);
     crops.forEach((crop, index) => {
@@ -241,6 +260,8 @@ export class SeedBar {
     panel.setInteractive({ useHandCursor: true });
     panel.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.onTap(crop.id));
 
+    this.buildInfoBadge(container, crop);
+
     return {
       crop,
       container,
@@ -253,6 +274,50 @@ export class SeedBar {
       lastFlashAt: -Infinity,
       flashTimer: null,
     };
+  }
+
+  /**
+   * The "i" info badge: present on every button, locked included (info is
+   * how you learn what you're working toward), added last so it draws atop
+   * the panel. Its own tap stops propagation so it never reaches the panel's
+   * seed-selection handler beneath it.
+   */
+  private buildInfoBadge(container: Phaser.GameObjects.Container, crop: CropDef): void {
+    const badge = this.scene.add
+      .circle(BADGE_OFFSET_X, BADGE_OFFSET_Y, BADGE_RADIUS, BADGE_COLOR)
+      .setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(
+          (BADGE_RADIUS * 2 - BADGE_HIT_SIZE) / 2,
+          (BADGE_RADIUS * 2 - BADGE_HIT_SIZE) / 2,
+          BADGE_HIT_SIZE,
+          BADGE_HIT_SIZE,
+        ),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: true,
+      });
+    const badgeText = this.scene.add
+      .text(BADGE_OFFSET_X, BADGE_OFFSET_Y, 'i', BADGE_TEXT_STYLE)
+      .setOrigin(0.5);
+    badge.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        this.onBadgeTap(crop);
+      },
+    );
+    container.add([badge, badgeText]);
+  }
+
+  /** Inert while onboarding is active - the tutorial owns the player's attention. */
+  private onBadgeTap(crop: CropDef): void {
+    if (!gameState.getState().onboarding.completed) return;
+    this.audio.sfx('tap');
+    this.onInfoTap(crop);
   }
 
   private onTap(cropId: CropId): void {

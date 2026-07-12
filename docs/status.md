@@ -6,20 +6,20 @@
 
 ## Active
 
-- **T2.24** (coder, in flight; FOLLOW-UP in the long session): teaser-order removal + bag full-sprite hit box + dev-overlay hitbox visualizer. Report pending.
-- **Uncommitted stack awaiting one combined test + commit:** T2.22 (notice board + farmhouse), T2.22a (layout swap + frame-relative hit-area root fix), T2.23/T2.23a (chest rework: card-listed chests, fulfill-time ceremony, v10 reverted), T2.24. Commit only after the user's combined playtest.
-- **Session policy note:** current coder session ran 4 tasks (policy drift, corrected) - /clear after T2.24; next task is FRESH.
+- **T2.25** (coder, FRESH, Sonnet): chest card simplification - text line out, compact icon into the reward row. Prompt delivered.
+- 2026-07-10 mega-stack (T2.22 series, T2.23 series, T2.24) COMMITTED + PUSHED after full combined playtest (all items passed incl. fresh tutorial; dirt path verdict: GOOD, needs blend dressing).
 
 ## Queue (in order)
 
-1. Dirt path placement round (dirt_path.png staged; attempt-then-verdict, mere lesson applies)
-2. COMBINED USER TEST of the whole uncommitted stack -> one commit + push (+ Actions green)
-3. T2.15 seed info button ("i" on seed buttons: grow time, cost, sell, xp + flavor line; PM writes copy; card pattern reusable for Phase 4 recipes)
+1. T2.25 chest card simplification (chest = the mystery bonus; icon-only advertisement, ceremony pays it off - user + PM aligned)
+2. T2.15 seed info button ("i" on seed buttons: grow time, cost, sell, xp + flavor line; PM writes copy; card pattern reusable for Phase 4 recipes)
+3. Scene-blend round (art in generation): flat seamless grass tile attempt (kills the taped-on grid lines - predicted in the original art-direction log) + tuft/stone/dirt decals dressing the road edges; MUST re-verify at 16 plots (grid grows toward the road)
 4. PHASE 2 GATE: external playtest round - 3-5 fresh installs (user-approved), PM triages notes as a mini-gate
 5. Post-gate: Phase 3 planning (balance-v1.xlsx is the economy source of truth)
 
 ## Waiting on user (whenever convenient)
 
+- Blend-batch Sprixen picks: grass_flat, tuft_1/2, stones_1, dirt_wisp (prompts delivered 2026-07-10)
 - chest.mp3 (Pixabay: short treasure-chest open, <2s) - ceremony ships without it until staged
 
 ## Backlog nits (fold into convenient tasks)
