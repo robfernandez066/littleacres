@@ -270,7 +270,7 @@ Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, or
 
 ## 12. Open Questions (for future rounds)
 
-- ~~Exact farm-level curve and coin economy numbers~~ - resolved: balance sheet v1 (2026-07-10) and v2 (2026-07-12), docs/balance-v1.xlsx, exported into src/data/
+- ~~Exact farm-level curve and coin economy numbers~~ - resolved: balance sheet, current version docs/balance-v2.xlsx (blessed 2026-07-12; v1 archived in docs/archive/), exported into src/data/
 - Worker acquisition model: found? hatched? built? hired with Moondust?
 - Land expansion shape: outward rings vs. distinct themed regions
 - Whether player level (account-wide) is worth keeping separate from farm level, or should merge

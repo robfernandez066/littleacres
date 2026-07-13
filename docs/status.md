@@ -20,7 +20,7 @@
 
 - sagesprig_0/1/2 Sprixen picks (prompts delivered)
 - chest.mp3 (Pixabay: short treasure-chest open, <2s) - ceremony ships without it until staged
-- Confirm docs/balance-v2.xlsx was copied from the outputs folder into docs/ (v1 is confirmed there)
+- balance-v2.xlsx re-delivered 2026-07-13: save it as docs/balance-v2.xlsx and move v1 to docs/archive/balance-v1.xlsx (commands provided in chat)
 
 ## Backlog nits (fold into convenient tasks)
 

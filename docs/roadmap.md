@@ -173,4 +173,4 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 
 - Phases 3 and 4 can partially interleave; workers (5) hard-depend on buildings (4.1) and storage (3.2).
 - Every phase ends with a "play it" gate. The roadmap is allowed to change after each gate - it's a plan, not a contract.
-- Balancing spreadsheet: BUILT (v1 blessed 2026-07-10 - docs/balance-v1.xlsx; v2 blessed 2026-07-12, delivered via outputs); remains the single source of truth exported into `src/data/`. (Originally planned "alongside Phase 3"; moved to NOW by the 2026-07-10 re-cut.)
+- Balancing spreadsheet: BUILT - docs/balance-v2.xlsx (v1 blessed 2026-07-10, v2 blessed 2026-07-12; superseded versions live in docs/archive/); remains the single source of truth exported into `src/data/`. (Originally planned "alongside Phase 3"; moved to NOW by the 2026-07-10 re-cut.)
