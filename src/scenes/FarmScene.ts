@@ -128,6 +128,16 @@ const XP_LABELS = Object.fromEntries(
 const XP_TEXT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 44 };
 
 /**
+ * Plant cost float (T3.13): a "-<seedCost>" floating label at the planted
+ * plot, so spending coins on a seed is as visible as earning them from a
+ * harvest. Color/size match the sell float's own "+N" tint (Hud.sellCrop) so
+ * the pair reads as the same coin-cost/coin-gain visual language, just
+ * negative. Reuses XP_LABEL_OFFSET_Y so it appears at the same height the
+ * harvest xp label does.
+ */
+const PLANT_COST_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffe27a', fontSize: 40 };
+
+/**
  * Radiant harvest juice: large gold floating text well above the xp-label
  * layer (-70), so it reads even mid-sweep with "+N xp" labels firing all
  * around it.
@@ -896,7 +906,15 @@ export class FarmScene extends Phaser.Scene {
       this.refreshCrops();
       this.playPlantPop(plotIndex);
       const pos = this.plotPositions[plotIndex];
-      if (pos !== undefined) this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+      if (pos !== undefined) {
+        this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+        this.floatingText.show(
+          pos.x,
+          pos.y + XP_LABEL_OFFSET_Y,
+          `-${CROPS[cropId].seedCost}`,
+          PLANT_COST_TEXT_OPTIONS,
+        );
+      }
       buzz(HAPTIC_LIGHT_MS);
       return;
     }

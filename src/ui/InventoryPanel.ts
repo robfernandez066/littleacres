@@ -3,7 +3,7 @@ import Phaser from 'phaser';
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { AudioManager } from '../systems/audio';
-import type { GameStateData } from '../systems/gameState';
+import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { ModalBackdrop } from './ModalBackdrop';
@@ -54,6 +54,28 @@ const SELL_BUTTON_HEIGHT = 100;
 const SELL_BUTTON_ENABLED_ALPHA = 1;
 const SELL_BUTTON_DISABLED_ALPHA = 0.4;
 
+/**
+ * Two-tap sell confirm (T3.13): a first tap arms a row (only one row armed
+ * at a time), showing the count/total it would sell; a second tap while
+ * armed actually sells via the existing `onSell` path. Auto-disarms after
+ * ARM_TIMEOUT_MS, when the panel closes, or when a refresh tick sees the
+ * armed row's count change out from under it (a harvest landing mid-arm, or
+ * the sale itself).
+ */
+const ARM_TIMEOUT_MS = 3000;
+const DEFAULT_SELL_TEXT = 'Sell all';
+const SELL_BUTTON_DEFAULT_FONT_SIZE = 32;
+/** Shrinks from here down to ARMED_FONT_MIN_SIZE to keep the confirm phrasing inside the button. */
+const ARMED_FONT_SIZE = 26;
+const ARMED_FONT_MIN_SIZE = 18;
+const ARMED_TEXT_MAX_WIDTH = SELL_BUTTON_WIDTH - 30;
+/** Tint pulses between these two (gold <-> bright white) while a row is armed - "brighter/pulsing"
+ * per the task, done via tint rather than a scale tween since the tutorial's own pulse-target
+ * breathing (OnboardingGuide) already owns this button's scale during the sell-sunwheat step. */
+const ARMED_TINT_LOW = Phaser.Display.Color.ValueToColor(0xffe27a);
+const ARMED_TINT_HIGH = Phaser.Display.Color.ValueToColor(0xffffff);
+const ARMED_PULSE_MS = 450;
+
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '48px',
@@ -89,15 +111,17 @@ const UNIT_VALUE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 
 const SELL_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
-  fontSize: '32px',
+  fontSize: `${SELL_BUTTON_DEFAULT_FONT_SIZE}px`,
   fontStyle: 'bold',
   color: '#4a3218',
+  align: 'center',
 };
 
 interface InventoryRow {
   cropId: CropId;
   countText: Phaser.GameObjects.Text;
   sellButton: Phaser.GameObjects.NineSlice;
+  sellText: Phaser.GameObjects.Text;
   /** Static world position of the sell button, for the coin-arc origin. */
   worldX: number;
   worldY: number;
@@ -110,6 +134,15 @@ export class InventoryPanel {
   private visible = false;
   /** Last rendered sunwheat count, for the sell-sunwheat pulse provider. */
   private sunwheatCount = 0;
+  /** The one row currently armed (two-tap sell confirm), or null. */
+  private armedCropId: CropId | null = null;
+  /** Real wall-clock arm time (UI timer, not game time) - drives ARM_TIMEOUT_MS. */
+  private armedAt = -Infinity;
+  /** Inventory count at the moment of arming; a mismatch on refresh disarms. */
+  private armedCount = 0;
+  private armPulseTween: Phaser.Tweens.Tween | null = null;
+  private armedSellButton: Phaser.GameObjects.NineSlice | null = null;
+  private readonly armPulsePhase = { t: 0 };
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -219,11 +252,10 @@ export class InventoryPanel {
       .text(ROW_SELL_BUTTON_X, y, 'Sell all', SELL_BUTTON_STYLE)
       .setOrigin(0.5);
 
+    // Only fires when the button is interactive (count > 0). First tap arms;
+    // second tap (while already armed) sells - see `handleSellTap`.
     sellButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      // Only fires when the button is interactive (count > 0), so the tap
-      // always accompanies a real sale.
-      this.audio.sfx('tap');
-      this.onSell(crop.id, PANEL_CENTER_X + ROW_SELL_BUTTON_X, PANEL_CENTER_Y + y);
+      this.handleSellTap(crop.id);
     });
 
     this.container.add([icon, nameText, countText, unitCoin, unitText, sellButton, sellText]);
@@ -232,14 +264,27 @@ export class InventoryPanel {
       cropId: crop.id,
       countText,
       sellButton,
+      sellText,
       worldX: PANEL_CENTER_X + ROW_SELL_BUTTON_X,
       worldY: PANEL_CENTER_Y + y,
     };
   }
 
-  /** Re-derive row counts and sell-button enabled state from state. */
+  /**
+   * Re-derive row counts and sell-button enabled state from state. Also
+   * auto-disarms the armed row (if any) on a timeout or a count change - the
+   * only two auto-disarm cases that surface on a refresh tick; the panel
+   * closing and another row arming are handled at their own call sites.
+   */
   refresh(state: GameStateData): void {
     this.sunwheatCount = state.inventory.sunwheat ?? 0;
+
+    if (this.armedCropId !== null) {
+      const currentCount = state.inventory[this.armedCropId] ?? 0;
+      const timedOut = Date.now() - this.armedAt >= ARM_TIMEOUT_MS;
+      if (timedOut || currentCount !== this.armedCount) this.disarm();
+    }
+
     for (const row of this.rows) {
       const count = state.inventory[row.cropId] ?? 0;
       row.countText.setText(`x${count}`);
@@ -263,6 +308,7 @@ export class InventoryPanel {
     this.backdrop.setActive(this.visible);
     setPanelOpen('inventory', this.visible);
     if (this.visible) this.refresh(state);
+    else this.disarm();
   }
 
   hide(): void {
@@ -270,5 +316,96 @@ export class InventoryPanel {
     this.container.setVisible(false);
     this.backdrop.setActive(false);
     setPanelOpen('inventory', false);
+    this.disarm();
+  }
+
+  /** First tap on an unarmed row arms it (disarming any other); a second tap while armed sells. */
+  private handleSellTap(cropId: CropId): void {
+    this.audio.sfx('tap');
+    if (this.armedCropId === cropId) {
+      const row = this.rows.find((r) => r.cropId === cropId);
+      this.disarm();
+      if (row !== undefined) this.onSell(cropId, row.worldX, row.worldY);
+      return;
+    }
+    this.armRow(cropId);
+  }
+
+  private armRow(cropId: CropId): void {
+    const row = this.rows.find((r) => r.cropId === cropId);
+    if (row === undefined) return;
+    this.armedCropId = cropId;
+    this.armedAt = Date.now();
+    this.armedCount = gameState.getState().inventory[cropId] ?? 0;
+    this.renderArmedRows();
+  }
+
+  private disarm(): void {
+    if (this.armedCropId === null) return;
+    this.armedCropId = null;
+    this.armedAt = -Infinity;
+    this.armedCount = 0;
+    this.renderArmedRows();
+  }
+
+  /** Re-derive every row's sell-button text/tint from the armed state - only one row is ever armed. */
+  private renderArmedRows(): void {
+    this.stopArmedPulse();
+    for (const row of this.rows) {
+      if (row.cropId === this.armedCropId) {
+        const total = this.armedCount * CROPS[row.cropId].sellValue;
+        row.sellText.setText(`Sell ${this.armedCount}\nfor ${total}?`);
+        this.fitArmedText(row.sellText);
+        this.startArmedPulse(row.sellButton);
+      } else {
+        row.sellText.setText(DEFAULT_SELL_TEXT).setFontSize(SELL_BUTTON_DEFAULT_FONT_SIZE);
+      }
+    }
+  }
+
+  /** Shrinks the armed confirm text down to ARMED_FONT_MIN_SIZE so it never overflows the button. */
+  private fitArmedText(text: Phaser.GameObjects.Text): void {
+    let size = ARMED_FONT_SIZE;
+    text.setFontSize(size);
+    while (text.width > ARMED_TEXT_MAX_WIDTH && size > ARMED_FONT_MIN_SIZE) {
+      size -= 2;
+      text.setFontSize(size);
+    }
+  }
+
+  /**
+   * "Brighter/pulsing" armed-state highlight, via a tint pulse rather than a
+   * scale tween: the sell-sunwheat pulse target (OnboardingGuide) already
+   * scale-breathes this same button during the tutorial's sell step, and
+   * tint states belong to their owners (OnboardingGuide's own convention) -
+   * so this never fights that tween over `.scale`.
+   */
+  private startArmedPulse(sellButton: Phaser.GameObjects.NineSlice): void {
+    this.armedSellButton = sellButton;
+    this.armPulsePhase.t = 0;
+    this.armPulseTween = this.scene.tweens.add({
+      targets: this.armPulsePhase,
+      t: 1,
+      duration: ARMED_PULSE_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+      onUpdate: () => {
+        const color = Phaser.Display.Color.Interpolate.ColorWithColor(
+          ARMED_TINT_LOW,
+          ARMED_TINT_HIGH,
+          100,
+          Math.round(this.armPulsePhase.t * 100),
+        );
+        this.armedSellButton?.setTint(Phaser.Display.Color.GetColor(color.r, color.g, color.b));
+      },
+    });
+  }
+
+  private stopArmedPulse(): void {
+    this.armPulseTween?.stop();
+    this.armPulseTween = null;
+    this.armedSellButton?.clearTint();
+    this.armedSellButton = null;
   }
 }

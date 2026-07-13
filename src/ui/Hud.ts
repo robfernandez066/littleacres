@@ -9,6 +9,7 @@ import {
   QUEST_ICON_POSITION,
 } from '../config';
 import { CROPS, type CropId } from '../data/crops';
+import { CURRENCY_INFO, type CurrencyId } from '../data/currencyInfo';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { LONG_QUESTS } from '../data/quests';
 import type { AudioManager } from '../systems/audio';
@@ -17,6 +18,7 @@ import { buzz } from '../systems/haptics';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
+import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
@@ -132,6 +134,23 @@ const CURRENCY_ICON_SIZE = 60;
 const COIN_TEXT_OFFSET_X = 50;
 /** Matches COIN_TEXT_OFFSET_X so both counts left-align on their first digit. */
 const MOONDUST_TEXT_OFFSET_X = 50;
+
+/**
+ * Tap targets for the coin/moondust counters (T3.13): a Zone per currency,
+ * not a hitArea on the icon/text objects themselves - the text's width
+ * changes with the currency's digit count, so a static hitArea on it would
+ * go stale as it grows or shrinks. Each zone spans from its icon's left edge
+ * (minus a pad) to just short of the next landmark on its right - the other
+ * currency's icon for coins, the crest's left overhang edge (see this file's
+ * own layout-budget comment above) for moondust - so neither zone can
+ * swallow a tap meant for its neighbor.
+ */
+const CURRENCY_HIT_PAD = 15;
+const CURRENCY_HIT_HEIGHT = CURRENCY_ICON_SIZE + CURRENCY_HIT_PAD * 2;
+const COIN_HIT_LEFT = HUD_COIN_POSITION.x - CURRENCY_ICON_SIZE / 2 - CURRENCY_HIT_PAD;
+const COIN_HIT_RIGHT = HUD_MOONDUST_POSITION.x - CURRENCY_ICON_SIZE / 2 - CURRENCY_HIT_PAD;
+const MOONDUST_HIT_LEFT = COIN_HIT_RIGHT;
+const MOONDUST_HIT_RIGHT = 450;
 
 /**
  * Bag: a bare icon (no `button_slot` backing - it read as clutter, per
@@ -334,6 +353,7 @@ export class Hud {
 
   private bagBounceTween: Phaser.Tweens.Tween | null = null;
   private readonly settingsPanel: SettingsPanel;
+  private readonly currencyInfoCard: CurrencyInfoCard;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -416,6 +436,12 @@ export class Hud {
       .setOrigin(0, 0.5)
       .setDepth(HUD_DEPTH);
 
+    // Currency info cards (T3.13): each counter (icon + text) is a tap
+    // target opening its CurrencyInfoCard.
+    this.currencyInfoCard = new CurrencyInfoCard(this.scene, this.audio);
+    this.buildCurrencyHitZone(COIN_HIT_LEFT, COIN_HIT_RIGHT, 'coins');
+    this.buildCurrencyHitZone(MOONDUST_HIT_LEFT, MOONDUST_HIT_RIGHT, 'moondust');
+
     // Gear (settings) icon, hanging below the banner's right edge - replaces
     // the old Audio button entirely.
     const gearIcon = this.scene.add
@@ -428,6 +454,7 @@ export class Hud {
       this.inventoryPanel.hide();
       this.orderBoard.hide();
       this.questBoard?.hide();
+      this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
 
@@ -444,6 +471,7 @@ export class Hud {
       this.orderBoard.hide();
       this.settingsPanel.hide();
       this.questBoard?.hide();
+      this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
     // The container is safe for the guide to scale-breathe: its only other
@@ -472,6 +500,7 @@ export class Hud {
       this.inventoryPanel.hide();
       this.orderBoard.hide();
       this.settingsPanel.hide();
+      this.currencyInfoCard.hide();
       this.questBoard?.toggle(gameState.getState());
     });
     // Claimable "!" badge (T3.10a): gold Georgia bold, stroked, bobbing at
@@ -541,6 +570,7 @@ export class Hud {
     this.inventoryPanel.hide();
     this.settingsPanel.hide();
     this.questBoard?.hide();
+    this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
 
@@ -556,6 +586,7 @@ export class Hud {
     this.orderBoard.hide();
     this.settingsPanel.hide();
     this.questBoard?.hide();
+    this.currencyInfoCard.hide();
   }
 
   /**
@@ -605,6 +636,32 @@ export class Hud {
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
       });
+  }
+
+  /** A tap target Zone covering a currency counter's icon + text; opens its info card on tap. */
+  private buildCurrencyHitZone(left: number, right: number, id: CurrencyId): void {
+    const anchorX = (left + right) / 2;
+    const zone = this.scene.add
+      .zone(left, HUD_COIN_POSITION.y, right - left, CURRENCY_HIT_HEIGHT)
+      .setOrigin(0, 0.5)
+      .setDepth(HUD_DEPTH + 1)
+      .setInteractive({ useHandCursor: true });
+    zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => this.openCurrencyCard(id, anchorX));
+  }
+
+  /**
+   * Open a currency's info card, closing the other Hud panels first (same
+   * exclusivity convention as the bag/gear/quest icons). Inert during the
+   * tutorial rails - simplest correct behavior per T3.13, no new rails action.
+   * `anchorX` (this counter's own hit zone's center) and `BANNER_BOTTOM_Y`
+   * (the HUD banner's own bottom edge) anchor the popup directly below the
+   * tapped counter.
+   */
+  private openCurrencyCard(id: CurrencyId, anchorX: number): void {
+    if (!gameState.getState().onboarding.completed) return;
+    this.audio.sfx('tap');
+    this.closePanels();
+    this.currencyInfoCard.show(CURRENCY_INFO[id], anchorX, BANNER_BOTTOM_Y);
   }
 
   /** Small scale bounce on the bag button; restart-safe so rapid arrivals never compound. */
