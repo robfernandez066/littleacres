@@ -7,6 +7,7 @@ import {
   DIRT_PATH_POSITION,
   type DressingPlacement,
   DRESSING,
+  DRESSING_SCALE_STEP,
   FARMHOUSE_POSITION,
   GROUND_MODE,
   GROUND_TEXTURE_A_KEY,
@@ -15,10 +16,16 @@ import {
   GROUND_TEXTURE_B_TILE_SCALE,
   type GroundMode,
   NOTICE_BOARD_POSITION,
+  PANEL_SLICE,
+  SHADOW_ALPHA,
+  SHADOW_BASE_RAISE,
+  SHADOW_HEIGHT_RATIO,
+  SHADOW_WIDTH_RATIO,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
+import { DECOR_ITEMS } from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
@@ -28,17 +35,18 @@ import {
   registerGroundModeCycle,
   registerHitboxToggle,
 } from '../systems/dev';
-import { gameState } from '../systems/gameState';
+import { gameState, type DecorationPlacement } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
-import { isModalOpen } from '../systems/modalPanels';
+import { isModalOpen, setPanelOpen } from '../systems/modalPanels';
 import { PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { ChestCeremony } from '../ui/ChestCeremony';
 import { CoinArc } from '../ui/CoinArc';
 import { cropToInfoDef, CropInfoCard } from '../ui/CropInfoCard';
+import { DecorShop } from '../ui/DecorShop';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { Hud } from '../ui/Hud';
@@ -164,6 +172,165 @@ const DIRT_PATH_SCALE = DIRT_PATH_DISPLAY_WIDTH / DIRT_PATH_FRAME_SIZE;
 const DIRT_PATH_DEPTH = 5;
 
 /**
+ * Decor Shop (T3.9): opened by tapping the farmhouse, which becomes
+ * interactive for the first time - hit area and tutorial-inert dim mirror
+ * the notice board's exactly (see NOTICE_BOARD_HIT_PAD_DISPLAY_PX/
+ * NOTICE_BOARD_INERT_ALPHA below), just under their own names.
+ */
+const FARMHOUSE_HIT_PAD_DISPLAY_PX = 20;
+const FARMHOUSE_INERT_ALPHA = 0.6;
+
+/**
+ * Arrange mode (T3.9a, control row moved into the seed bar's own band in
+ * T3.9b): in-canvas Phaser objects only (phone-first, no DOM). While
+ * arranging, the seed bar hides entirely (`SeedBar.setVisible`) and this row
+ * - [Warehouse] [-] [+] [Store] [Done] - takes over its band (~y 1700), at a
+ * depth above every other UI tier (seed bar 2000, panels 2100) so nothing can
+ * render over these controls while arranging. Each button is a `panel`
+ * nineslice sized directly to its own width/height (not scaled from a
+ * smaller native frame), so its default interactive hit area already matches
+ * its full display bounds one-to-one - no custom hitArea needed to satisfy
+ * the >=100px/frame-relative hit-area rule. Positions are five varying-width
+ * buttons, evenly gapped and centered on the design width - computed once
+ * below rather than hand-placed, so the row stays centered if a width
+ * changes.
+ */
+const ARRANGE_UI_DEPTH = 2200;
+const ARRANGE_ROW_Y = 1700;
+const ARRANGE_ROW_HEIGHT = 100;
+const ARRANGE_ROW_GAP = 24;
+const ARRANGE_WAREHOUSE_WIDTH = 200;
+const ARRANGE_SCALE_BUTTON_SIZE = 100;
+const ARRANGE_STORE_WIDTH = 170;
+const ARRANGE_DONE_WIDTH = 220;
+const ARRANGE_DONE_HEIGHT = ARRANGE_ROW_HEIGHT;
+
+const ARRANGE_ROW_WIDTHS = [
+  ARRANGE_WAREHOUSE_WIDTH,
+  ARRANGE_SCALE_BUTTON_SIZE,
+  ARRANGE_SCALE_BUTTON_SIZE,
+  ARRANGE_STORE_WIDTH,
+  ARRANGE_DONE_WIDTH,
+];
+const ARRANGE_ROW_TOTAL_WIDTH =
+  ARRANGE_ROW_WIDTHS.reduce((sum, width) => sum + width, 0) +
+  ARRANGE_ROW_GAP * (ARRANGE_ROW_WIDTHS.length - 1);
+const ARRANGE_ROW_CENTER_XS: number[] = (() => {
+  let x = DESIGN_WIDTH / 2 - ARRANGE_ROW_TOTAL_WIDTH / 2;
+  return ARRANGE_ROW_WIDTHS.map((width) => {
+    const center = x + width / 2;
+    x += width + ARRANGE_ROW_GAP;
+    return center;
+  });
+})();
+const [
+  ARRANGE_WAREHOUSE_X,
+  ARRANGE_SCALE_DOWN_X,
+  ARRANGE_SCALE_UP_X,
+  ARRANGE_STORE_X,
+  ARRANGE_DONE_X,
+] = ARRANGE_ROW_CENTER_XS as [number, number, number, number, number];
+
+const ARRANGE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '36px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const ARRANGE_SCALE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '48px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+/** Store button (T3.9b): dims when nothing is selected, same convention as DecorShop's Buy button. */
+const ARRANGE_STORE_ENABLED_ALPHA = 1;
+const ARRANGE_STORE_DISABLED_ALPHA = 0.4;
+
+/**
+ * Warehouse panel (T3.9b): a simple full-modal over the scene, reachable
+ * only from arrange mode's Warehouse button - same panel dimensions/position
+ * as `DecorShop` for visual consistency, but built directly in this scene
+ * (no separate UI class) since it only ever exists inside arrange mode. Its
+ * own full-screen backdrop sits ABOVE the arrange control row (unlike the
+ * shared `ModalBackdrop`, fixed below the panel tier) so a tap anywhere
+ * outside the panel body - including on the now-covered control row - closes
+ * it instead of reaching through to a control underneath. Built once in
+ * `create()`, hidden and inert until opened; one row per `DECOR_ITEMS` frame
+ * (the only frames a warehouse can ever hold today - trophies are not yet
+ * purchasable), shown/hidden per-row from live owned counts.
+ */
+const WAREHOUSE_PANEL_WIDTH = 900;
+const WAREHOUSE_PANEL_HEIGHT = 1320;
+const WAREHOUSE_PANEL_CENTER_X = DESIGN_WIDTH / 2;
+const WAREHOUSE_PANEL_CENTER_Y = 980;
+const WAREHOUSE_BACKDROP_DEPTH = ARRANGE_UI_DEPTH + 50;
+const WAREHOUSE_PANEL_DEPTH = ARRANGE_UI_DEPTH + 60;
+
+const WAREHOUSE_TITLE_Y = -WAREHOUSE_PANEL_HEIGHT / 2 + 60;
+const WAREHOUSE_CLOSE_OFFSET_X = WAREHOUSE_PANEL_WIDTH / 2 - 50;
+const WAREHOUSE_CLOSE_OFFSET_Y = -WAREHOUSE_PANEL_HEIGHT / 2 + 50;
+
+const WAREHOUSE_ROWS_PER_COLUMN = 5;
+const WAREHOUSE_COLUMN_X = [-215, 215] as const;
+const WAREHOUSE_ROW_START_Y = -380;
+const WAREHOUSE_ROW_SPACING = 190;
+
+const WAREHOUSE_ICON_OFFSET_X = -195;
+const WAREHOUSE_ICON_NATIVE_SIZE = 128;
+const WAREHOUSE_ICON_DISPLAY_SIZE = 84;
+const WAREHOUSE_ICON_SCALE = WAREHOUSE_ICON_DISPLAY_SIZE / WAREHOUSE_ICON_NATIVE_SIZE;
+
+const WAREHOUSE_NAME_OFFSET_X = -140;
+const WAREHOUSE_NAME_OFFSET_Y = -22;
+const WAREHOUSE_COUNT_OFFSET_X = -140;
+const WAREHOUSE_COUNT_OFFSET_Y = 22;
+
+const WAREHOUSE_PLACE_BUTTON_OFFSET_X = 140;
+const WAREHOUSE_PLACE_BUTTON_WIDTH = 140;
+const WAREHOUSE_PLACE_BUTTON_HEIGHT = 90;
+
+const WAREHOUSE_EMPTY_TEXT = 'Nothing stored. Buy decor at the farmhouse.';
+
+const WAREHOUSE_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '48px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const WAREHOUSE_CLOSE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '40px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const WAREHOUSE_NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const WAREHOUSE_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '26px',
+  color: '#7a5518',
+};
+const WAREHOUSE_PLACE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const WAREHOUSE_EMPTY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '32px',
+  color: '#7a5518',
+  align: 'center',
+  wordWrap: { width: WAREHOUSE_PANEL_WIDTH - 160 },
+};
+
+/**
  * Scene dressing decals (T2.28, collapsed to one array + depth in T2.28a):
  * `DRESSING` reads as ground decals just above the dirt path (depth 5) -
  * see `DRESSING`'s own comment in config.ts. `createSceneDressing` is the
@@ -242,6 +409,16 @@ interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
   setDepth(value: number): this;
 }
 
+/** One warehouse panel row (T3.9b) - one per `DECOR_ITEMS` frame, built once, shown/hidden per owned count. */
+interface WarehouseRow {
+  frame: string;
+  icon: Phaser.GameObjects.Image;
+  nameText: Phaser.GameObjects.Text;
+  countText: Phaser.GameObjects.Text;
+  placeButton: Phaser.GameObjects.NineSlice;
+  placeText: Phaser.GameObjects.Text;
+}
+
 /**
  * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
  * a grass field, rendered live from `gameState`, plus the seed bar. One
@@ -288,6 +465,39 @@ export class FarmScene extends Phaser.Scene {
   /** Cached rails gating so interactivity/alpha only toggle on change (mirrors Hud's pattern). */
   private noticeBoardEnabled = true;
   private chestCeremony!: ChestCeremony;
+  private farmhouseImage!: Phaser.GameObjects.Image;
+  /** Cached rails gating, mirrors `noticeBoardEnabled`. */
+  private farmhouseEnabled = true;
+  private decorShop!: DecorShop;
+  /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
+  private decorationSprites: Phaser.GameObjects.Image[] = [];
+  private decorationShadowSprites: Phaser.GameObjects.Image[] = [];
+  /** Last-rendered decorations, serialized - `refreshDecorations` rebuilds only on change. */
+  private lastDecorationsJson = '';
+  /** Whether arrange mode (T3.9a) is active - see `enterArrangeMode`/`exitArrangeMode`. */
+  private arrangeModeActive = false;
+  /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
+  private selectedDecorationIndex: number | null = null;
+  private arrangeDoneButton!: Phaser.GameObjects.NineSlice;
+  private arrangeDoneText!: Phaser.GameObjects.Text;
+  private arrangeScaleDownButton!: Phaser.GameObjects.NineSlice;
+  private arrangeScaleDownText!: Phaser.GameObjects.Text;
+  private arrangeScaleUpButton!: Phaser.GameObjects.NineSlice;
+  private arrangeScaleUpText!: Phaser.GameObjects.Text;
+  /** T3.9b control row additions. */
+  private arrangeWarehouseButton!: Phaser.GameObjects.NineSlice;
+  private arrangeWarehouseText!: Phaser.GameObjects.Text;
+  private arrangeStoreButton!: Phaser.GameObjects.NineSlice;
+  private arrangeStoreText!: Phaser.GameObjects.Text;
+  /** Every OTHER interactive object suppressed for the duration of arrange mode - see `setOtherHitboxesEnabled`. */
+  private readonly arrangeModeDisabledObjects: Phaser.GameObjects.GameObject[] = [];
+  /** Warehouse panel (T3.9b) - see `createWarehousePanel`. */
+  private warehouseContainer!: Phaser.GameObjects.Container;
+  private warehouseBackdropZone!: Phaser.GameObjects.Zone;
+  private warehouseCloseButton!: Phaser.GameObjects.Text;
+  private warehouseRows: WarehouseRow[] = [];
+  private warehouseEmptyText!: Phaser.GameObjects.Text;
+  private warehousePanelVisible = false;
   /** Static screen position of each plot's tile center, precomputed once. */
   private readonly plotPositions: { x: number; y: number }[] = [];
   /** Dedups plots per drag gesture; shared shape with next task's harvest. */
@@ -363,6 +573,7 @@ export class FarmScene extends Phaser.Scene {
     this.coinArc = new CoinArc(this);
     this.moondustArc = new MoondustArc(this);
     this.cropInfoCard = new CropInfoCard(this, this.audio);
+    this.decorShop = new DecorShop(this, this.audio, () => this.enterArrangeMode());
     this.seedBar = new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop));
     this.cropCountdown = new CropCountdown(this);
     this.replantChip = new ReplantChip(
@@ -392,13 +603,17 @@ export class FarmScene extends Phaser.Scene {
     // before the tutorial's rails have had a chance to dim it.
     this.applyNoticeBoardRailsGating();
     this.refreshNoticeBoardBadge();
+    // Same "no flash of full-alpha, interactive before the rails dim it" reasoning as the notice board above.
+    this.applyFarmhouseRailsGating();
     this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
     this.chestCeremony = new ChestCeremony(this, this.particles, this.hud);
     this.expandSign = new ExpandSign(this, () => this.tryExpand());
     this.expandSign.refresh(gameState.getState());
+    this.createArrangeControls();
     this.setupFieldInput();
     this.refreshCrops();
+    this.refreshDecorations();
     this.onboardingGuide.refresh(gameState.getState());
 
     // Checked once per scene start, after every other panel/backdrop exists -
@@ -434,6 +649,8 @@ export class FarmScene extends Phaser.Scene {
     this.hud.refresh();
     this.applyNoticeBoardRailsGating();
     this.refreshNoticeBoardBadge();
+    this.applyFarmhouseRailsGating();
+    this.refreshDecorations();
     // Onboarding's select-sunwheat step: checked every tick (not just on the
     // tap) so a selection made before the step began still counts. Cheap
     // no-op whenever the step is not active.
@@ -564,7 +781,8 @@ export class FarmScene extends Phaser.Scene {
    * tutorial chip owns countdown duty there) or a modal panel is open.
    */
   private maybeShowCountdown(plotIndex: number | null): void {
-    if (plotIndex === null || isModalOpen() || this.dressingEditActive) return;
+    if (plotIndex === null || isModalOpen() || this.dressingEditActive || this.arrangeModeActive)
+      return;
     const state = gameState.getState();
     if (!state.onboarding.completed) return;
     const plot = state.plots[plotIndex];
@@ -594,7 +812,8 @@ export class FarmScene extends Phaser.Scene {
       this.levelUpCelebration.isActive() ||
       this.chestCeremony.isActive() ||
       isModalOpen() ||
-      this.dressingEditActive
+      this.dressingEditActive ||
+      this.arrangeModeActive
     )
       return;
     if (this.gestureMode !== 'plant') {
@@ -990,16 +1209,701 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Decorative farmhouse, no interaction. Kept as one isolated create call
-   * (T2.22) so it can be pulled independently of the notice board if its
-   * baked grass skirt clashes with the tile grass. Its own, taller scale
-   * (T2.22a) - see FARMHOUSE_DISPLAY_HEIGHT.
+   * The decorative farmhouse (T2.22) - as of T3.9, also the entry point to
+   * the Decor Shop: tapping it opens the shop, gated by the same rails
+   * pattern as the notice board (`applyFarmhouseRailsGating`). Kept as one
+   * isolated create call so it can be pulled independently of the notice
+   * board if its baked grass skirt clashes with the tile grass. Its own,
+   * taller scale (T2.22a) - see FARMHOUSE_DISPLAY_HEIGHT.
+   *
+   * The hit area covers the whole structure plus a generous pad, same
+   * frame-relative convention as the notice board's - see its own comment on
+   * `createNoticeBoard` for why the rectangle must be frame-relative, not
+   * origin-centered.
    */
   private createFarmhouse(): void {
-    this.add
+    const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
+    this.farmhouseImage = this.add
       .image(FARMHOUSE_POSITION.x, FARMHOUSE_POSITION.y, ATLAS_KEY, 'farmhouse')
       .setScale(FARMHOUSE_SCALE)
-      .setDepth(FARMHOUSE_POSITION.y);
+      .setDepth(FARMHOUSE_POSITION.y)
+      .setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(
+          -pad,
+          -pad,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+        ),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: true,
+      });
+    this.farmhouseImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.openDecorShop();
+    });
+    this.createGroundShadow(this.farmhouseImage);
+  }
+
+  /**
+   * Tap handler for the farmhouse: same panel-exclusivity + tap sfx
+   * convention as the notice board's `Hud.toggleOrderBoard`.
+   */
+  private openDecorShop(): void {
+    this.audio.sfx('tap');
+    this.hud.closePanels();
+    this.decorShop.toggle(gameState.getState());
+  }
+
+  /**
+   * Tutorial rails on the farmhouse, mirroring `applyNoticeBoardRailsGating`
+   * exactly: inert and dimmed (alpha FARMHOUSE_INERT_ALPHA) outside the
+   * tutorial - which never has a shop step, so this dims for its entire
+   * duration and never toggles again once onboarding completes.
+   */
+  private applyFarmhouseRailsGating(): void {
+    const allowed = gameState.railsAllow('decor-shop');
+    if (allowed === this.farmhouseEnabled) return;
+    this.farmhouseEnabled = allowed;
+    this.farmhouseImage.setAlpha(allowed ? 1 : FARMHOUSE_INERT_ALPHA);
+    if (allowed) {
+      // No-arg re-enable, so the enlarged hit area set at construction
+      // survives - passing a fresh config here would reset it to the
+      // image's own (smaller) texture-frame bounds.
+      this.farmhouseImage.setInteractive();
+    } else {
+      this.farmhouseImage.disableInteractive();
+    }
+  }
+
+  /**
+   * Ground shadow (T3.9): an auto-rendered `ground_shadow` image under a
+   * standing object, sized/positioned from the object's OWN rendered display
+   * bounds (so it works for any object regardless of native frame size or
+   * scale) - width = SHADOW_WIDTH_RATIO x the object's display width, height
+   * = width x SHADOW_HEIGHT_RATIO (the frame is already 2:1), positioned at
+   * the object's visual base (the bottom of its display bounds, raised
+   * SHADOW_BASE_RAISE), one depth below the object's own.
+   */
+  private createGroundShadow(object: Phaser.GameObjects.Image): Phaser.GameObjects.Image {
+    const shadow = this.add.image(0, 0, ATLAS_KEY, 'ground_shadow').setAlpha(SHADOW_ALPHA);
+    this.applyGroundShadowGeometry(shadow, object);
+    return shadow;
+  }
+
+  /**
+   * Re-derive an EXISTING shadow's size/position/depth from its object's
+   * CURRENT display bounds (T3.9a) - the live-follow half of
+   * `createGroundShadow`'s geometry, used while a decoration is being
+   * dragged in arrange mode (every drag-move frame) and after a scale tap,
+   * so the shadow tracks the object continuously instead of only at create
+   * time. The farmhouse/notice board never move after creation, so they only
+   * ever go through `createGroundShadow`.
+   */
+  private applyGroundShadowGeometry(
+    shadow: Phaser.GameObjects.Image,
+    object: Phaser.GameObjects.Image,
+  ): void {
+    const width = object.displayWidth * SHADOW_WIDTH_RATIO;
+    const height = width * SHADOW_HEIGHT_RATIO;
+    const baseY = object.y + object.displayHeight * (1 - object.originY) - SHADOW_BASE_RAISE;
+    shadow
+      .setPosition(object.x, baseY)
+      .setDisplaySize(width, height)
+      .setDepth(object.depth - 1);
+  }
+
+  /**
+   * Re-derive placed decorations from state (T3.9): the simplest correct
+   * thing at the MAX_DECORATIONS cap (30) - rebuild the whole sprite (+
+   * ground shadow) list whenever the decorations array differs from the last
+   * render, rather than diffing entry by entry. Depth = own screen y, so
+   * decorations iso-sort with crops/structures. Non-interactive in normal
+   * play (arrange mode off): sprites gain no `setInteractive()` call until
+   * `enterArrangeMode` adds it, and FarmScene's field gestures are scene-wide
+   * pointer listeners hit-testing the iso grid, not per-object hit tests - so
+   * a decoration drawn over a plot never intercepts a field tap either way.
+   *
+   * Skipped entirely while arrange mode is active: every position/scale
+   * change during a drag or a scale tap is applied directly to the live
+   * sprite (`commitDecorationTransform`/`scaleSelectedDecoration`) rather
+   * than through this rebuild, which would otherwise destroy and recreate
+   * the very sprite mid-drag (losing its drag state and the selection tint).
+   * `exitArrangeMode` re-syncs `lastDecorationsJson` so the next call here is
+   * a correct no-op instead of a redundant rebuild.
+   */
+  private refreshDecorations(): void {
+    if (this.arrangeModeActive) return;
+    const decorations = gameState.getState().decorations;
+    const json = JSON.stringify(decorations);
+    if (json === this.lastDecorationsJson) return;
+    this.lastDecorationsJson = json;
+    for (const sprite of this.decorationSprites) sprite.destroy();
+    for (const shadow of this.decorationShadowSprites) shadow.destroy();
+    this.decorationSprites = [];
+    this.decorationShadowSprites = [];
+    for (const decoration of decorations) {
+      const sprite = this.createDecorationSprite(decoration);
+      this.decorationSprites.push(sprite);
+      this.decorationShadowSprites.push(this.createGroundShadow(sprite));
+    }
+  }
+
+  /**
+   * One decoration's sprite (T3.9a), wired for arrange mode's select/drag
+   * events - inert until `enterArrangeMode` makes it interactive, same
+   * "always wired, only listens while the mode flag is on" pattern as
+   * `createDressingSprite`. Dragging moves the sprite and its ground shadow
+   * live every frame (including re-deriving depth from the live y, so it
+   * naturally re-sorts against crops/structures while being dragged); the
+   * position only commits to the store on drag-end.
+   */
+  private createDecorationSprite(decoration: DecorationPlacement): Phaser.GameObjects.Image {
+    const sprite = this.add
+      .image(decoration.x, decoration.y, ATLAS_KEY, decoration.frame)
+      .setScale(decoration.scale)
+      .setDepth(decoration.y);
+    sprite.on('pointerdown', () => {
+      if (!this.arrangeModeActive) return;
+      const index = this.decorationSprites.indexOf(sprite);
+      if (index !== -1) this.setDecorationSelection(index);
+    });
+    sprite.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+      if (!this.arrangeModeActive) return;
+      sprite.setPosition(dragX, dragY).setDepth(dragY);
+      const index = this.decorationSprites.indexOf(sprite);
+      const shadow = index !== -1 ? this.decorationShadowSprites[index] : undefined;
+      if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    });
+    sprite.on('dragend', () => {
+      if (!this.arrangeModeActive) return;
+      const index = this.decorationSprites.indexOf(sprite);
+      if (index !== -1) this.commitDecorationTransform(index, sprite);
+    });
+    return sprite;
+  }
+
+  /**
+   * Commit a just-dragged decoration's position (T3.9a): `setDecorationTransform`
+   * is the sole clamp authority, so this re-reads the (possibly clamped)
+   * committed value from state and snaps the sprite (+ its shadow) to it,
+   * rather than trusting the raw drag-drop coordinates - a drag past the
+   * legal bounds visibly "sticks" at the clamp edge instead of leaving the
+   * sprite wherever the finger let go.
+   */
+  private commitDecorationTransform(index: number, sprite: Phaser.GameObjects.Image): void {
+    const committed = gameState.setDecorationTransform(
+      index,
+      Math.round(sprite.x),
+      Math.round(sprite.y),
+      sprite.scale,
+    );
+    if (!committed) return;
+    const decoration = gameState.getState().decorations[index];
+    if (decoration === undefined) return;
+    sprite.setPosition(decoration.x, decoration.y).setDepth(decoration.y);
+    const shadow = this.decorationShadowSprites[index];
+    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+  }
+
+  /**
+   * Dev/arrange-overlay "Scale +/-" for the selected decoration (T3.9a),
+   * DRESSING_SCALE_STEP-sized steps within the store's own clamps - no-op
+   * with nothing selected. Mirrors `scaleSelectedDressing`, but commits
+   * through `setDecorationTransform` (the store owns the clamp) instead of
+   * clamping locally.
+   */
+  private scaleSelectedDecoration(delta: number): void {
+    if (this.selectedDecorationIndex === null) return;
+    const index = this.selectedDecorationIndex;
+    const sprite = this.decorationSprites[index];
+    const decoration = gameState.getState().decorations[index];
+    if (sprite === undefined || decoration === undefined) return;
+    const nextScale = Math.round((decoration.scale + delta) * 100) / 100;
+    if (!gameState.setDecorationTransform(index, decoration.x, decoration.y, nextScale)) return;
+    const updated = gameState.getState().decorations[index];
+    if (updated === undefined) return;
+    sprite.setScale(updated.scale);
+    const shadow = this.decorationShadowSprites[index];
+    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+  }
+
+  /**
+   * Highlights the tapped decoration with a tint; clears the previous
+   * selection's tint first - mirrors `setDressingSelection`. Also
+   * re-derives the Store button's enabled/dim state (T3.9b), since that
+   * button always acts on whatever is currently selected.
+   */
+  private setDecorationSelection(index: number | null): void {
+    if (this.selectedDecorationIndex !== null) {
+      this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
+    }
+    this.selectedDecorationIndex = index;
+    if (index !== null) {
+      this.decorationSprites[index]?.setTint(DRESSING_SELECTED_TINT);
+    }
+    this.updateArrangeStoreButtonState();
+  }
+
+  /**
+   * Build the floating control row once (T3.9a, extended to 5 buttons in
+   * T3.9b): [Warehouse] [-] [+] [Store] [Done], hidden and inert until
+   * `enterArrangeMode` shows them. Each is a `panel` nineslice sized
+   * directly to its own display bounds, so its default interactive hit area
+   * already covers that full rectangle - no custom hitArea needed.
+   */
+  private createArrangeControls(): void {
+    this.arrangeDoneButton = this.add
+      .nineslice(
+        ARRANGE_DONE_X,
+        ARRANGE_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_DONE_WIDTH,
+        ARRANGE_DONE_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeDoneText = this.add
+      .text(ARRANGE_DONE_X, ARRANGE_ROW_Y, 'Done', ARRANGE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeDoneButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.exitArrangeMode();
+    });
+
+    this.arrangeScaleDownButton = this.add
+      .nineslice(
+        ARRANGE_SCALE_DOWN_X,
+        ARRANGE_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_SCALE_BUTTON_SIZE,
+        ARRANGE_SCALE_BUTTON_SIZE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeScaleDownText = this.add
+      .text(ARRANGE_SCALE_DOWN_X, ARRANGE_ROW_Y, '-', ARRANGE_SCALE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeScaleDownButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.scaleSelectedDecoration(-DRESSING_SCALE_STEP);
+    });
+
+    this.arrangeScaleUpButton = this.add
+      .nineslice(
+        ARRANGE_SCALE_UP_X,
+        ARRANGE_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_SCALE_BUTTON_SIZE,
+        ARRANGE_SCALE_BUTTON_SIZE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeScaleUpText = this.add
+      .text(ARRANGE_SCALE_UP_X, ARRANGE_ROW_Y, '+', ARRANGE_SCALE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeScaleUpButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.scaleSelectedDecoration(DRESSING_SCALE_STEP);
+    });
+
+    this.arrangeWarehouseButton = this.add
+      .nineslice(
+        ARRANGE_WAREHOUSE_X,
+        ARRANGE_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_WAREHOUSE_WIDTH,
+        ARRANGE_ROW_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeWarehouseText = this.add
+      .text(ARRANGE_WAREHOUSE_X, ARRANGE_ROW_Y, 'Warehouse', ARRANGE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeWarehouseButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.toggleWarehousePanel();
+    });
+
+    this.arrangeStoreButton = this.add
+      .nineslice(
+        ARRANGE_STORE_X,
+        ARRANGE_ROW_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_STORE_WIDTH,
+        ARRANGE_ROW_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeStoreText = this.add
+      .text(ARRANGE_STORE_X, ARRANGE_ROW_Y, 'Store', ARRANGE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeStoreButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.storeSelectedDecoration();
+    });
+
+    this.createWarehousePanel();
+  }
+
+  /**
+   * Show/hide + enable/disable the arrange-mode controls together, so a
+   * hidden control is never still tappable. The Store button is EXCLUDED
+   * from the blanket interactive toggle - `updateArrangeStoreButtonState`
+   * owns its enabled/dim state (it must stay dim/disabled while shown
+   * whenever nothing is selected), called right after this on both
+   * `enterArrangeMode` and `exitArrangeMode`.
+   */
+  private setArrangeControlsVisible(visible: boolean): void {
+    const controls: readonly [Phaser.GameObjects.NineSlice, Phaser.GameObjects.Text][] = [
+      [this.arrangeDoneButton, this.arrangeDoneText],
+      [this.arrangeScaleDownButton, this.arrangeScaleDownText],
+      [this.arrangeScaleUpButton, this.arrangeScaleUpText],
+      [this.arrangeWarehouseButton, this.arrangeWarehouseText],
+    ];
+    for (const [button, label] of controls) {
+      button.setVisible(visible);
+      label.setVisible(visible);
+      if (visible) {
+        button.setInteractive({ useHandCursor: true });
+      } else {
+        button.disableInteractive();
+      }
+    }
+    this.arrangeStoreButton.setVisible(visible);
+    this.arrangeStoreText.setVisible(visible);
+    if (!visible) this.arrangeStoreButton.disableInteractive();
+  }
+
+  /**
+   * Store button (T3.9b): enabled only while a decoration is selected, dim
+   * and inert otherwise - same enabled/dim convention as DecorShop's Buy
+   * button. Called whenever the selection changes (`setDecorationSelection`)
+   * and whenever the row's visibility changes (`enterArrangeMode`/
+   * `exitArrangeMode`).
+   */
+  private updateArrangeStoreButtonState(): void {
+    const enabled = this.selectedDecorationIndex !== null;
+    this.arrangeStoreButton.setAlpha(
+      enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
+    );
+    if (enabled) {
+      this.arrangeStoreButton.setInteractive({ useHandCursor: true });
+    } else {
+      this.arrangeStoreButton.disableInteractive();
+    }
+  }
+
+  /**
+   * Enter arrange mode (T3.9a): called by the Decor Shop's "Arrange Farm"
+   * button (already closed by then). Makes every placed decoration
+   * draggable + tap-selectable, hides the seed bar and shows the floating
+   * control row in its band (T3.9b), and suppresses every other interactive
+   * object in the scene (field gestures are gated separately, in
+   * `handlePlotEntered`/`maybeShowCountdown` - mirrors `setDressingEditActive`
+   * exactly, just player-facing.
+   */
+  private enterArrangeMode(): void {
+    this.arrangeModeActive = true;
+    this.selectedDecorationIndex = null;
+    this.seedBar.setVisible(false);
+    for (const sprite of this.decorationSprites) sprite.setInteractive({ draggable: true });
+    this.setArrangeControlsVisible(true);
+    this.updateArrangeStoreButtonState();
+    this.setOtherHitboxesEnabled(
+      false,
+      this.arrangeExemptObjects(),
+      this.arrangeModeDisabledObjects,
+    );
+  }
+
+  /**
+   * Exit arrange mode ("Done"): reverses `enterArrangeMode` exactly
+   * (including closing the warehouse panel, if left open), then re-syncs
+   * `lastDecorationsJson` from the current (already-committed and
+   * already-rendered) state so `refreshDecorations`'s next call is a correct
+   * no-op instead of an unnecessary rebuild.
+   */
+  private exitArrangeMode(): void {
+    this.hideWarehousePanel();
+    this.arrangeModeActive = false;
+    this.setDecorationSelection(null);
+    for (const sprite of this.decorationSprites) sprite.disableInteractive();
+    this.setArrangeControlsVisible(false);
+    this.seedBar.setVisible(true);
+    this.setOtherHitboxesEnabled(true, [], this.arrangeModeDisabledObjects);
+    this.lastDecorationsJson = JSON.stringify(gameState.getState().decorations);
+  }
+
+  /** Objects `setOtherHitboxesEnabled` must never disable while arrange mode is active. */
+  private arrangeExemptObjects(): Phaser.GameObjects.GameObject[] {
+    return [
+      ...this.decorationSprites,
+      this.arrangeDoneButton,
+      this.arrangeScaleDownButton,
+      this.arrangeScaleUpButton,
+      this.arrangeWarehouseButton,
+      this.arrangeStoreButton,
+    ];
+  }
+
+  /**
+   * Store button handler (T3.9b): returns the current selection to the
+   * warehouse. No-op with nothing selected (the button is disabled then
+   * anyway - belt-and-braces). Destroys the sprite/shadow and splices both
+   * parallel arrays at `index`, keeping them aligned with the store's own
+   * `decorations.splice` - every other sprite's index is derived fresh via
+   * `indexOf` at use time (see `createDecorationSprite`), never cached, so
+   * the shift is transparent to them.
+   */
+  private storeSelectedDecoration(): void {
+    if (this.selectedDecorationIndex === null) return;
+    const index = this.selectedDecorationIndex;
+    if (!gameState.storeDecoration(index)) return;
+    this.setDecorationSelection(null);
+    this.decorationSprites[index]?.destroy();
+    this.decorationShadowSprites[index]?.destroy();
+    this.decorationSprites.splice(index, 1);
+    this.decorationShadowSprites.splice(index, 1);
+    if (this.warehousePanelVisible) this.refreshWarehousePanel();
+  }
+
+  /**
+   * Spawn the live sprite (+ shadow) for a decoration `placeFromWarehouse`
+   * just appended to `gameState`, wired for arrange mode exactly like the
+   * sprites `enterArrangeMode` already made interactive, and select it -
+   * mirrors `refreshDecorations`'s per-entry creation, but for the single
+   * new entry rather than a full rebuild (which `refreshDecorations` itself
+   * skips entirely while arrange mode is active).
+   */
+  private spawnPlacedDecorationSprite(index: number): void {
+    const decoration = gameState.getState().decorations[index];
+    if (decoration === undefined) return;
+    const sprite = this.createDecorationSprite(decoration);
+    sprite.setInteractive({ draggable: true });
+    this.decorationSprites.push(sprite);
+    this.decorationShadowSprites.push(this.createGroundShadow(sprite));
+    this.setDecorationSelection(index);
+  }
+
+  /**
+   * Build the warehouse panel once (T3.9b): a full-screen closing backdrop
+   * (own zone, not the shared `ModalBackdrop` - see the WAREHOUSE_* constants'
+   * comment for why it needs its own depth) plus a panel body with one row
+   * per `DECOR_ITEMS` frame, laid out exactly like `DecorShop`'s own grid.
+   * Hidden and every interactive piece left non-interactive until first
+   * shown - `showWarehousePanel`/`hideWarehousePanel` own that toggle, same
+   * "never rely on container visibility alone" convention as
+   * `setArrangeControlsVisible`.
+   */
+  private createWarehousePanel(): void {
+    this.warehouseBackdropZone = this.add
+      .zone(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT)
+      .setOrigin(0, 0)
+      .setDepth(WAREHOUSE_BACKDROP_DEPTH)
+      .setVisible(false);
+    this.warehouseBackdropZone.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        this.audio.sfx('tap');
+        this.hideWarehousePanel();
+      },
+    );
+
+    this.warehouseContainer = this.add
+      .container(WAREHOUSE_PANEL_CENTER_X, WAREHOUSE_PANEL_CENTER_Y)
+      .setDepth(WAREHOUSE_PANEL_DEPTH)
+      .setVisible(false);
+
+    const bg = this.add.nineslice(
+      0,
+      0,
+      ATLAS_KEY,
+      'panel',
+      WAREHOUSE_PANEL_WIDTH,
+      WAREHOUSE_PANEL_HEIGHT,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+    );
+    // Swallow taps on the panel body so they never fall through to the backdrop beneath.
+    bg.setInteractive();
+    bg.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => event.stopPropagation(),
+    );
+    const title = this.add
+      .text(0, WAREHOUSE_TITLE_Y, 'Warehouse', WAREHOUSE_TITLE_STYLE)
+      .setOrigin(0.5);
+    this.warehouseCloseButton = this.add
+      .text(WAREHOUSE_CLOSE_OFFSET_X, WAREHOUSE_CLOSE_OFFSET_Y, 'X', WAREHOUSE_CLOSE_STYLE)
+      .setOrigin(0.5)
+      .setPadding(16);
+    this.warehouseCloseButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.hideWarehousePanel();
+    });
+    this.warehouseEmptyText = this.add
+      .text(0, 0, WAREHOUSE_EMPTY_TEXT, WAREHOUSE_EMPTY_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.warehouseContainer.add([bg, title, this.warehouseCloseButton, this.warehouseEmptyText]);
+
+    this.warehouseRows = DECOR_ITEMS.map((item, index) =>
+      this.buildWarehouseRow(item.frame, item.name, index),
+    );
+  }
+
+  /** One warehouse panel row: icon, name, "xN" count, a Place button - built once, hidden/shown per owned count. */
+  private buildWarehouseRow(frame: string, name: string, index: number): WarehouseRow {
+    const colX = WAREHOUSE_COLUMN_X[Math.floor(index / WAREHOUSE_ROWS_PER_COLUMN)]!;
+    const y = WAREHOUSE_ROW_START_Y + (index % WAREHOUSE_ROWS_PER_COLUMN) * WAREHOUSE_ROW_SPACING;
+
+    const icon = this.add
+      .image(colX + WAREHOUSE_ICON_OFFSET_X, y, ATLAS_KEY, frame)
+      .setScale(WAREHOUSE_ICON_SCALE)
+      .setVisible(false);
+    const nameText = this.add
+      .text(colX + WAREHOUSE_NAME_OFFSET_X, y + WAREHOUSE_NAME_OFFSET_Y, name, WAREHOUSE_NAME_STYLE)
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+    const countText = this.add
+      .text(
+        colX + WAREHOUSE_COUNT_OFFSET_X,
+        y + WAREHOUSE_COUNT_OFFSET_Y,
+        '',
+        WAREHOUSE_COUNT_STYLE,
+      )
+      .setOrigin(0, 0.5)
+      .setVisible(false);
+
+    const placeButton = this.add
+      .nineslice(
+        colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X,
+        y,
+        ATLAS_KEY,
+        'panel',
+        WAREHOUSE_PLACE_BUTTON_WIDTH,
+        WAREHOUSE_PLACE_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setVisible(false);
+    const placeText = this.add
+      .text(colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X, y, 'Place', WAREHOUSE_PLACE_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    placeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      const newIndex = gameState.placeFromWarehouse(frame);
+      if (newIndex === false) return;
+      this.audio.sfx('tap');
+      this.hideWarehousePanel();
+      this.spawnPlacedDecorationSprite(newIndex);
+    });
+
+    this.warehouseContainer.add([icon, nameText, countText, placeButton, placeText]);
+    return { frame, icon, nameText, countText, placeButton, placeText };
+  }
+
+  /** Open (or close) the warehouse panel from the control row's Warehouse button. */
+  private toggleWarehousePanel(): void {
+    if (this.warehousePanelVisible) this.hideWarehousePanel();
+    else this.showWarehousePanel();
+  }
+
+  private showWarehousePanel(): void {
+    this.refreshWarehousePanel();
+    this.warehousePanelVisible = true;
+    this.warehouseContainer.setVisible(true);
+    this.warehouseBackdropZone.setVisible(true).setInteractive();
+    this.warehouseCloseButton.setInteractive({ useHandCursor: true });
+    setPanelOpen('decor-warehouse', true);
+  }
+
+  private hideWarehousePanel(): void {
+    if (!this.warehousePanelVisible) return;
+    this.warehousePanelVisible = false;
+    this.warehouseContainer.setVisible(false);
+    this.warehouseBackdropZone.setVisible(false).disableInteractive();
+    this.warehouseCloseButton.disableInteractive();
+    for (const row of this.warehouseRows) row.placeButton.disableInteractive();
+    setPanelOpen('decor-warehouse', false);
+  }
+
+  /**
+   * Re-derive every row's visibility/count/Place-button state from the
+   * live warehouse (T3.9b): rows with nothing owned hide entirely (icon,
+   * name, count, button - never a dangling interactive hitbox on an invisible
+   * row), rows with any owned show with a truthful "xN" and an interactive
+   * Place button. The empty-state text shows only when nothing is owned at
+   * all.
+   */
+  private refreshWarehousePanel(): void {
+    const warehouse = gameState.getState().warehouse;
+    let anyOwned = false;
+    for (const row of this.warehouseRows) {
+      const owned = warehouse[row.frame] ?? 0;
+      const has = owned > 0;
+      if (has) anyOwned = true;
+      row.icon.setVisible(has);
+      row.nameText.setVisible(has);
+      row.countText.setVisible(has).setText(`x${owned}`);
+      row.placeText.setVisible(has);
+      row.placeButton.setVisible(has);
+      if (has) {
+        row.placeButton.setInteractive({ useHandCursor: true });
+      } else {
+        row.placeButton.disableInteractive();
+      }
+    }
+    this.warehouseEmptyText.setVisible(!anyOwned);
   }
 
   /**
@@ -1070,36 +1974,44 @@ export class FarmScene extends Phaser.Scene {
       if (enabled) sprite.setInteractive({ draggable: true });
       else sprite.disableInteractive();
     }
-    this.setOtherHitboxesEnabled(!enabled);
+    this.setOtherHitboxesEnabled(!enabled, this.dressingSprites, this.dressingEditDisabledObjects);
     if (!enabled) this.setDressingSelection(null);
   }
 
   /**
-   * Disables (or restores) every interactive object in the scene EXCEPT the
-   * dressing decals themselves, for the duration of dressing edit mode - see
-   * `setDressingEditActive`. Same `_list` technique as `toggleHitboxDebug`
-   * (InputPlugin has no public accessor for "every interactive object");
-   * iterates a snapshot copy since `disableInteractive()` mutates the live
-   * list. Restoring uses no-arg `setInteractive()` (never a config object)
-   * so each object's own custom hit area (e.g. the notice board's measured
-   * pad) survives the round trip, per this project's hit-area convention.
+   * Disables (or restores) every interactive object in the scene EXCEPT
+   * those in `exempt`, tracked in `disabledObjects` so the exact same set is
+   * restored - the shared technique behind both the dressing editor's edit
+   * mode (`setDressingEditActive`) and arrange mode (`enterArrangeMode`/
+   * `exitArrangeMode`; T3.9a), each with its own exempt list and tracking
+   * array since only one mode is ever active at a time. Same `_list`
+   * technique as `toggleHitboxDebug` (InputPlugin has no public accessor for
+   * "every interactive object"); iterates a snapshot copy since
+   * `disableInteractive()` mutates the live list. Restoring uses no-arg
+   * `setInteractive()` (never a config object) so each object's own custom
+   * hit area (e.g. the notice board's measured pad) survives the round trip,
+   * per this project's hit-area convention.
    */
-  private setOtherHitboxesEnabled(enabled: boolean): void {
+  private setOtherHitboxesEnabled(
+    enabled: boolean,
+    exempt: readonly Phaser.GameObjects.GameObject[],
+    disabledObjects: Phaser.GameObjects.GameObject[],
+  ): void {
     if (!enabled) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InputPlugin's interactive-object list (`_list`) is internal/private with no public accessor
       const rawList = (this.input as any)._list as Phaser.GameObjects.GameObject[];
       const interactiveObjects = [...rawList];
-      this.dressingEditDisabledObjects.length = 0;
+      disabledObjects.length = 0;
       for (const object of interactiveObjects) {
-        if ((this.dressingSprites as Phaser.GameObjects.GameObject[]).includes(object)) continue;
-        this.dressingEditDisabledObjects.push(object);
+        if (exempt.includes(object)) continue;
+        disabledObjects.push(object);
         object.disableInteractive();
       }
     } else {
-      for (const object of this.dressingEditDisabledObjects) {
+      for (const object of disabledObjects) {
         object.setInteractive();
       }
-      this.dressingEditDisabledObjects.length = 0;
+      disabledObjects.length = 0;
     }
   }
 
@@ -1215,6 +2127,7 @@ export class FarmScene extends Phaser.Scene {
     this.noticeBoardImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.hud.toggleOrderBoard();
     });
+    this.createGroundShadow(this.noticeBoardImage);
 
     const badgeX =
       NOTICE_BOARD_POSITION.x +

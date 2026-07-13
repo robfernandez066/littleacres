@@ -61,6 +61,19 @@
  * - stone_a, stone_b, stone_c, and stone_d if staged (T2.28): single-rock
  *   decals, same treatment, at 64x64. Packed conditionally - only whichever
  *   of these are actually staged - and the resulting count is logged.
+ * - decor_bench, decor_flowerbed, decor_fence, decor_barrels, decor_scarecrow,
+ *   decor_birdbath, decor_well, decor_mushrooms, decor_gnome, decor_lantern
+ *   (T3.9): purchasable decorations, same trim-fit-center square treatment as
+ *   the icons above, at 128x128.
+ * - trophy_goldscarecrow, trophy_moonwell, trophy_traderscart (T3.9): same
+ *   square treatment at 128x128. trophy_starbanner at 192x192,
+ *   trophy_ancientoak at 256x256 - both taller/more detailed art that reads
+ *   too small at 128.
+ * - ground_shadow (T3.9): NOT staged - generated directly by this script (see
+ *   generateGroundShadow): a 128x64 radial-gradient ellipse, black, alpha
+ *   0.35 at center falling to 0 at the edge. FarmScene renders one under every
+ *   standing object (farmhouse, notice board, decorations) to root it to the
+ *   ground.
  *
  * Layout is deterministic (fixed frame list, sorted packing order, fixed
  * shelf width), so reruns are byte-stable given identical inputs. Staged
@@ -181,6 +194,21 @@ const SQUARE_DOWNSCALE_SIZES = {
   notice_board: 256,
   farmhouse: 256,
   dirt_path: 288,
+  decor_bench: 128,
+  decor_flowerbed: 128,
+  decor_fence: 128,
+  decor_barrels: 128,
+  decor_scarecrow: 128,
+  decor_birdbath: 128,
+  decor_well: 128,
+  decor_mushrooms: 128,
+  decor_gnome: 128,
+  decor_lantern: 128,
+  trophy_goldscarecrow: 128,
+  trophy_starbanner: 192,
+  trophy_moonwell: 128,
+  trophy_traderscart: 128,
+  trophy_ancientoak: 256,
 };
 /** Wide "plain downscale, keep aspect": trim, scale to a fixed width, no fixed frame. */
 const WIDE_DOWNSCALE_WIDTHS = {
@@ -559,6 +587,38 @@ function processPanel(image, name) {
   return image;
 }
 
+/** Generated ground_shadow frame geometry/appearance (T3.9) - see the
+ *  top-of-file note. Not staged; produced entirely by generateGroundShadow. */
+const GROUND_SHADOW_WIDTH = 128;
+const GROUND_SHADOW_HEIGHT = 64;
+const GROUND_SHADOW_CENTER_ALPHA = 0.35;
+
+/**
+ * Generate the `ground_shadow` frame: a black radial-gradient ellipse at
+ * GROUND_SHADOW_CENTER_ALPHA opacity at its center, fading linearly to fully
+ * transparent at the ellipse boundary. Distance is measured in normalized
+ * elliptical space (x scaled by the half-width, y by the half-height) so the
+ * gradient's iso-contours are ellipses matching the frame's own 2:1 aspect,
+ * not circles.
+ */
+function generateGroundShadow() {
+  const w = GROUND_SHADOW_WIDTH;
+  const h = GROUND_SHADOW_HEIGHT;
+  const cx = w / 2;
+  const cy = h / 2;
+  const frame = blankFrame(w, h);
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const dx = (x + 0.5 - cx) / cx;
+      const dy = (y + 0.5 - cy) / cy;
+      const d = Math.hypot(dx, dy);
+      const alpha = d >= 1 ? 0 : Math.round(GROUND_SHADOW_CENTER_ALPHA * 255 * (1 - d));
+      setPixel(frame, x, y, [0, 0, 0, alpha]);
+    }
+  }
+  return frame;
+}
+
 /**
  * Ground texture (T2.28): trim only, no resize/no fixed frame - these are
  * standalone TileSprite source images, not atlas frames, so they keep their
@@ -713,6 +773,9 @@ for (const name of [...FRAME_NAMES].sort()) {
   else frame = processPanel(image, name);
   sprites.push({ name, image: frame });
 }
+// T3.9: the one generated (not staged) frame - appended after the sorted
+// staged frames, so packing order stays deterministic.
+sprites.push({ name: 'ground_shadow', image: generateGroundShadow() });
 
 const plotSprite = sprites.find((s) => s.name === 'plot');
 const plotFootprintAfter = opaqueBounds(plotSprite.image);

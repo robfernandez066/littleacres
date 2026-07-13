@@ -6,6 +6,19 @@ import {
   CHEST_MOONDUST_CHANCE,
 } from '../data/chests';
 import { CROPS, type CropId } from '../data/crops';
+import {
+  DECOR_FRAMES,
+  DECOR_SCALE_MAX,
+  DECOR_SCALE_MIN,
+  DECOR_X_MAX,
+  DECOR_X_MIN,
+  DECOR_Y_MAX,
+  DECOR_Y_MIN,
+  DECOR_ITEMS,
+  MAX_DECORATIONS,
+  WAREHOUSE_PLACE_X,
+  WAREHOUSE_PLACE_Y,
+} from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
@@ -90,6 +103,19 @@ export interface PendingOrderSlot {
 /** Discriminated union over `state`, like `PlotState`. */
 export type OrderSlot = OpenOrderSlot | CooldownOrderSlot | PendingOrderSlot;
 
+/**
+ * One placed decoration (T3.9): `frame` is a `DECOR_ITEMS`/`TROPHY_FRAMES`
+ * atlas frame, `x`/`y` its screen position (design space), `scale` its
+ * display scale. `FarmScene` renders these iso-sorted by `y`, like a crop or
+ * structure.
+ */
+export interface DecorationPlacement {
+  frame: string;
+  x: number;
+  y: number;
+  scale: number;
+}
+
 export interface GameSettings {
   musicOn: boolean;
   sfxOn: boolean;
@@ -115,9 +141,10 @@ export interface OnboardingState {
 
 /**
  * Everything the tutorial rails gate (see `GameStateStore.railsAllow`). The
- * first six mirror the store mutators; the last three are the UI queries
- * (SeedBar seed taps, the HUD's Orders/Bag buttons) so their gating shares
- * the exact same rules instead of duplicating them.
+ * first six mirror the store mutators; the last four are the UI queries
+ * (SeedBar seed taps, the HUD's Orders/Bag buttons, and the farmhouse's Decor
+ * Shop tap) so their gating shares the exact same rules instead of
+ * duplicating them.
  */
 export type RailsAction =
   | 'plant'
@@ -128,7 +155,8 @@ export type RailsAction =
   | 'expand'
   | 'select-seed'
   | 'orders-button'
-  | 'bag-button';
+  | 'bag-button'
+  | 'decor-shop';
 
 /** One level gained, and any crops newly unlocked at exactly that level. */
 export interface LevelUpEvent {
@@ -192,6 +220,15 @@ export interface GameStateData {
   orders: OrderSlot[];
   /** Skip-cooldown escalation streak (see `skipOrder`). */
   orderSkips: OrderSkipsState;
+  /** Placed decorations (T3.9); `decorations.length + warehouse total` <= MAX_DECORATIONS. */
+  decorations: DecorationPlacement[];
+  /**
+   * Owned-but-unplaced decorations (T3.9b): frame -> count. A purchase always
+   * lands here first (`buyDecoration`); `placeFromWarehouse`/`storeDecoration`
+   * move one unit between here and `decorations`. Keys are removed once their
+   * count reaches 0, never left at 0 (see `placeFromWarehouse`).
+   */
+  warehouse: Record<string, number>;
   onboarding: OnboardingState;
   settings: GameSettings;
   createdAt: number;
@@ -324,6 +361,12 @@ function renameCropId(
 /** v8 -> v9: adds the skip-cooldown escalation streak, zeroed for existing saves. */
 const v8ToV9: Migration = (raw) => ({ ...raw, orderSkips: { count: 0, lastAt: 0 } });
 
+/**
+ * v9 -> v10: adds decorations (T3.9) and the warehouse (T3.9b, folded into
+ * the same still-uncommitted schema bump), both empty for existing saves.
+ */
+const v9ToV10: Migration = (raw) => ({ ...raw, decorations: [], warehouse: {} });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -334,6 +377,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v6ToV7,
   v7ToV8,
   v8ToV9,
+  v9ToV10,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -349,6 +393,8 @@ export function createDefaultState(version: number): GameStateData {
     moondust: 0,
     orders: createPendingOrderSlots(),
     orderSkips: { count: 0, lastAt: 0 },
+    decorations: [],
+    warehouse: {},
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
       musicOn: true,
@@ -439,6 +485,36 @@ function isOrderSkipsState(value: unknown): value is OrderSkipsState {
   return isRecord(value) && isFiniteNumber(value.count) && isFiniteNumber(value.lastAt);
 }
 
+function isDecorationPlacement(value: unknown): value is DecorationPlacement {
+  return (
+    isRecord(value) &&
+    typeof value.frame === 'string' &&
+    DECOR_FRAMES.has(value.frame) &&
+    isFiniteNumber(value.x) &&
+    isFiniteNumber(value.y) &&
+    isFiniteNumber(value.scale)
+  );
+}
+
+/**
+ * The warehouse record (T3.9b): every key a known decor/trophy frame, every
+ * value a positive integer count. An empty record is valid (nothing stored).
+ */
+function isWarehouseRecord(value: unknown): value is Record<string, number> {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([frame, count]) =>
+        DECOR_FRAMES.has(frame) && isFiniteNumber(count) && Number.isInteger(count) && count > 0,
+    )
+  );
+}
+
+/** Sum of every warehoused count, for the combined placed+warehoused MAX_DECORATIONS cap. */
+function warehouseTotal(warehouse: Record<string, number>): number {
+  return Object.values(warehouse).reduce((sum, count) => sum + count, 0);
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -467,6 +543,10 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     raw.orders.length === ORDER_SLOTS &&
     raw.orders.every(isOrderSlot) &&
     isOrderSkipsState(raw.orderSkips) &&
+    isWarehouseRecord(raw.warehouse) &&
+    Array.isArray(raw.decorations) &&
+    raw.decorations.length + warehouseTotal(raw.warehouse) <= MAX_DECORATIONS &&
+    raw.decorations.every(isDecorationPlacement) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
@@ -795,6 +875,91 @@ export class GameStateStore {
     return true;
   }
 
+  /** Placed count + warehoused count, the shared MAX_DECORATIONS cap (T3.9b). */
+  private totalOwnedDecorations(): number {
+    return this.state.decorations.length + warehouseTotal(this.state.warehouse);
+  }
+
+  /**
+   * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b):
+   * deducts its price from the right currency and increments its warehouse
+   * count - nothing is placed on the lawn. Returns false without mutating
+   * anything if `itemFrame` is not a known `DECOR_ITEMS` frame, the combined
+   * placed+warehoused count is already at MAX_DECORATIONS, the balance is
+   * insufficient, or onboarding is still active (the tutorial has no shop
+   * step).
+   */
+  buyDecoration(itemFrame: string): boolean {
+    if (!this.railsAllow('decor-shop')) return false;
+    const item = DECOR_ITEMS.find((candidate) => candidate.frame === itemFrame);
+    if (item === undefined) return false;
+    if (this.totalOwnedDecorations() >= MAX_DECORATIONS) return false;
+    const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
+    if (balance < item.price) return false;
+    if (item.currency === 'coins') this.state.coins -= item.price;
+    else this.state.moondust -= item.price;
+    this.state.warehouse[item.frame] = (this.state.warehouse[item.frame] ?? 0) + 1;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Place one warehoused unit of `frame` onto the lawn (T3.9b), at screen
+   * center and max scale (WAREHOUSE_PLACE_X/Y, DECOR_SCALE_MAX) so a placed
+   * item is immediately visible and ready to drag. Decrements the warehouse
+   * count (removing the key entirely once it hits 0, never leaving a 0
+   * entry), appends the new placement, one save. Returns the new
+   * placement's index (always `decorations.length - 1`, since placements
+   * only ever append) so the caller can select it, or false if none are
+   * owned.
+   */
+  placeFromWarehouse(frame: string): number | false {
+    const owned = this.state.warehouse[frame] ?? 0;
+    if (owned <= 0) return false;
+    if (owned === 1) delete this.state.warehouse[frame];
+    else this.state.warehouse[frame] = owned - 1;
+    this.state.decorations.push({
+      frame,
+      x: WAREHOUSE_PLACE_X,
+      y: WAREHOUSE_PLACE_Y,
+      scale: DECOR_SCALE_MAX,
+    });
+    this.save();
+    return this.state.decorations.length - 1;
+  }
+
+  /**
+   * Return a placed decoration to the warehouse (T3.9b): removes it from
+   * `decorations` and increments its frame's warehouse count, one save.
+   * Returns false without mutating anything if `index` is out of range.
+   */
+  storeDecoration(index: number): boolean {
+    const decoration = this.state.decorations[index];
+    if (decoration === undefined) return false;
+    this.state.decorations.splice(index, 1);
+    this.state.warehouse[decoration.frame] = (this.state.warehouse[decoration.frame] ?? 0) + 1;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Reposition/rescale a placed decoration (the future arrange/edit mode;
+   * tested now). Returns false without mutating anything if `index` is out
+   * of range or any of x/y/scale is non-finite; otherwise clamps each to its
+   * legal range (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..MAX)
+   * and applies it, one save.
+   */
+  setDecorationTransform(index: number, x: number, y: number, scale: number): boolean {
+    const decoration = this.state.decorations[index];
+    if (decoration === undefined) return false;
+    if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(scale)) return false;
+    decoration.x = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
+    decoration.y = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
+    decoration.scale = Math.min(DECOR_SCALE_MAX, Math.max(DECOR_SCALE_MIN, scale));
+    this.save();
+    return true;
+  }
+
   /**
    * Sell the entire stack of one crop: coins gain count * sellValue, the
    * stack empties, and the change persists. Returns the coins gained (0
@@ -993,8 +1158,9 @@ export class GameStateStore {
       case 'skip':
       case 'expand':
       case 'bag-button':
-        // No sell/bag steps remain, and skipping or expanding is never a
-        // tutorial action.
+      case 'decor-shop':
+        // No sell/bag/decor-shop steps remain, and skipping or expanding is
+        // never a tutorial action.
         return false;
     }
   }

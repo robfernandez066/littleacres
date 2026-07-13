@@ -300,7 +300,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(8);
+    expect(MIGRATIONS).toHaveLength(9);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -311,7 +311,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(9);
+    expect(state.version).toBe(10);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -334,7 +334,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(9);
+    expect(state.version).toBe(10);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -342,17 +342,17 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a fresh save is created at v9 with moondust 0 and three pending slots', () => {
+  it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(9);
-    expect(store.getState().version).toBe(9);
+    expect(store.currentVersion).toBe(10);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(9),
+      ...createDefaultState(10),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -381,7 +381,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -402,7 +402,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(9),
+      ...createDefaultState(10),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -425,7 +425,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -438,7 +438,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
   });
 
   it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(9) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(10) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -465,7 +465,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -495,7 +495,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
       { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
     ]) {
-      const bad = createDefaultState(9) as unknown as Record<string, unknown>;
+      const bad = createDefaultState(10) as unknown as Record<string, unknown>;
       bad.settings = settings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
       const store = new GameStateStore({ storage });
@@ -514,7 +514,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
 describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   /** A v6-shaped save speaking 'carrot' everywhere saves store crop ids. */
   function v6CarrotSave(): Record<string, unknown> {
-    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
     saved.version = 6;
     saved.coins = 77;
     saved.xp = 31;
@@ -550,7 +550,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(9);
+    expect(state.version).toBe(10);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -575,18 +575,18 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   });
 
   it('a carrot-free v6 save migrates untouched apart from the version bump', () => {
-    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
     saved.version = 6;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('a current-version save still speaking carrot resets cleanly (validation, not migration)', () => {
-    const bad = createDefaultState(9) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(10) as unknown as Record<string, unknown>;
     bad.inventory = { carrot: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -599,7 +599,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
 describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', () => {
   /** A v7-shaped save with a chosen onboarding record. */
   function v7Save(onboarding: Record<string, unknown>): string {
-    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = onboarding;
     return JSON.stringify(saved);
@@ -614,7 +614,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -649,15 +649,384 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
 describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
   it('a v8 save (no orderSkips field) gains a zeroed streak and migrates through to current', () => {
-    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
     saved.version = 8;
     delete saved.orderSkips; // a genuine v8 save never had this field
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(9);
+    expect(store.getState().version).toBe(10);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v9 -> v10 (decorations + warehouse)', () => {
+  it('a v9 save (no decorations/warehouse fields) gains both empty and migrates through to current', () => {
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    saved.version = 9;
+    delete saved.decorations; // a genuine v9 save never had this field
+    delete saved.warehouse; // nor this one
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(10);
+    expect(store.getState().decorations).toEqual([]);
+    expect(store.getState().warehouse).toEqual({});
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('decorations and warehouse validation and round-trip', () => {
+  it('accepts a save with placed decorations (incl. a trophy frame) and warehoused items, and it survives a reload', () => {
+    const saved = createDefaultState(10);
+    saved.decorations = [
+      { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55 },
+      { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8 },
+    ];
+    saved.warehouse = { decor_fence: 2, decor_mushrooms: 1 };
+    expect(isValidState(saved, 10)).toBe(true);
+
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().decorations).toEqual(saved.decorations);
+    expect(store.getState().warehouse).toEqual(saved.warehouse);
+  });
+
+  it('rejects an unknown frame, a malformed entry, or too many placed decorations', () => {
+    const base = createDefaultState(10);
+    const unknownFrame = { ...base, decorations: [{ frame: 'not_a_frame', x: 0, y: 0, scale: 1 }] };
+    expect(isValidState(unknownFrame, 10)).toBe(false);
+
+    const malformed = {
+      ...base,
+      decorations: [{ frame: 'decor_bench', x: 'far', y: 0, scale: 1 }],
+    };
+    expect(isValidState(malformed, 10)).toBe(false);
+
+    const tooMany = {
+      ...base,
+      decorations: Array.from({ length: 31 }, () => ({
+        frame: 'decor_bench',
+        x: 0,
+        y: 0,
+        scale: 1,
+      })),
+    };
+    expect(isValidState(tooMany, 10)).toBe(false);
+  });
+
+  it('rejects a warehouse with an unknown frame, a non-positive/non-integer count, or a malformed record', () => {
+    const base = createDefaultState(10);
+    expect(isValidState({ ...base, warehouse: { not_a_frame: 1 } }, 10)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 0 } }, 10)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: -1 } }, 10)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 1.5 } }, 10)).toBe(false);
+    expect(isValidState({ ...base, warehouse: 'nope' }, 10)).toBe(false);
+  });
+
+  it('rejects when placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
+    const base = createDefaultState(10);
+    const combined = {
+      ...base,
+      decorations: Array.from({ length: 20 }, () => ({
+        frame: 'decor_bench',
+        x: 0,
+        y: 0,
+        scale: 1,
+      })),
+      warehouse: { decor_fence: 11 },
+    };
+    expect(isValidState(combined, 10)).toBe(false);
+    combined.warehouse = { decor_fence: 10 };
+    expect(isValidState(combined, 10)).toBe(true);
+  });
+});
+
+describe('buyDecoration', () => {
+  it('deducts coins, increments the warehouse count, and persists (no placement)', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.addCoins(400 - store.getState().coins);
+    expect(store.buyDecoration('decor_bench')).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(0);
+    expect(state.decorations).toEqual([]);
+    expect(state.warehouse).toEqual({ decor_bench: 1 });
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().warehouse).toEqual(state.warehouse);
+    expect(reloaded.getState().decorations).toEqual([]);
+  });
+
+  it('deducts moondust for a moondust-priced item', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    // decor_mushrooms costs 4 moondust; MOONDUST_PER_LEVEL (1) per level-up
+    // is the only way to earn it, so level up 4 times via xp.
+    expect(store.buyDecoration('decor_mushrooms')).toBe(false); // 0 moondust yet
+    store.addXp(xpForLevel(5));
+    expect(store.getState().moondust).toBe(4);
+    expect(store.buyDecoration('decor_mushrooms')).toBe(true);
+    const state = store.getState();
+    expect(state.moondust).toBe(0);
+    expect(state.warehouse).toEqual({ decor_mushrooms: 1 });
+    expect(state.decorations).toEqual([]);
+  });
+
+  it('stacks repeat purchases of the same frame in the warehouse', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    expect(store.buyDecoration('decor_bench')).toBe(true);
+    expect(store.buyDecoration('decor_bench')).toBe(true);
+    expect(store.getState().warehouse).toEqual({ decor_bench: 2 });
+    expect(store.getState().decorations).toEqual([]);
+  });
+
+  it('fails on an unknown item without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('not_a_real_item')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fails when the balance is insufficient, without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(-store.getState().coins); // 0 coins
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('decor_bench')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fails at MAX_DECORATIONS (placed + warehoused combined), without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1_000_000);
+    for (let i = 0; i < 30; i++) {
+      expect(store.buyDecoration('decor_fence')).toBe(true);
+    }
+    expect(store.getState().warehouse).toEqual({ decor_fence: 30 });
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('decor_fence')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('counts placed decorations toward the same cap as warehoused ones', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1_000_000);
+    for (let i = 0; i < 30; i++) store.buyDecoration('decor_fence');
+    for (let i = 0; i < 20; i++) store.placeFromWarehouse('decor_fence');
+    expect(store.getState().decorations).toHaveLength(20);
+    expect(store.getState().warehouse).toEqual({ decor_fence: 10 });
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('decor_fence')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fails without mutation while onboarding is active', () => {
+    const store = new GameStateStore({ storage: null });
+    store.addCoins(1000);
+    // Onboarding left active (not completed).
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('decor_bench')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('placeFromWarehouse', () => {
+  it('decrements the warehouse count, appends a centered max-scale placement, and returns the new index', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.buyDecoration('decor_bench');
+    expect(store.getState().warehouse).toEqual({ decor_bench: 2 });
+
+    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    const state = store.getState();
+    expect(state.warehouse).toEqual({ decor_bench: 1 });
+    expect(state.decorations).toEqual([{ frame: 'decor_bench', x: 540, y: 900, scale: 0.7 }]);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().decorations).toEqual(state.decorations);
+    expect(reloaded.getState().warehouse).toEqual(state.warehouse);
+  });
+
+  it('removes the key entirely once its count reaches 0 (never leaves a 0 entry)', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    expect(store.getState().warehouse).toEqual({});
+  });
+
+  it('returns false without mutation when none are owned', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.placeFromWarehouse('decor_bench')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('appends across multiple placements, indices increasing', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.buyDecoration('decor_fence');
+    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    expect(store.placeFromWarehouse('decor_fence')).toBe(1);
+    expect(store.getState().decorations.map((d) => d.frame)).toEqual([
+      'decor_bench',
+      'decor_fence',
+    ]);
+  });
+});
+
+describe('storeDecoration', () => {
+  it('removes a placement, increments its warehouse count, and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    expect(store.storeDecoration(0)).toBe(true);
+    const state = store.getState();
+    expect(state.decorations).toEqual([]);
+    expect(state.warehouse).toEqual({ decor_bench: 1 });
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().decorations).toEqual([]);
+    expect(reloaded.getState().warehouse).toEqual({ decor_bench: 1 });
+  });
+
+  it('round-trips place -> store -> place, preserving counts exactly', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    expect(store.getState().decorations).toHaveLength(2);
+    expect(store.getState().warehouse).toEqual({});
+
+    expect(store.storeDecoration(0)).toBe(true);
+    expect(store.getState().decorations).toHaveLength(1);
+    expect(store.getState().warehouse).toEqual({ decor_bench: 1 });
+
+    expect(store.placeFromWarehouse('decor_bench')).toBe(1);
+    expect(store.getState().decorations).toHaveLength(2);
+    expect(store.getState().warehouse).toEqual({});
+  });
+
+  it('fails on an out-of-range index without mutation', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.storeDecoration(1)).toBe(false);
+    expect(store.storeDecoration(-1)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('accumulates the warehouse count across multiple stores of the same frame, index shift accounted for', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    expect(store.storeDecoration(0)).toBe(true);
+    // The second placement shifted down to index 0 when the first was removed.
+    expect(store.storeDecoration(0)).toBe(true);
+    expect(store.getState().decorations).toEqual([]);
+    expect(store.getState().warehouse).toEqual({ decor_bench: 2 });
+  });
+});
+
+describe('setDecorationTransform', () => {
+  function storeWithOneDecoration(): GameStateStore {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    return store;
+  }
+
+  it('applies x/y/scale within range and persists', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.addCoins(1000);
+    store.buyDecoration('decor_bench');
+    store.placeFromWarehouse('decor_bench');
+    expect(store.setDecorationTransform(0, 600, 900, 0.7)).toBe(true);
+    expect(store.getState().decorations[0]).toEqual({
+      frame: 'decor_bench',
+      x: 600,
+      y: 900,
+      scale: 0.7,
+    });
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().decorations[0]).toEqual({
+      frame: 'decor_bench',
+      x: 600,
+      y: 900,
+      scale: 0.7,
+    });
+  });
+
+  it('clamps x/y/scale to their legal ranges', () => {
+    const store = storeWithOneDecoration();
+    expect(store.setDecorationTransform(0, -500, -500, 0)).toBe(true);
+    expect(store.getState().decorations[0]).toEqual({
+      frame: 'decor_bench',
+      x: 0,
+      y: 380,
+      scale: 0.35,
+    });
+    expect(store.setDecorationTransform(0, 5000, 5000, 5)).toBe(true);
+    expect(store.getState().decorations[0]).toEqual({
+      frame: 'decor_bench',
+      x: 1080,
+      y: 1520,
+      scale: 0.7,
+    });
+  });
+
+  it('fails on an out-of-range index without mutation', () => {
+    const store = storeWithOneDecoration();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.setDecorationTransform(1, 0, 0, 0.5)).toBe(false);
+    expect(store.setDecorationTransform(-1, 0, 0, 0.5)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('fails on non-finite input without mutation', () => {
+    const store = storeWithOneDecoration();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.setDecorationTransform(0, Number.NaN, 0, 0.5)).toBe(false);
+    expect(store.setDecorationTransform(0, 0, Infinity, 0.5)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 });
 
@@ -958,9 +1327,9 @@ describe('premium order validation', () => {
       xpReward: 4,
       premium: { moondust: 2, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 9)).toBe(true);
+    expect(isValidState(saved, 10)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -969,12 +1338,12 @@ describe('premium order validation', () => {
   });
 
   it('accepts an order with no premium field (absence is valid, no version bump)', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.orders[0] = {
       state: 'open',
       order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 },
     };
-    expect(isValidState(saved, 9)).toBe(true);
+    expect(isValidState(saved, 10)).toBe(true);
   });
 
   it('rejects a malformed premium field: non-positive/non-finite moondust, or a non-string flavor', () => {
@@ -989,14 +1358,14 @@ describe('premium order validation', () => {
     ];
     for (const premium of badPremiums) {
       const bad = {
-        ...createDefaultState(9),
+        ...createDefaultState(10),
         orders: [
           { state: 'open', order: { ...baseOrder, premium } },
           { state: 'pending' },
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 9)).toBe(false);
+      expect(isValidState(bad, 10)).toBe(false);
     }
   });
 
@@ -1008,9 +1377,9 @@ describe('premium order validation', () => {
         xpReward: 4,
         premium: { moondust: 2, flavor: 'A test flavor line', chests },
       };
-      const saved = createDefaultState(9);
+      const saved = createDefaultState(10);
       saved.orders[0] = { state: 'open', order: premiumOrder };
-      expect(isValidState(saved, 9)).toBe(true);
+      expect(isValidState(saved, 10)).toBe(true);
 
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
@@ -1026,9 +1395,9 @@ describe('premium order validation', () => {
       xpReward: 2,
       premium: { moondust: 1, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 9)).toBe(true);
+    expect(isValidState(saved, 10)).toBe(true);
   });
 
   it('rejects a malformed premium.chests: zero, negative, non-integer, or non-finite', () => {
@@ -1036,7 +1405,7 @@ describe('premium order validation', () => {
     const badChestCounts = [0, -1, 1.5, Number.NaN, Infinity];
     for (const chests of badChestCounts) {
       const bad = {
-        ...createDefaultState(9),
+        ...createDefaultState(10),
         orders: [
           {
             state: 'open',
@@ -1046,7 +1415,7 @@ describe('premium order validation', () => {
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 9)).toBe(false);
+      expect(isValidState(bad, 10)).toBe(false);
     }
   });
 });
@@ -1055,24 +1424,24 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(9);
-    expect(isValidState(base, 9)).toBe(true);
+    const base = createDefaultState(10);
+    expect(isValidState(base, 10)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 9)).toBe(true);
+    expect(isValidState(expanded, 10)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(9);
+    const base = createDefaultState(10);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 9)).toBe(false);
+    expect(isValidState(thirteen, 10)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 9)).toBe(false);
+    expect(isValidState(seventeen, 10)).toBe(false);
   });
 });
 
@@ -1111,7 +1480,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1509,7 +1878,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -1846,7 +2215,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1879,7 +2248,7 @@ describe('onboarding', () => {
   });
 
   it('once completed, every rails gate is open - zero post-tutorial behavior change', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1932,7 +2301,7 @@ describe('onboarding', () => {
   });
 
   it('a mid-chain save completed via the v7 -> v8 migration never fires the one-shot', () => {
-    const saved = createDefaultState(9) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = { completed: false, step: 5, progress: 1, progressB: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -1943,7 +2312,7 @@ describe('onboarding', () => {
   });
 
   it('loading an already-completed save never fires the one-shot', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2092,7 +2461,7 @@ describe('offline growth (app closed during growth)', () => {
 describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('clamps a future-stamped growing plot to load time; past-stamped plots are untouched', () => {
     const pastPlantedAt = Date.now() - 60_000;
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
@@ -2120,7 +2489,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -2135,7 +2504,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('importSave clamps a future-stamped plot the same way', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.xp = 1;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2158,7 +2527,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2248,7 +2617,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);
@@ -2317,7 +2686,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on load grants no moondust', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2329,7 +2698,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on import grants no moondust', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2376,7 +2745,7 @@ describe('Radiant harvest proc', () => {
   });
 
   it('never procs during onboarding, even with an always-proc rng', () => {
-    const saved = createDefaultState(9);
+    const saved = createDefaultState(10);
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.plots[0] = {

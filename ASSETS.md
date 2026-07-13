@@ -42,45 +42,50 @@ future task.
 Frame names are a stable API - code refers to them, so replacement art must
 keep them.
 
-| Frame                              | Size (px)             | Notes                                                                                                         |
-| ---------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------- |
-| `grass`                            | 256x160               | tile; diamond top face 256x128, lip below                                                                     |
-| `grass_flat`                       | 256x160               | tile; derived from `grass.png` (T2.28a), flat-fill, no fringe/lip - see "Flat grass tile" below               |
-| `plot`                             | 256x160               | tile; empty tilled dirt                                                                                       |
-| `plot_occupied`                    | 256x160               | tile; planted soil (growing plots)                                                                            |
-| `sunwheat_0` .. `sunwheat_2`       | 128x128               | growth stages 0 (sprout) - 2 (ready)                                                                          |
-| `starcorn_0` .. `starcorn_2`       | 128x128               | growth stages                                                                                                 |
-| `glowberry_0` .. `glowberry_2`     | 128x128               | growth stages; stage 2 glows                                                                                  |
-| `moonroot_0` .. `moonroot_2`       | 128x128               | growth stages (T2.21; not yet wired up)                                                                       |
-| `emberpepper_0` .. `emberpepper_2` | 128x128               | growth stages (T2.21; not yet wired up)                                                                       |
-| `chest_closed`, `chest_open`       | 128x128               | crop-style, no growth stage (T2.21; unwired)                                                                  |
-| `coin`                             | 96x96                 | currency icon                                                                                                 |
-| `moondust`                         | 96x96                 | currency icon                                                                                                 |
-| `bag`                              | 96x96                 | HUD bag button icon                                                                                           |
-| `scroll`                           | 96x96                 | HUD orders button icon                                                                                        |
-| `note`                             | 96x96                 | HUD audio button icon                                                                                         |
-| `pouch`                            | 96x96                 | reserved, unused                                                                                              |
-| `sign`                             | 192x192               | ExpandSign signpost                                                                                           |
-| `panel`                            | 128x128               | UI 9-slice source                                                                                             |
-| `notice_board`                     | 256x256               | FarmScene notice board structure (T2.22)                                                                      |
-| `farmhouse`                        | 256x256               | FarmScene decorative farmhouse (T2.22)                                                                        |
-| `dirt_path`                        | 288x288               | FarmScene ground decal, house->field (T2.22b)                                                                 |
-| `mere`                             | 384x384               | staged as `mere_strip.png`; unwired (T2.21)                                                                   |
-| `hud_banner`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                              |
-| `hud_crest`                        | 192x192               | plain downscale; unwired (T2.21)                                                                              |
-| `xpbar_frame`                      | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                              |
-| `xpbar_fill`                       | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                              |
-| `gear_icon`                        | 128x128               | plain downscale; unwired (T2.21)                                                                              |
-| `button_push`                      | 256x256               | future nineslice source; unwired (T2.21)                                                                      |
-| `button_slot`                      | 256x256               | plain downscale; unwired (T2.21)                                                                              |
-| `button_close`                     | 96x96                 | staged as `xbutton.png`; unwired (T2.21)                                                                      |
-| `tuft_1`                           | 96x96                 | dirt-based ground decal (T2.28)                                                                               |
-| `tuft_2`                           | 96x96                 | grass-based ground decal (T2.28)                                                                              |
-| `tuft_1v2`                         | 96x96                 | tuft variant decal (owner pick, 2026-07-12)                                                                   |
-| `tuft_2v2`                         | 96x96                 | tuft variant decal (owner pick, 2026-07-12)                                                                   |
-| `dirt_wisp`                        | 96x96                 | dirt-based ground decal (T2.28)                                                                               |
-| `stones_1`                         | 128x128               | rock cluster decal (T2.28)                                                                                    |
-| `stone_a`, `stone_b`, `stone_c`    | 64x64                 | single-rock decals (T2.28); packed conditionally - only whichever are staged, `pack-atlas.mjs` logs the count |
+| Frame                                                                                                                                                                  | Size (px)             | Notes                                                                                                                    |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `grass`                                                                                                                                                                | 256x160               | tile; diamond top face 256x128, lip below                                                                                |
+| `grass_flat`                                                                                                                                                           | 256x160               | tile; derived from `grass.png` (T2.28a), flat-fill, no fringe/lip - see "Flat grass tile" below                          |
+| `plot`                                                                                                                                                                 | 256x160               | tile; empty tilled dirt                                                                                                  |
+| `plot_occupied`                                                                                                                                                        | 256x160               | tile; planted soil (growing plots)                                                                                       |
+| `sunwheat_0` .. `sunwheat_2`                                                                                                                                           | 128x128               | growth stages 0 (sprout) - 2 (ready)                                                                                     |
+| `starcorn_0` .. `starcorn_2`                                                                                                                                           | 128x128               | growth stages                                                                                                            |
+| `glowberry_0` .. `glowberry_2`                                                                                                                                         | 128x128               | growth stages; stage 2 glows                                                                                             |
+| `moonroot_0` .. `moonroot_2`                                                                                                                                           | 128x128               | growth stages (T2.21; not yet wired up)                                                                                  |
+| `emberpepper_0` .. `emberpepper_2`                                                                                                                                     | 128x128               | growth stages (T2.21; not yet wired up)                                                                                  |
+| `chest_closed`, `chest_open`                                                                                                                                           | 128x128               | crop-style, no growth stage (T2.21; unwired)                                                                             |
+| `coin`                                                                                                                                                                 | 96x96                 | currency icon                                                                                                            |
+| `moondust`                                                                                                                                                             | 96x96                 | currency icon                                                                                                            |
+| `bag`                                                                                                                                                                  | 96x96                 | HUD bag button icon                                                                                                      |
+| `scroll`                                                                                                                                                               | 96x96                 | HUD orders button icon                                                                                                   |
+| `note`                                                                                                                                                                 | 96x96                 | HUD audio button icon                                                                                                    |
+| `pouch`                                                                                                                                                                | 96x96                 | reserved, unused                                                                                                         |
+| `sign`                                                                                                                                                                 | 192x192               | ExpandSign signpost                                                                                                      |
+| `panel`                                                                                                                                                                | 128x128               | UI 9-slice source                                                                                                        |
+| `notice_board`                                                                                                                                                         | 256x256               | FarmScene notice board structure (T2.22)                                                                                 |
+| `farmhouse`                                                                                                                                                            | 256x256               | FarmScene decorative farmhouse (T2.22)                                                                                   |
+| `dirt_path`                                                                                                                                                            | 288x288               | FarmScene ground decal, house->field (T2.22b)                                                                            |
+| `mere`                                                                                                                                                                 | 384x384               | staged as `mere_strip.png`; unwired (T2.21)                                                                              |
+| `hud_banner`                                                                                                                                                           | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
+| `hud_crest`                                                                                                                                                            | 192x192               | plain downscale; unwired (T2.21)                                                                                         |
+| `xpbar_frame`                                                                                                                                                          | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
+| `xpbar_fill`                                                                                                                                                           | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
+| `gear_icon`                                                                                                                                                            | 128x128               | plain downscale; unwired (T2.21)                                                                                         |
+| `button_push`                                                                                                                                                          | 256x256               | future nineslice source; unwired (T2.21)                                                                                 |
+| `button_slot`                                                                                                                                                          | 256x256               | plain downscale; unwired (T2.21)                                                                                         |
+| `button_close`                                                                                                                                                         | 96x96                 | staged as `xbutton.png`; unwired (T2.21)                                                                                 |
+| `tuft_1`                                                                                                                                                               | 96x96                 | dirt-based ground decal (T2.28)                                                                                          |
+| `tuft_2`                                                                                                                                                               | 96x96                 | grass-based ground decal (T2.28)                                                                                         |
+| `tuft_1v2`                                                                                                                                                             | 96x96                 | tuft variant decal (owner pick, 2026-07-12)                                                                              |
+| `tuft_2v2`                                                                                                                                                             | 96x96                 | tuft variant decal (owner pick, 2026-07-12)                                                                              |
+| `dirt_wisp`                                                                                                                                                            | 96x96                 | dirt-based ground decal (T2.28)                                                                                          |
+| `stones_1`                                                                                                                                                             | 128x128               | rock cluster decal (T2.28)                                                                                               |
+| `stone_a`, `stone_b`, `stone_c`                                                                                                                                        | 64x64                 | single-rock decals (T2.28); packed conditionally - only whichever are staged, `pack-atlas.mjs` logs the count            |
+| `decor_bench`, `decor_flowerbed`, `decor_fence`, `decor_barrels`, `decor_scarecrow`, `decor_birdbath`, `decor_well`, `decor_mushrooms`, `decor_gnome`, `decor_lantern` | 128x128               | purchasable decorations (T3.9); `src/data/decor.ts` `DECOR_ITEMS`, sold from `src/ui/DecorShop.ts`                       |
+| `trophy_goldscarecrow`, `trophy_moonwell`, `trophy_traderscart`                                                                                                        | 128x128               | quest trophy decorations (T3.9); not purchasable - `src/data/decor.ts` `TROPHY_FRAMES`, granted by a future quest system |
+| `trophy_starbanner`                                                                                                                                                    | 192x192               | quest trophy (T3.9), same as above - taller art, packed larger to stay legible                                           |
+| `trophy_ancientoak`                                                                                                                                                    | 256x256               | quest trophy (T3.9), same as above - tallest/most detailed art, packed larger to stay legible                            |
+| `ground_shadow`                                                                                                                                                        | 128x64                | **generated, not staged** (T3.9) - see "Ground shadows" below                                                            |
 
 Crops follow `<cropId>_<stage>` with stages `0..2`; `src/data/crops.ts` maps
 crop ids to their stage frames. New crops should follow the same pattern.
@@ -303,6 +308,36 @@ interactive object in the scene (seed bar, HUD, notice board, expand sign,
 ...) is disabled too, so dragging a decal near them never fires their own tap
 handler; toggling off restores everything and re-locks the decals. Editor
 state is session-only - it never touches the game save.
+
+## Decorations (T3.9)
+
+`DECOR_ITEMS` (`src/data/decor.ts`) lists the 10 purchasable decorations
+(`decor_bench` .. `decor_lantern`, all packed at 128x128, priced in coins or
+moondust); `TROPHY_FRAMES` lists the 5 non-purchasable trophy frames, granted
+by a future quest system. Purchases (`src/ui/DecorShop.ts`, opened by tapping
+the farmhouse) append a `{ frame, x, y, scale }` placement to the save's
+`decorations` array (schema v10 - see `src/systems/gameState.ts`), which
+`FarmScene` renders iso-sorted by its own y like a crop or structure. A new
+purchase spawns at a staggered default position in the strip just above the
+seed bar (`buyDecoration`'s spawn formula); the player arrange/edit mode that
+moves them is a follow-up task.
+
+## Ground shadows (T3.9)
+
+`ground_shadow` (128x64) is the one atlas frame with no staged source - it is
+generated directly by `tools/pack-atlas.mjs` (`generateGroundShadow`): a
+black radial-gradient ellipse, alpha 0.35 at its center falling linearly to 0
+at the ellipse boundary (elliptical, not circular, distance so the gradient's
+iso-contours match the frame's own 2:1 aspect). `FarmScene` renders one under
+every standing object - the farmhouse, the notice board, and every decoration
+
+- at width = 0.8x the object's display width (`SHADOW_WIDTH_RATIO` in
+  `src/config.ts`), height = width x 0.5 (the frame is already 2:1), positioned
+  at the object's visual base (the bottom of its display bounds, raised ~8px),
+  depth one below the object's own, and alpha `SHADOW_ALPHA` (0.3). This is the
+  systemic fix for standing sprites reading as "taped on" to the ground rather
+  than resting on it. Dressing decals and the dirt path do not get shadows
+  (ground-hugging art, not standing objects).
 
 ## Icons
 

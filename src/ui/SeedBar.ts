@@ -122,6 +122,18 @@ export class SeedBar {
   }
 
   /**
+   * Show/hide the whole bar (T3.9b arrange mode, whose control row takes
+   * over this same band). Visibility only - `FarmScene`'s arrange-mode
+   * hitbox suppression already disables every button's interactivity for
+   * the duration and restores it on Done.
+   */
+  setVisible(visible: boolean): void {
+    for (const button of this.buttons) {
+      button.container.setVisible(visible);
+    }
+  }
+
+  /**
    * Onboarding pulse target for a seed button - null once that seed is
    * already selected, so the guide moves the highlight on to the field. Also
    * null while a modal panel is open: the bar sits below the panels'

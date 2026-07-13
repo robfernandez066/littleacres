@@ -213,3 +213,20 @@ export const DRESSING_PALETTE_FRAMES = [
   'stone_b',
   'stone_c',
 ] as const;
+
+/**
+ * Ground shadows (T3.9): a scene-wide `ground_shadow` image (see
+ * tools/pack-atlas.mjs `generateGroundShadow`) rendered under every standing
+ * object - the farmhouse, the notice board, and every decoration - the fix
+ * for standing sprites reading as "taped on" instead of resting on the
+ * ground. Width is this fraction of the object's own display width; height
+ * is width x 0.5 (the frame is already 2:1, so this keeps the shadow's own
+ * aspect). Not applied to dressing decals or the dirt path - ground-hugging
+ * art that never needed rooting.
+ */
+export const SHADOW_WIDTH_RATIO = 0.8;
+export const SHADOW_HEIGHT_RATIO = 0.5;
+/** Shadow opacity. */
+export const SHADOW_ALPHA = 0.3;
+/** Nudges the shadow up from the object's exact display-bounds base, in design px. */
+export const SHADOW_BASE_RAISE = 8;
