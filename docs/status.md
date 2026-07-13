@@ -26,6 +26,8 @@
 
 ## Backlog nits (fold into convenient tasks)
 
+- T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
+
 - formatCurrency unit tests (pure function in Hud.ts)
 - Move formatAwayDuration to src/data/ so it's unit-testable (currently untestable: imports Phaser)
 

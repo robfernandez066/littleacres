@@ -47,6 +47,13 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
+import {
+  type LongQuestCounter,
+  LONG_QUESTS,
+  type WeeklyQuestDef,
+  WEEKLY_QUESTS,
+  WEEK_MS,
+} from '../data/quests';
 import { isReady } from './growth';
 import { now } from './time';
 
@@ -156,7 +163,9 @@ export type RailsAction =
   | 'select-seed'
   | 'orders-button'
   | 'bag-button'
-  | 'decor-shop';
+  | 'decor-shop'
+  | 'quest-claim'
+  | 'quest-board';
 
 /** One level gained, and any crops newly unlocked at exactly that level. */
 export interface LevelUpEvent {
@@ -205,6 +214,51 @@ export interface OrderSkipsState {
   lastAt: number;
 }
 
+/** Lifetime (never-reset) quest counters, driving the LONG_QUESTS. */
+export interface QuestsLifetimeState {
+  harvestsByCrop: Partial<Record<CropId, number>>;
+  totalHarvests: number;
+  ordersFulfilled: number;
+  premiumFulfilled: number;
+  chestsOpened: number;
+}
+
+/**
+ * The current weekly quest rotation's counters and claims. `anchor` is the
+ * real-clock (`Date.now()`) timestamp the current week started;
+ * `ensureWeeklyQuests` advances it once `Date.now() >= anchor + WEEK_MS`.
+ * Counters and `claimed` reset on every rotation; `activeIds` and
+ * `featuredCrop` redraw.
+ */
+export interface QuestsWeeklyState {
+  anchor: number;
+  /** Exactly 2 distinct WEEKLY_QUESTS ids, active for the current week. */
+  activeIds: string[];
+  /** This week's crop for weekly_specialist's per-crop target. */
+  featuredCrop: CropId;
+  growMinutes: number;
+  featuredHarvests: number;
+  orders: number;
+  radiants: number;
+  claimed: string[];
+}
+
+/** Quest system state (T3.10): lifetime long-quest progress plus the weekly rotation. */
+export interface QuestsState {
+  lifetime: QuestsLifetimeState;
+  weekly: QuestsWeeklyState;
+  /** LONG_QUESTS ids claimed so far - each claimable at most once, ever. */
+  longClaimed: string[];
+}
+
+/** `GameStateStore.questProgress`'s return shape. */
+export interface QuestProgress {
+  current: number;
+  target: number;
+  complete: boolean;
+  claimed: boolean;
+}
+
 export interface GameStateData {
   /** Schema version. Bump only via the migration list. */
   version: number;
@@ -229,6 +283,8 @@ export interface GameStateData {
    * count reaches 0, never left at 0 (see `placeFromWarehouse`).
    */
   warehouse: Record<string, number>;
+  /** Quest system state (T3.10). */
+  quests: QuestsState;
   onboarding: OnboardingState;
   settings: GameSettings;
   createdAt: number;
@@ -238,9 +294,14 @@ export interface GameStateData {
 /**
  * A migration takes a raw save object at version N and returns it at version
  * N+1. `MIGRATIONS[i]` migrates version i+1 to i+2, so the current schema
- * version is always `migrations.length + 1`.
+ * version is always `migrations.length + 1`. `rng` is the store's own
+ * randomness source (only `v10ToV11` uses it, to draw the initial weekly
+ * quest rotation); every other migration ignores the parameter.
  */
-export type Migration = (raw: Record<string, unknown>) => Record<string, unknown>;
+export type Migration = (
+  raw: Record<string, unknown>,
+  rng: () => number,
+) => Record<string, unknown>;
 
 /** v1 -> v2: adds the moondust currency slot, defaulted to 0. */
 const v1ToV2: Migration = (raw) => ({ ...raw, moondust: 0 });
@@ -367,6 +428,79 @@ const v8ToV9: Migration = (raw) => ({ ...raw, orderSkips: { count: 0, lastAt: 0 
  */
 const v9ToV10: Migration = (raw) => ({ ...raw, decorations: [], warehouse: {} });
 
+/**
+ * Draw 2 distinct WEEKLY_QUESTS ids for a fresh weekly rotation: "pick one,
+ * then pick a second from the rest" (like `generateOrder`'s two-item draw),
+ * so it is always exactly 2 rng calls and can never loop. Repeats across
+ * different weeks are allowed - only the 2 ids within one week must differ.
+ */
+function drawWeeklyQuestIds(rng: () => number): [string, string] {
+  const pool = WEEKLY_QUESTS.map((quest) => quest.id);
+  const first = pool[Math.min(pool.length - 1, Math.floor(rng() * pool.length))]!;
+  const rest = pool.filter((id) => id !== first);
+  const second = rest[Math.min(rest.length - 1, Math.floor(rng() * rest.length))]!;
+  return [first, second];
+}
+
+/** Draw this week's featured crop, uniform over all 5 crops. */
+function drawFeaturedCrop(rng: () => number): CropId {
+  const ids = Object.keys(CROPS) as CropId[];
+  return ids[Math.min(ids.length - 1, Math.floor(rng() * ids.length))]!;
+}
+
+/**
+ * A fresh weekly rotation anchored at `anchor`, zeroed counters and claims.
+ * With no `rng` (a brand-new fresh-install save, via `createDefaultState`),
+ * starts on a fixed rotation (the pool's first 2 ids, the first crop) rather
+ * than spending rng calls a new player has no game history to justify -
+ * `ensureWeeklyQuests` draws for real the first time the week actually rolls
+ * over. A migrated save (via `v10ToV11`) already represents real play, so it
+ * draws immediately through the passed `rng`.
+ */
+function createDefaultWeeklyState(anchor: number, rng?: () => number): QuestsWeeklyState {
+  const [activeIds, featuredCrop]: [[string, string], CropId] =
+    rng === undefined
+      ? [[WEEKLY_QUESTS[0]!.id, WEEKLY_QUESTS[1]!.id], (Object.keys(CROPS) as CropId[])[0]!]
+      : [drawWeeklyQuestIds(rng), drawFeaturedCrop(rng)];
+  return {
+    anchor,
+    activeIds: [...activeIds],
+    featuredCrop,
+    growMinutes: 0,
+    featuredHarvests: 0,
+    orders: 0,
+    radiants: 0,
+    claimed: [],
+  };
+}
+
+/** A fresh quest system state: zeroed lifetime counters, a fresh weekly rotation. */
+function createDefaultQuestsState(anchor: number, rng?: () => number): QuestsState {
+  return {
+    lifetime: {
+      harvestsByCrop: {},
+      totalHarvests: 0,
+      ordersFulfilled: 0,
+      premiumFulfilled: 0,
+      chestsOpened: 0,
+    },
+    weekly: createDefaultWeeklyState(anchor, rng),
+    longClaimed: [],
+  };
+}
+
+/**
+ * v10 -> v11: adds the quest system (T3.10) - zeroed lifetime counters and a
+ * fresh weekly rotation anchored at Date.now() (real clock deliberately, not
+ * `now()` - a warped/dev-overlay game clock must not skip a week on load),
+ * drawn immediately via `rng` since a migrating save already represents real
+ * play (unlike a brand-new fresh-install save - see `createDefaultWeeklyState`).
+ */
+const v10ToV11: Migration = (raw, rng) => ({
+  ...raw,
+  quests: createDefaultQuestsState(Date.now(), rng),
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -378,6 +512,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v7ToV8,
   v8ToV9,
   v9ToV10,
+  v10ToV11,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -395,6 +530,7 @@ export function createDefaultState(version: number): GameStateData {
     orderSkips: { count: 0, lastAt: 0 },
     decorations: [],
     warehouse: {},
+    quests: createDefaultQuestsState(now),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
       musicOn: true,
@@ -515,6 +651,48 @@ function warehouseTotal(warehouse: Record<string, number>): number {
   return Object.values(warehouse).reduce((sum, count) => sum + count, 0);
 }
 
+const LONG_QUEST_IDS: ReadonlySet<string> = new Set(LONG_QUESTS.map((quest) => quest.id));
+const WEEKLY_QUEST_IDS: ReadonlySet<string> = new Set(WEEKLY_QUESTS.map((quest) => quest.id));
+
+function isQuestsLifetimeState(value: unknown): value is QuestsLifetimeState {
+  return (
+    isRecord(value) &&
+    isCropCountMap(value.harvestsByCrop) &&
+    isFiniteNumber(value.totalHarvests) &&
+    isFiniteNumber(value.ordersFulfilled) &&
+    isFiniteNumber(value.premiumFulfilled) &&
+    isFiniteNumber(value.chestsOpened)
+  );
+}
+
+function isQuestsWeeklyState(value: unknown): value is QuestsWeeklyState {
+  return (
+    isRecord(value) &&
+    isFiniteNumber(value.anchor) &&
+    Array.isArray(value.activeIds) &&
+    value.activeIds.length === 2 &&
+    value.activeIds.every((id) => typeof id === 'string' && WEEKLY_QUEST_IDS.has(id)) &&
+    typeof value.featuredCrop === 'string' &&
+    value.featuredCrop in CROPS &&
+    isFiniteNumber(value.growMinutes) &&
+    isFiniteNumber(value.featuredHarvests) &&
+    isFiniteNumber(value.orders) &&
+    isFiniteNumber(value.radiants) &&
+    Array.isArray(value.claimed) &&
+    value.claimed.every((id) => typeof id === 'string' && WEEKLY_QUEST_IDS.has(id))
+  );
+}
+
+function isQuestsState(value: unknown): value is QuestsState {
+  return (
+    isRecord(value) &&
+    isQuestsLifetimeState(value.lifetime) &&
+    isQuestsWeeklyState(value.weekly) &&
+    Array.isArray(value.longClaimed) &&
+    value.longClaimed.every((id) => typeof id === 'string' && LONG_QUEST_IDS.has(id))
+  );
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -547,6 +725,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     Array.isArray(raw.decorations) &&
     raw.decorations.length + warehouseTotal(raw.warehouse) <= MAX_DECORATIONS &&
     raw.decorations.every(isDecorationPlacement) &&
+    isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
     typeof raw.settings.musicOn === 'boolean' &&
@@ -811,6 +990,7 @@ export class GameStateStore {
       if (this.rng() < RADIANT_MOONDUST_CHANCE) this.state.moondust += 1;
       this.radiantQueue.push({ plotIndex, cropId: plot.cropId });
     }
+    this.trackQuestHarvest(plot.cropId, isRadiant);
     this.applyXp(CROPS[plot.cropId].xp);
     if (plot.cropId === 'sunwheat') {
       // Read the step BEFORE tracking: the harvest that completes
@@ -978,6 +1158,150 @@ export class GameStateStore {
   }
 
   /**
+   * Roll the weekly quest rotation forward when the real clock has passed
+   * `anchor + WEEK_MS`, catching up multiple missed weeks (e.g. a long
+   * offline gap) in one jump rather than looping week by week. Advances
+   * `anchor` by whole weeks, zeroes every weekly counter and `claimed`, and
+   * redraws `activeIds`/`featuredCrop` via the store's rng (ids may repeat
+   * across weeks - only the 2 ids within one week must be distinct). Uses
+   * `Date.now()` deliberately, not the warpable `now()` - a warped game clock
+   * must not skip a week. Called from `load()` and the (future) scene tick,
+   * like `ensureOrders`; idempotent, a cheap no-op when the week hasn't
+   * turned over.
+   */
+  ensureWeeklyQuests(): void {
+    const nowMs = Date.now();
+    const weekly = this.state.quests.weekly;
+    if (nowMs < weekly.anchor + WEEK_MS) return;
+    const weeksElapsed = Math.floor((nowMs - weekly.anchor) / WEEK_MS);
+    weekly.anchor += weeksElapsed * WEEK_MS;
+    const [a, b] = drawWeeklyQuestIds(this.rng);
+    weekly.activeIds = [a, b];
+    weekly.featuredCrop = drawFeaturedCrop(this.rng);
+    weekly.growMinutes = 0;
+    weekly.featuredHarvests = 0;
+    weekly.orders = 0;
+    weekly.radiants = 0;
+    weekly.claimed = [];
+    this.save();
+  }
+
+  /** The lifetime counter value a long quest's `counter` refers to. */
+  private longQuestCounterValue(counter: LongQuestCounter): number {
+    const lifetime = this.state.quests.lifetime;
+    switch (counter.kind) {
+      case 'cropHarvests':
+        return lifetime.harvestsByCrop[counter.cropId] ?? 0;
+      case 'totalHarvests':
+        return lifetime.totalHarvests;
+      case 'ordersFulfilled':
+        return lifetime.ordersFulfilled;
+      case 'premiumFulfilled':
+        return lifetime.premiumFulfilled;
+      case 'chestsOpened':
+        return lifetime.chestsOpened;
+    }
+  }
+
+  /**
+   * The weekly counter value and target a weekly quest's `counter` refers to.
+   * weekly_specialist's target comes from `perCropTarget[featuredCrop]`
+   * rather than its (absent) flat `target`.
+   */
+  private weeklyQuestCurrentAndTarget(def: WeeklyQuestDef): { current: number; target: number } {
+    const weekly = this.state.quests.weekly;
+    switch (def.counter.kind) {
+      case 'growMinutes':
+        return { current: weekly.growMinutes, target: def.target ?? 0 };
+      case 'featuredHarvests':
+        return {
+          current: weekly.featuredHarvests,
+          target: def.perCropTarget?.[weekly.featuredCrop] ?? def.target ?? 0,
+        };
+      case 'orders':
+        return { current: weekly.orders, target: def.target ?? 0 };
+      case 'radiants':
+        return { current: weekly.radiants, target: def.target ?? 0 };
+    }
+  }
+
+  /**
+   * A quest's current progress, derived from the counters - never stored.
+   * Works for both a LONG_QUESTS id (lifetime counters vs its fixed target)
+   * and a WEEKLY_QUESTS id (this week's counters vs its target, meaningful
+   * only while the id is actually in `weekly.activeIds` - callers showing a
+   * quest board should only call this for active weekly ids). Returns null
+   * for an unknown id.
+   */
+  questProgress(id: string): QuestProgress | null {
+    const longDef = LONG_QUESTS.find((quest) => quest.id === id);
+    if (longDef !== undefined) {
+      const current = this.longQuestCounterValue(longDef.counter);
+      return {
+        current,
+        target: longDef.target,
+        complete: current >= longDef.target,
+        claimed: this.state.quests.longClaimed.includes(id),
+      };
+    }
+    const weeklyDef = WEEKLY_QUESTS.find((quest) => quest.id === id);
+    if (weeklyDef === undefined) return null;
+    const { current, target } = this.weeklyQuestCurrentAndTarget(weeklyDef);
+    return {
+      current,
+      target,
+      complete: current >= target,
+      claimed: this.state.quests.weekly.claimed.includes(id),
+    };
+  }
+
+  /**
+   * Grant a quest's reward: a trophy lands directly in the warehouse with NO
+   * cap check (unlike `buyDecoration`) - trophies are a reward, not a
+   * purchase, so they always fit regardless of MAX_DECORATIONS; chests go
+   * through the existing chest-grant path (`grantChests`: rolled contents,
+   * instant grant, ceremony event queued); moondust is direct. Any subset may
+   * be present (composable rewards).
+   */
+  private grantQuestReward(reward: { trophy?: string; chests?: number; moondust?: number }): void {
+    if (reward.trophy !== undefined) {
+      this.state.warehouse[reward.trophy] = (this.state.warehouse[reward.trophy] ?? 0) + 1;
+    }
+    if (reward.chests !== undefined) this.grantChests(reward.chests);
+    if (reward.moondust !== undefined) this.state.moondust += reward.moondust;
+  }
+
+  /**
+   * Claim a completed, unclaimed quest's reward. Returns false without
+   * mutating anything if the tutorial rails forbid claiming (mid-tutorial),
+   * the id is unknown, it is not yet complete, it was already claimed, or -
+   * weekly quests only - it is not currently in `weekly.activeIds` (a quest
+   * that rotated out, even if it happened to be completed, is no longer
+   * claimable until it rotates back in and completes again). On success,
+   * grants the reward and marks it claimed (longClaimed for a long quest,
+   * weekly.claimed for a weekly one), one save.
+   */
+  claimQuest(id: string): boolean {
+    if (!this.railsAllow('quest-claim')) return false;
+    const progress = this.questProgress(id);
+    if (progress === null || !progress.complete || progress.claimed) return false;
+    const longDef = LONG_QUESTS.find((quest) => quest.id === id);
+    if (longDef !== undefined) {
+      this.grantQuestReward(longDef.reward);
+      this.state.quests.longClaimed.push(id);
+      this.save();
+      return true;
+    }
+    const weeklyDef = WEEKLY_QUESTS.find((quest) => quest.id === id);
+    if (weeklyDef === undefined) return false;
+    if (!this.state.quests.weekly.activeIds.includes(id)) return false;
+    this.grantQuestReward(weeklyDef.reward);
+    this.state.quests.weekly.claimed.push(id);
+    this.save();
+    return true;
+  }
+
+  /**
    * Bring the order board up to date: fill every pending slot with a freshly
    * generated order and reopen cooldown slots whose readyAt has passed.
    * Called on scene create and on the scene's refresh tick - idempotent, and
@@ -1050,8 +1374,12 @@ export class GameStateStore {
     this.applyXp(order.xpReward);
     if (order.premium) {
       this.state.moondust += order.premium.moondust;
-      if (order.premium.chests) this.grantChests(order.premium.chests);
+      if (order.premium.chests) {
+        this.grantChests(order.premium.chests);
+        this.state.quests.lifetime.chestsOpened += order.premium.chests;
+      }
     }
+    this.trackQuestOrderFulfilled(order.premium !== undefined);
     this.state.orders[slotIndex] = { state: 'pending' };
     // During the tutorial the rails guarantee this is the scripted slot-0
     // delivery, so the track always matches; post-tutorial it is a no-op.
@@ -1085,6 +1413,37 @@ export class GameStateStore {
     this.state.coins += totalCoins;
     this.state.moondust += totalMoondust;
     this.chestQueue.push({ contents });
+  }
+
+  /**
+   * Quest counter hook for `harvestPlot` (T3.10): lifetime harvestsByCrop and
+   * totalHarvests always count, tutorial included - the quest system has no
+   * tutorial gate of its own. Weekly growMinutes accrues the harvested crop's
+   * full growMs (converted to minutes); featuredHarvests counts only when the
+   * crop matches this week's featured crop; radiants counts only when this
+   * harvest was itself a Radiant proc (already tutorial-suppressed upstream,
+   * so no extra gate needed here).
+   */
+  private trackQuestHarvest(cropId: CropId, isRadiant: boolean): void {
+    const { lifetime, weekly } = this.state.quests;
+    lifetime.harvestsByCrop[cropId] = (lifetime.harvestsByCrop[cropId] ?? 0) + 1;
+    lifetime.totalHarvests++;
+    weekly.growMinutes += CROPS[cropId].growMs / 60_000;
+    if (cropId === weekly.featuredCrop) weekly.featuredHarvests++;
+    if (isRadiant) weekly.radiants++;
+  }
+
+  /**
+   * Quest counter hook for `fulfillOrder` (T3.10): ordersFulfilled/weekly
+   * orders always count, tutorial included; premiumFulfilled counts only a
+   * premium order. `chestsOpened` is bumped separately, inline in
+   * `fulfillOrder` right where `order.premium.chests` is known, not here.
+   */
+  private trackQuestOrderFulfilled(isPremium: boolean): void {
+    const { lifetime, weekly } = this.state.quests;
+    lifetime.ordersFulfilled++;
+    weekly.orders++;
+    if (isPremium) lifetime.premiumFulfilled++;
   }
 
   /**
@@ -1159,8 +1518,10 @@ export class GameStateStore {
       case 'expand':
       case 'bag-button':
       case 'decor-shop':
-        // No sell/bag/decor-shop steps remain, and skipping or expanding is
-        // never a tutorial action.
+      case 'quest-claim':
+      case 'quest-board':
+        // No sell/bag/decor-shop/quest-claim/quest-board steps remain, and
+        // skipping or expanding is never a tutorial action.
         return false;
     }
   }
@@ -1333,6 +1694,7 @@ export class GameStateStore {
     this.clampFuturePlantedAt();
     this.offlineSummary = this.computeOfflineSummary();
     this.reconcileLevelSilently();
+    this.ensureWeeklyQuests();
     this.stepEnteredAt = now();
   }
 
@@ -1351,7 +1713,7 @@ export class GameStateStore {
       const migrated = this.migrations
         .slice(version - 1)
         .reduce<Record<string, unknown>>(
-          (acc, migrate, i) => ({ ...migrate(acc), version: version + i + 1 }),
+          (acc, migrate, i) => ({ ...migrate(acc, this.rng), version: version + i + 1 }),
           parsed,
         );
       return isValidState(migrated, this.currentVersion) ? migrated : null;

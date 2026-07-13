@@ -160,7 +160,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T3.1** Crops 4-8 (e.g., Moonroot, Emberpepper, Dewmelon, Sagesprig - Starcorn was promoted to the MVP level-2 crop, replacing Carrot) with varied time/value curves (config only + art).
 - **T3.2** Storage caps: per-category caps (crops), storage building UI, upgrade tiers; offline production respects caps; gentle "storage full" state (never blocks manual harvest into overflow decisions - design detail: harvested crops beyond cap auto-sell at a small discount, so nothing is ever lost).
 - **T3.3** Land expansion system: unlock adjacent grid regions with coins + level gates; overgrowth-clearing reveal animation; mere glow brightens per region (global tint/lighting step).
-- **T3.4** Camera: pinch zoom + pan within unlocked bounds; snap-back at edges; UI stays fixed.
+- **T3.4** Camera: pinch zoom + pan within unlocked bounds; snap-back at edges; UI stays fixed. (Owner emphasis 2026-07-12: panning must be SMOOTH, and bounds tight - enough room to arrange decor/buildings, never oceans of dead space. Positioned late-roadmap as a package with land expansion T3.3 - whichever moves first pulls the other.)
 - **T3.5** Crop mastery: per-crop XP on harvest, mastery levels grant config-driven bonuses (yield/speed/sell); mastery page UI with satisfying progress bars.
 - **T3.6** Order board v2: 5 visible orders, rarity tiers (bigger rarer orders grant chests), order refresh token economy.
 - **T3.7** Reward chests: chest item + opening ceremony (wiggle, tap, burst, card reveals) granting coins/seeds/Moondust/boost items.
@@ -168,16 +168,23 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 
 ---
 
-## Phase 4 - Production Chains (est. 6-8 tasks)
+## Phase 4 - Production Chains (est. 6-8 tasks; REFINED 2026-07-12 per owner direction - layered recipes + quest integration; T3.2 storage caps are the prerequisite since inputs auto-pull from storage)
 
 - **T4.1** Building placement system on grid (hybrid layout: buildings occupy tiles, movable in edit mode).
 - **T4.2** First processors: Mill (Sunwheat -> Sunflour), Preserve Pot (Glowberry -> Glowjam); queue-based, timestamp timers, collect on tap (no dragging goods - inputs auto-pull from storage).
-- **T4.3** Processed goods in economy: higher value, requested by orders; recipe unlock reveals.
+- **T4.3** Processed goods in economy: higher value, requested by orders; recipe unlock reveals. LAYERED RECIPES (owner spec 2026-07-12): products chain by building complexity - e.g. wheat -> flour (Mill), flour -> bread (Bakery), flour + other ingredients -> cake; depth varies per building. Orders AND quests updated to request processed items (extends T4.4 and the quest pool).
 - **T4.4** Order board v3: mixed raw + processed orders; premium timed orders (opt-in, bonus-only, clearly marked; expiring quietly replaces them - no failure sting). Concept from Phase 1 gate notes: orders with 4+ item types don't fit the card layout - consider a separate "Major Shipments" system delivered by a special building (magical delivery balloon/train) instead of cramming the board.
 - **T4.5** Building upgrade tiers (speed, queue slots).
 - **T4.6** Mystery merchant: occasional visitor with rotating Moondust/coin offers (rare seeds, boosts, decorations preview).
 
 ---
+
+## Phase 4A - Animal / Creature Farming (owner spec 2026-07-12; est. 5-7 tasks; after Phase 4's processing intro)
+
+- **T4A.1** Animal building framework: each animal TYPE has its own building placed on the farm layout, purchased with gold (v1; "rebuild with materials" variant becomes available once the Mine supplies materials). Inside: 1 open animal slot + additional locked slots purchasable with gold (max per building TBD at prompt time - owner decision).
+- **T4A.2** Harvest loop: each occupied slot produces that animal's material on a LONG timer (timestamp-derived, offline-friendly); harvesting collects and resets the timer; the animal persists (never re-acquired).
+- **T4A.3** Ambient life: an animal sprite idles NEAR its building (separate sprite from the building; e.g. eating in front of it), animated in v1 with TWEEN JUICE ONLY (bob/hop/peck loops - the established pattern). True sprite-sheet animation is a future polish item by owner decision (2026-07-12) - no spike, no thought spent until then.
+- **T4A.4** v1 scope: at least 2 animal types = 2 building sprites + 2 static animal sprites; materials enter the economy (orders/quests/recipes per Phase 4 patterns).
 
 ## Phase 5 - Magical Workers (est. 6-8 tasks)
 

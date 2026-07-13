@@ -84,6 +84,17 @@ export const HUD_MOONDUST_POSITION = { x: 345, y: 86 } as const;
 export const BAG_POSITION = { x: 834, y: 86 } as const;
 
 /**
+ * Screen position of the HUD scroll (Quests) icon (design space): banner row
+ * (same y as the bag), left of the bag slot (T3.10a - the scroll icon's
+ * reserved purpose since T2.22, when the old HUD orders button retired in
+ * favor of the notice board structure). x=700 sits between the crest's right
+ * overhang edge (540 + 160/2 = 620) and the bag icon's left edge (834 - 90/2
+ * = 789): at BUTTON_ICON_DISPLAY_SIZE (90), the icon spans x 655..745, a
+ * 35px margin from the crest and a 44px margin from the bag.
+ */
+export const QUEST_ICON_POSITION = { x: 700, y: 86 } as const;
+
+/**
  * Screen position (design space) of the community notice board structure on
  * the farm - tapping it opens the order board (T2.22, replacing the old HUD
  * orders icon). Depth is derived from its own y at render time, same iso

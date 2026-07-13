@@ -25,6 +25,7 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
+import { LONG_QUESTS, WEEKLY_QUESTS, WEEK_MS } from '../data/quests';
 import {
   createDefaultState,
   type GameStateData,
@@ -300,7 +301,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(9);
+    expect(MIGRATIONS).toHaveLength(10);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -311,7 +312,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(10);
+    expect(state.version).toBe(11);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -334,7 +335,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(10);
+    expect(state.version).toBe(11);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -344,15 +345,15 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(10);
-    expect(store.getState().version).toBe(10);
+    expect(store.currentVersion).toBe(11);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(10),
+      ...createDefaultState(11),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -381,7 +382,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -402,7 +403,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(10),
+      ...createDefaultState(11),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -425,7 +426,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -438,7 +439,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
   });
 
   it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(10) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(11) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -465,7 +466,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -495,7 +496,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
       { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
     ]) {
-      const bad = createDefaultState(10) as unknown as Record<string, unknown>;
+      const bad = createDefaultState(11) as unknown as Record<string, unknown>;
       bad.settings = settings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
       const store = new GameStateStore({ storage });
@@ -514,7 +515,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
 describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   /** A v6-shaped save speaking 'carrot' everywhere saves store crop ids. */
   function v6CarrotSave(): Record<string, unknown> {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 6;
     saved.coins = 77;
     saved.xp = 31;
@@ -550,7 +551,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(10);
+    expect(state.version).toBe(11);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -575,18 +576,18 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   });
 
   it('a carrot-free v6 save migrates untouched apart from the version bump', () => {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 6;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('a current-version save still speaking carrot resets cleanly (validation, not migration)', () => {
-    const bad = createDefaultState(10) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(11) as unknown as Record<string, unknown>;
     bad.inventory = { carrot: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -599,7 +600,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
 describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', () => {
   /** A v7-shaped save with a chosen onboarding record. */
   function v7Save(onboarding: Record<string, unknown>): string {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = onboarding;
     return JSON.stringify(saved);
@@ -614,7 +615,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -649,13 +650,13 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
 describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
   it('a v8 save (no orderSkips field) gains a zeroed streak and migrates through to current', () => {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 8;
     delete saved.orderSkips; // a genuine v8 save never had this field
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -663,14 +664,14 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
 
 describe('real migration v9 -> v10 (decorations + warehouse)', () => {
   it('a v9 save (no decorations/warehouse fields) gains both empty and migrates through to current', () => {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 9;
     delete saved.decorations; // a genuine v9 save never had this field
     delete saved.warehouse; // nor this one
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(10);
+    expect(store.getState().version).toBe(11);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -679,13 +680,13 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
 
 describe('decorations and warehouse validation and round-trip', () => {
   it('accepts a save with placed decorations (incl. a trophy frame) and warehoused items, and it survives a reload', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.decorations = [
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55 },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8 },
     ];
     saved.warehouse = { decor_fence: 2, decor_mushrooms: 1 };
-    expect(isValidState(saved, 10)).toBe(true);
+    expect(isValidState(saved, 11)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -695,15 +696,15 @@ describe('decorations and warehouse validation and round-trip', () => {
   });
 
   it('rejects an unknown frame, a malformed entry, or too many placed decorations', () => {
-    const base = createDefaultState(10);
+    const base = createDefaultState(11);
     const unknownFrame = { ...base, decorations: [{ frame: 'not_a_frame', x: 0, y: 0, scale: 1 }] };
-    expect(isValidState(unknownFrame, 10)).toBe(false);
+    expect(isValidState(unknownFrame, 11)).toBe(false);
 
     const malformed = {
       ...base,
       decorations: [{ frame: 'decor_bench', x: 'far', y: 0, scale: 1 }],
     };
-    expect(isValidState(malformed, 10)).toBe(false);
+    expect(isValidState(malformed, 11)).toBe(false);
 
     const tooMany = {
       ...base,
@@ -714,20 +715,20 @@ describe('decorations and warehouse validation and round-trip', () => {
         scale: 1,
       })),
     };
-    expect(isValidState(tooMany, 10)).toBe(false);
+    expect(isValidState(tooMany, 11)).toBe(false);
   });
 
   it('rejects a warehouse with an unknown frame, a non-positive/non-integer count, or a malformed record', () => {
-    const base = createDefaultState(10);
-    expect(isValidState({ ...base, warehouse: { not_a_frame: 1 } }, 10)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: 0 } }, 10)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: -1 } }, 10)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: 1.5 } }, 10)).toBe(false);
-    expect(isValidState({ ...base, warehouse: 'nope' }, 10)).toBe(false);
+    const base = createDefaultState(11);
+    expect(isValidState({ ...base, warehouse: { not_a_frame: 1 } }, 11)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 0 } }, 11)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: -1 } }, 11)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 1.5 } }, 11)).toBe(false);
+    expect(isValidState({ ...base, warehouse: 'nope' }, 11)).toBe(false);
   });
 
   it('rejects when placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
-    const base = createDefaultState(10);
+    const base = createDefaultState(11);
     const combined = {
       ...base,
       decorations: Array.from({ length: 20 }, () => ({
@@ -738,9 +739,9 @@ describe('decorations and warehouse validation and round-trip', () => {
       })),
       warehouse: { decor_fence: 11 },
     };
-    expect(isValidState(combined, 10)).toBe(false);
+    expect(isValidState(combined, 11)).toBe(false);
     combined.warehouse = { decor_fence: 10 };
-    expect(isValidState(combined, 10)).toBe(true);
+    expect(isValidState(combined, 11)).toBe(true);
   });
 });
 
@@ -1327,9 +1328,9 @@ describe('premium order validation', () => {
       xpReward: 4,
       premium: { moondust: 2, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 10)).toBe(true);
+    expect(isValidState(saved, 11)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -1338,12 +1339,12 @@ describe('premium order validation', () => {
   });
 
   it('accepts an order with no premium field (absence is valid, no version bump)', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.orders[0] = {
       state: 'open',
       order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 },
     };
-    expect(isValidState(saved, 10)).toBe(true);
+    expect(isValidState(saved, 11)).toBe(true);
   });
 
   it('rejects a malformed premium field: non-positive/non-finite moondust, or a non-string flavor', () => {
@@ -1358,14 +1359,14 @@ describe('premium order validation', () => {
     ];
     for (const premium of badPremiums) {
       const bad = {
-        ...createDefaultState(10),
+        ...createDefaultState(11),
         orders: [
           { state: 'open', order: { ...baseOrder, premium } },
           { state: 'pending' },
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 10)).toBe(false);
+      expect(isValidState(bad, 11)).toBe(false);
     }
   });
 
@@ -1377,9 +1378,9 @@ describe('premium order validation', () => {
         xpReward: 4,
         premium: { moondust: 2, flavor: 'A test flavor line', chests },
       };
-      const saved = createDefaultState(10);
+      const saved = createDefaultState(11);
       saved.orders[0] = { state: 'open', order: premiumOrder };
-      expect(isValidState(saved, 10)).toBe(true);
+      expect(isValidState(saved, 11)).toBe(true);
 
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
@@ -1395,9 +1396,9 @@ describe('premium order validation', () => {
       xpReward: 2,
       premium: { moondust: 1, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 10)).toBe(true);
+    expect(isValidState(saved, 11)).toBe(true);
   });
 
   it('rejects a malformed premium.chests: zero, negative, non-integer, or non-finite', () => {
@@ -1405,7 +1406,7 @@ describe('premium order validation', () => {
     const badChestCounts = [0, -1, 1.5, Number.NaN, Infinity];
     for (const chests of badChestCounts) {
       const bad = {
-        ...createDefaultState(10),
+        ...createDefaultState(11),
         orders: [
           {
             state: 'open',
@@ -1415,7 +1416,7 @@ describe('premium order validation', () => {
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 10)).toBe(false);
+      expect(isValidState(bad, 11)).toBe(false);
     }
   });
 });
@@ -1424,24 +1425,24 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(10);
-    expect(isValidState(base, 10)).toBe(true);
+    const base = createDefaultState(11);
+    expect(isValidState(base, 11)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 10)).toBe(true);
+    expect(isValidState(expanded, 11)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(10);
+    const base = createDefaultState(11);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 10)).toBe(false);
+    expect(isValidState(thirteen, 11)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 10)).toBe(false);
+    expect(isValidState(seventeen, 11)).toBe(false);
   });
 });
 
@@ -1480,7 +1481,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1878,7 +1879,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -2215,7 +2216,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2248,7 +2249,7 @@ describe('onboarding', () => {
   });
 
   it('once completed, every rails gate is open - zero post-tutorial behavior change', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2301,7 +2302,7 @@ describe('onboarding', () => {
   });
 
   it('a mid-chain save completed via the v7 -> v8 migration never fires the one-shot', () => {
-    const saved = createDefaultState(10) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = { completed: false, step: 5, progress: 1, progressB: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2312,7 +2313,7 @@ describe('onboarding', () => {
   });
 
   it('loading an already-completed save never fires the one-shot', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2461,7 +2462,7 @@ describe('offline growth (app closed during growth)', () => {
 describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('clamps a future-stamped growing plot to load time; past-stamped plots are untouched', () => {
     const pastPlantedAt = Date.now() - 60_000;
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
@@ -2489,7 +2490,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -2504,7 +2505,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('importSave clamps a future-stamped plot the same way', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.xp = 1;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2527,7 +2528,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2617,7 +2618,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);
@@ -2686,7 +2687,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on load grants no moondust', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2698,7 +2699,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on import grants no moondust', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2745,7 +2746,7 @@ describe('Radiant harvest proc', () => {
   });
 
   it('never procs during onboarding, even with an always-proc rng', () => {
-    const saved = createDefaultState(10);
+    const saved = createDefaultState(11);
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.plots[0] = {
@@ -2781,5 +2782,705 @@ describe('reset', () => {
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
     expect(reloaded.getState().coins).toBe(50);
+  });
+});
+
+describe('real migration v10 -> v11 (quest system)', () => {
+  it('a v10 save (no quests field) gains zeroed lifetime and a drawn weekly rotation, migrates through to current', () => {
+    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    saved.version = 10;
+    delete saved.quests; // a genuine v10 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // drawWeeklyQuestIds: pool [growth, specialist, trader, radiance].
+    // rng()=0 -> index 0 'weekly_growth'; remaining [specialist, trader,
+    // radiance], rng()=0 -> index 0 'weekly_specialist'. Then featured crop:
+    // rng()=0 -> index 0 of Object.keys(CROPS), 'sunwheat'.
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(11);
+    expect(state.quests.lifetime).toEqual({
+      harvestsByCrop: {},
+      totalHarvests: 0,
+      ordersFulfilled: 0,
+      premiumFulfilled: 0,
+      chestsOpened: 0,
+    });
+    expect(state.quests.weekly.activeIds).toEqual(['weekly_growth', 'weekly_specialist']);
+    expect(state.quests.weekly.featuredCrop).toBe('sunwheat');
+    expect(state.quests.weekly.growMinutes).toBe(0);
+    expect(state.quests.weekly.claimed).toEqual([]);
+    expect(state.quests.weekly.anchor).toBeGreaterThan(0);
+    expect(state.quests.longClaimed).toEqual([]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('fresh quests state', () => {
+  it('starts with zeroed lifetime counters and a deterministic starting weekly rotation (no rng spent)', () => {
+    const store = new GameStateStore({ storage: null });
+    const quests = store.getState().quests;
+    expect(quests.lifetime).toEqual({
+      harvestsByCrop: {},
+      totalHarvests: 0,
+      ordersFulfilled: 0,
+      premiumFulfilled: 0,
+      chestsOpened: 0,
+    });
+    expect(quests.weekly.activeIds).toEqual([WEEKLY_QUESTS[0]!.id, WEEKLY_QUESTS[1]!.id]);
+    expect(quests.weekly.featuredCrop).toBe('sunwheat');
+    expect(quests.weekly.growMinutes).toBe(0);
+    expect(quests.weekly.featuredHarvests).toBe(0);
+    expect(quests.weekly.orders).toBe(0);
+    expect(quests.weekly.radiants).toBe(0);
+    expect(quests.weekly.claimed).toEqual([]);
+    expect(quests.weekly.anchor).toBeLessThanOrEqual(Date.now());
+    expect(quests.longClaimed).toEqual([]);
+  });
+});
+
+describe('quests validation and round-trip', () => {
+  it('a customized valid quests state round-trips through save/load', () => {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.lifetime.harvestsByCrop.sunwheat = 42;
+    saved.quests.lifetime.totalHarvests = 100;
+    saved.quests.longClaimed = ['golden_fields'];
+    saved.quests.weekly.claimed = ['weekly_trader'];
+    expect(isValidState(saved, 11)).toBe(true);
+
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().quests).toEqual(saved.quests);
+  });
+
+  it('rejects malformed lifetime, weekly, or longClaimed shapes', () => {
+    const base = createDefaultState(11);
+    expect(
+      isValidState(
+        {
+          ...base,
+          quests: { ...base.quests, lifetime: { ...base.quests.lifetime, totalHarvests: 'lots' } },
+        },
+        11,
+      ),
+    ).toBe(false);
+    expect(
+      isValidState(
+        {
+          ...base,
+          quests: {
+            ...base.quests,
+            weekly: { ...base.quests.weekly, activeIds: ['weekly_trader'] },
+          },
+        },
+        11,
+      ),
+    ).toBe(false);
+    expect(
+      isValidState(
+        {
+          ...base,
+          quests: {
+            ...base.quests,
+            weekly: { ...base.quests.weekly, activeIds: ['not_a_quest', 'weekly_trader'] },
+          },
+        },
+        11,
+      ),
+    ).toBe(false);
+    expect(
+      isValidState(
+        {
+          ...base,
+          quests: { ...base.quests, weekly: { ...base.quests.weekly, featuredCrop: 'tomato' } },
+        },
+        11,
+      ),
+    ).toBe(false);
+    expect(
+      isValidState(
+        {
+          ...base,
+          quests: { ...base.quests, weekly: { ...base.quests.weekly, claimed: ['not_a_quest'] } },
+        },
+        11,
+      ),
+    ).toBe(false);
+    expect(
+      isValidState({ ...base, quests: { ...base.quests, longClaimed: ['not_a_quest'] } }, 11),
+    ).toBe(false);
+    expect(isValidState({ ...base, quests: 'nope' }, 11)).toBe(false);
+  });
+});
+
+describe('quest counters from harvestPlot', () => {
+  /** A completed-onboarding save with a single ready plot at index 0. */
+  function readySave(cropId: CropId): GameStateData {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.plots[0] = { state: 'growing', cropId, plantedAt: now() - CROPS[cropId].growMs };
+    return saved;
+  }
+
+  it('increments lifetime harvestsByCrop/totalHarvests and weekly growMinutes', () => {
+    const saved = readySave('sunwheat');
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // rng pinned above RADIANT_CHANCE - no Radiant noise.
+    const store = new GameStateStore({ storage, rng: () => 1 });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true);
+    const state = store.getState();
+    expect(state.quests.lifetime.harvestsByCrop.sunwheat).toBe(1);
+    expect(state.quests.lifetime.totalHarvests).toBe(1);
+    expect(state.quests.weekly.growMinutes).toBeCloseTo(CROPS.sunwheat.growMs / 60_000);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().quests.lifetime).toEqual(state.quests.lifetime);
+  });
+
+  it('counts toward quest counters even during the tutorial', () => {
+    const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
+    const saved = createDefaultState(11);
+    saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: now() - CROPS.sunwheat.growMs,
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 1 });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true);
+    const state = store.getState();
+    expect(state.quests.lifetime.totalHarvests).toBe(1);
+    expect(state.quests.weekly.growMinutes).toBeCloseTo(CROPS.sunwheat.growMs / 60_000);
+  });
+
+  it("increments weekly featuredHarvests only when the harvested crop matches this week's featured crop", () => {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.featuredCrop = 'starcorn';
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: now() - CROPS.sunwheat.growMs,
+    };
+    saved.plots[1] = {
+      state: 'growing',
+      cropId: 'starcorn',
+      plantedAt: now() - CROPS.starcorn.growMs,
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 1 });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true); // sunwheat, not featured
+    expect(store.harvestPlot(1)).toBe(true); // starcorn, featured
+    expect(store.getState().quests.weekly.featuredHarvests).toBe(1);
+  });
+
+  it('increments weekly radiants only on an actual Radiant proc', () => {
+    const saved = readySave('sunwheat');
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // stubRng(0, RADIANT_MOONDUST_CHANCE): 0 < RADIANT_CHANCE procs Radiant.
+    const store = new GameStateStore({ storage, rng: stubRng(0, RADIANT_MOONDUST_CHANCE) });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().quests.weekly.radiants).toBe(1);
+  });
+
+  it('does not increment weekly radiants on a non-Radiant harvest', () => {
+    const saved = readySave('sunwheat');
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // RADIANT_CHANCE itself is not < RADIANT_CHANCE - no proc.
+    const store = new GameStateStore({ storage, rng: stubRng(RADIANT_CHANCE) });
+    store.load();
+    expect(store.harvestPlot(0)).toBe(true);
+    expect(store.getState().quests.weekly.radiants).toBe(0);
+  });
+});
+
+describe('quest counters from fulfillOrder', () => {
+  /** A completed-onboarding save with `order` open in slot 0 and given inventory. */
+  function savedStateWithOpenOrder(
+    order: Order,
+    inventory: Partial<Record<CropId, number>>,
+  ): GameStateData {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.inventory = inventory;
+    saved.orders[0] = { state: 'open', order };
+    return saved;
+  }
+
+  it('increments lifetime ordersFulfilled and weekly orders on any fulfillment', () => {
+    const order: Order = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 10, xpReward: 2 };
+    const saved = savedStateWithOpenOrder(order, { sunwheat: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    const state = store.getState();
+    expect(state.quests.lifetime.ordersFulfilled).toBe(1);
+    expect(state.quests.weekly.orders).toBe(1);
+    expect(state.quests.lifetime.premiumFulfilled).toBe(0);
+  });
+
+  it('increments premiumFulfilled for a premium order, and chestsOpened by exactly the chests granted', () => {
+    const order: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 2, flavor: 'A test flavor line', chests: 2 },
+    };
+    const saved = savedStateWithOpenOrder(order, { sunwheat: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    const state = store.getState();
+    expect(state.quests.lifetime.premiumFulfilled).toBe(1);
+    expect(state.quests.lifetime.chestsOpened).toBe(2);
+  });
+
+  it('does not increment chestsOpened for a premium order with no chests field', () => {
+    const order: Order = {
+      items: [{ cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+      premium: { moondust: 1, flavor: 'A test flavor line' },
+    };
+    const saved = savedStateWithOpenOrder(order, { sunwheat: 1 });
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().quests.lifetime.chestsOpened).toBe(0);
+    expect(store.getState().quests.lifetime.premiumFulfilled).toBe(1);
+  });
+
+  it('counts toward quest counters during the tutorial too (the scripted deliver-sunwheat step)', () => {
+    const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'deliver-sunwheat');
+    const saved = createDefaultState(11);
+    saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
+    saved.inventory = { sunwheat: 6 };
+    saved.orders[0] = { state: 'open', order: ONBOARDING_ORDER_A };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().quests.lifetime.ordersFulfilled).toBe(1);
+    expect(store.getState().quests.weekly.orders).toBe(1);
+  });
+});
+
+describe('ensureWeeklyQuests (weekly rotation)', () => {
+  /** A completed-onboarding, current-version save. */
+  function completedSave(): GameStateData {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    return saved;
+  }
+
+  it('does not roll over before anchor + WEEK_MS', () => {
+    const saved = completedSave();
+    const anchor = Date.now() - (WEEK_MS - 60_000);
+    saved.quests.weekly.anchor = anchor;
+    saved.quests.weekly.orders = 5;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().quests.weekly.anchor).toBe(anchor);
+    expect(store.getState().quests.weekly.orders).toBe(5);
+  });
+
+  it('rolls over once anchor + WEEK_MS has passed: advances anchor, resets counters/claimed, redraws activeIds/featuredCrop, persists', () => {
+    const saved = completedSave();
+    const oldAnchor = Date.now() - WEEK_MS - 1000;
+    saved.quests.weekly = {
+      anchor: oldAnchor,
+      activeIds: ['weekly_trader', 'weekly_radiance'],
+      featuredCrop: 'glowberry',
+      growMinutes: 123,
+      featuredHarvests: 4,
+      orders: 12,
+      radiants: 2,
+      claimed: ['weekly_trader'],
+    };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    const weekly = store.getState().quests.weekly;
+    expect(weekly.anchor).toBe(oldAnchor + WEEK_MS);
+    expect(weekly.growMinutes).toBe(0);
+    expect(weekly.featuredHarvests).toBe(0);
+    expect(weekly.orders).toBe(0);
+    expect(weekly.radiants).toBe(0);
+    expect(weekly.claimed).toEqual([]);
+    expect(weekly.activeIds).toEqual(['weekly_growth', 'weekly_specialist']);
+    expect(weekly.featuredCrop).toBe('sunwheat');
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().quests.weekly.anchor).toBe(oldAnchor + WEEK_MS);
+  });
+
+  it('catches up multiple missed weeks in one jump, not one redraw per missed week', () => {
+    const saved = completedSave();
+    const oldAnchor = Date.now() - WEEK_MS * 3 - 1000;
+    saved.quests.weekly.anchor = oldAnchor;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().quests.weekly.anchor).toBe(oldAnchor + WEEK_MS * 3);
+  });
+
+  it('is idempotent - calling it again immediately after a rollover changes nothing further', () => {
+    const saved = completedSave();
+    saved.quests.weekly.anchor = Date.now() - WEEK_MS - 1000;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    store.ensureWeeklyQuests();
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+});
+
+describe('questProgress', () => {
+  it('returns null for an unknown quest id', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.questProgress('not_a_quest')).toBeNull();
+  });
+
+  it("derives a long quest's progress from its lifetime counter", () => {
+    const goldenFields = LONG_QUESTS.find((quest) => quest.id === 'golden_fields')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.lifetime.harvestsByCrop.sunwheat = 250;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.questProgress('golden_fields')).toEqual({
+      current: 250,
+      target: goldenFields.target,
+      complete: false,
+      claimed: false,
+    });
+  });
+
+  it('marks a long quest complete once its counter reaches target, and claimed once in longClaimed', () => {
+    const treasureHunter = LONG_QUESTS.find((quest) => quest.id === 'treasure_hunter')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.lifetime.chestsOpened = treasureHunter.target;
+    saved.quests.longClaimed = ['treasure_hunter'];
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.questProgress('treasure_hunter')).toEqual({
+      current: treasureHunter.target,
+      target: treasureHunter.target,
+      complete: true,
+      claimed: true,
+    });
+  });
+
+  it("derives weekly_specialist's target from perCropTarget keyed by the featured crop", () => {
+    const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.featuredCrop = 'moonroot';
+    saved.quests.weekly.featuredHarvests = 5;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.questProgress('weekly_specialist')).toEqual({
+      current: 5,
+      target: specialist.perCropTarget!.moonroot,
+      complete: false,
+      claimed: false,
+    });
+  });
+
+  it("derives a flat-target weekly quest's progress (weekly_trader: orders vs its target)", () => {
+    const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.orders = trader.target!;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.questProgress('weekly_trader')).toEqual({
+      current: trader.target,
+      target: trader.target,
+      complete: true,
+      claimed: false,
+    });
+  });
+});
+
+describe('claimQuest', () => {
+  /** A completed-onboarding save with `questId`'s lifetime counter already at target. */
+  function completedLongSave(questId: string): GameStateData {
+    const def = LONG_QUESTS.find((quest) => quest.id === questId)!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    switch (def.counter.kind) {
+      case 'cropHarvests':
+        saved.quests.lifetime.harvestsByCrop[def.counter.cropId] = def.target;
+        break;
+      case 'totalHarvests':
+        saved.quests.lifetime.totalHarvests = def.target;
+        break;
+      case 'ordersFulfilled':
+        saved.quests.lifetime.ordersFulfilled = def.target;
+        break;
+      case 'premiumFulfilled':
+        saved.quests.lifetime.premiumFulfilled = def.target;
+        break;
+      case 'chestsOpened':
+        saved.quests.lifetime.chestsOpened = def.target;
+        break;
+    }
+    return saved;
+  }
+
+  it('rejects claims while onboarding is active, even if complete, without mutation', () => {
+    const saved = completedLongSave('golden_fields');
+    saved.onboarding = { completed: false, step: 0, progress: 0, progressB: 0 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.claimQuest('golden_fields')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('rejects an unknown quest id, and a quest that is not yet complete', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    expect(store.claimQuest('not_a_quest')).toBe(false);
+    expect(store.claimQuest('golden_fields')).toBe(false); // fresh save, 0 harvests
+  });
+
+  it('claims a trophy-reward long quest: grants the trophy into the warehouse (no cap check), marks longClaimed, one-time', () => {
+    const saved = completedLongSave('golden_fields');
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.claimQuest('golden_fields')).toBe(true);
+    const state = store.getState();
+    expect(state.warehouse.trophy_goldscarecrow).toBe(1);
+    expect(state.quests.longClaimed).toEqual(['golden_fields']);
+    // One-time: a second claim fails without granting a second trophy.
+    expect(store.claimQuest('golden_fields')).toBe(false);
+    expect(store.getState().warehouse.trophy_goldscarecrow).toBe(1);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().warehouse.trophy_goldscarecrow).toBe(1);
+    expect(reloaded.getState().quests.longClaimed).toEqual(['golden_fields']);
+  });
+
+  it('a trophy reward bypasses the warehouse MAX_DECORATIONS cap - claim succeeds even at the cap', () => {
+    const saved = completedLongSave('golden_fields');
+    saved.warehouse = { decor_fence: 30 }; // already at MAX_DECORATIONS
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.claimQuest('golden_fields')).toBe(true);
+    expect(store.getState().warehouse.trophy_goldscarecrow).toBe(1);
+  });
+
+  it('claims a chests-reward long quest (village_favorite): grants coins/moondust instantly and queues a matching ChestEvent', () => {
+    const saved = completedLongSave('village_favorite'); // reward: { chests: 2 }
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: stubRng(0, 0, 0.999999, 1) });
+    store.load();
+    const coinsBefore = store.getState().coins;
+    const moondustBefore = store.getState().moondust;
+    expect(store.claimQuest('village_favorite')).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore + CHEST_COINS_MIN + CHEST_COINS_MAX);
+    expect(state.moondust).toBe(moondustBefore + CHEST_MOONDUST_AMOUNT);
+    const events = store.consumeChestEvents();
+    expect(events).toEqual([
+      {
+        contents: [
+          { coins: CHEST_COINS_MIN, moondust: CHEST_MOONDUST_AMOUNT },
+          { coins: CHEST_COINS_MAX, moondust: 0 },
+        ],
+      },
+    ]);
+  });
+
+  it('claims a moondust-only weekly quest (weekly_trader): ticks moondust directly, no chest event', () => {
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = WEEKLY_QUESTS.find(
+      (quest) => quest.id === 'weekly_trader',
+    )!.target!;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const moondustBefore = store.getState().moondust;
+    expect(store.claimQuest('weekly_trader')).toBe(true);
+    expect(store.getState().moondust).toBe(moondustBefore + 3);
+    expect(store.consumeChestEvents()).toEqual([]);
+    expect(store.getState().quests.weekly.claimed).toEqual(['weekly_trader']);
+  });
+
+  it('claims a composable chests+moondust weekly quest (weekly_specialist)', () => {
+    const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.featuredCrop = 'emberpepper';
+    saved.quests.weekly.featuredHarvests = specialist.perCropTarget!.emberpepper!;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // grantChests(1) rolls: coins=MIN (rng 0), moondust chance rng 1 (fails).
+    const store = new GameStateStore({ storage, rng: stubRng(0, 1) });
+    store.load();
+    const coinsBefore = store.getState().coins;
+    const moondustBefore = store.getState().moondust;
+    expect(store.claimQuest('weekly_specialist')).toBe(true);
+    const state = store.getState();
+    expect(state.coins).toBe(coinsBefore + CHEST_COINS_MIN);
+    expect(state.moondust).toBe(moondustBefore + 2); // reward moondust only - chest roll missed
+    expect(store.consumeChestEvents()).toHaveLength(1);
+  });
+
+  it('rejects claiming a weekly quest that is complete but currently rotated out of activeIds, without mutation', () => {
+    const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.activeIds = ['weekly_growth', 'weekly_radiance']; // trader not active
+    saved.quests.weekly.orders = trader.target!; // complete anyway
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.claimQuest('weekly_trader')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('rejects a double-claim of the same weekly quest within the same week', () => {
+    const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = trader.target!;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.claimQuest('weekly_trader')).toBe(true);
+    expect(store.claimQuest('weekly_trader')).toBe(false);
+    expect(store.getState().quests.weekly.claimed).toEqual(['weekly_trader']);
+  });
+
+  it('a rollover clears a previously-claimed weekly id and its counter - the old claim cannot leak into the new week', () => {
+    const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
+    const saved = createDefaultState(11);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = trader.target!;
+    saved.quests.weekly.claimed = ['weekly_trader'];
+    saved.quests.weekly.anchor = Date.now() - WEEK_MS - 1000;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // Redraw: first pick floor(0.5*4)=2 -> 'weekly_trader'; second pick from
+    // the remaining 3 (growth, specialist, radiance), floor(0*3)=0 ->
+    // 'weekly_growth'; featured crop floor(0*5)=0 -> 'sunwheat'.
+    const store = new GameStateStore({ storage, rng: stubRng(0.5, 0, 0) });
+    store.load();
+    const weekly = store.getState().quests.weekly;
+    expect(weekly.activeIds).toEqual(['weekly_trader', 'weekly_growth']);
+    expect(weekly.orders).toBe(0);
+    expect(weekly.claimed).toEqual([]);
+    // The stale claim and progress are gone - claiming now fails until re-earned.
+    expect(store.claimQuest('weekly_trader')).toBe(false);
+
+    // Re-earning it fresh this week can be claimed again - the old claim did
+    // not carry over and does not block a new one.
+    store.getState().quests.weekly.orders = trader.target!;
+    expect(store.claimQuest('weekly_trader')).toBe(true);
+    expect(store.getState().quests.weekly.claimed).toEqual(['weekly_trader']);
   });
 });

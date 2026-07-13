@@ -6,11 +6,13 @@ import {
   DESIGN_WIDTH,
   HUD_COIN_POSITION,
   HUD_MOONDUST_POSITION,
+  QUEST_ICON_POSITION,
 } from '../config';
 import { CROPS, type CropId } from '../data/crops';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
+import { LONG_QUESTS } from '../data/quests';
 import type { AudioManager } from '../systems/audio';
-import { gameState } from '../systems/gameState';
+import { gameState, type GameStateData } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
@@ -19,6 +21,7 @@ import { FloatingText } from './FloatingText';
 import { InventoryPanel } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
+import type { QuestBoard } from './QuestBoard';
 import { SettingsPanel } from './SettingsPanel';
 
 /**
@@ -158,6 +161,27 @@ const BAG_ICON_NATIVE_SIZE = 96;
 const BAG_HIT_PAD_DISPLAY_PX = 20;
 
 /**
+ * Scroll (Quests) icon (T3.10a - the scroll's reserved purpose since T2.22):
+ * a bare icon at QUEST_ICON_POSITION, same size/hit-area convention as the
+ * bag (`buildBareIcon` reuses BAG_OPAQUE_BOUNDS/BAG_HIT_PAD_DISPLAY_PX since
+ * `scroll`, like `bag`, is a 96x96-native square icon with a few px of
+ * transparent padding on the same edges).
+ */
+const QUEST_BADGE_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '40px',
+  fontStyle: 'bold',
+  color: '#f5c542',
+  stroke: '#3a2a10',
+  strokeThickness: 5,
+};
+/** Top-right corner of the icon (half its display size), nudged out a touch. */
+const QUEST_BADGE_OFFSET = BUTTON_ICON_DISPLAY_SIZE / 2 + 6;
+/** Gentle perpetual bounce, matching the notice board's "!" badge (FarmScene). */
+const QUEST_BADGE_BOUNCE_OFFSET_Y = -8;
+const QUEST_BADGE_BOUNCE_HALF_MS = 500;
+
+/**
  * Gear (settings) icon, hanging just below the banner's bottom edge (158) -
  * replaces the old Audio button entirely.
  */
@@ -249,6 +273,21 @@ export class Hud {
   private readonly bagIcon: Phaser.GameObjects.Image;
   /** Cached rails gating so interactivity/alpha only toggle on change. */
   private bagEnabled = true;
+  private readonly questContainer: Phaser.GameObjects.Container;
+  private readonly questIcon: Phaser.GameObjects.Image;
+  private readonly questBadge: Phaser.GameObjects.Text;
+  /** Cached rails gating, mirrors `bagEnabled`. */
+  private questIconEnabled = true;
+  /**
+   * The Quest Board panel (T3.10a): constructed by `FarmScene` (it needs a
+   * `Hud` reference for its own claim-reward juice - see `flyQuestReward`)
+   * and handed in via `setQuestBoard` once both exist, mirroring how
+   * `ChestCeremony` receives `Hud` the other direction. Null only in the
+   * brief window between this class's own constructor (which calls
+   * `refresh()` once) and `FarmScene` calling `setQuestBoard` right after -
+   * every method here guards on it defensively.
+   */
+  private questBoard: QuestBoard | null = null;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
   private readonly orderBoard: OrderBoard;
@@ -388,6 +427,7 @@ export class Hud {
       this.audio.sfx('tap');
       this.inventoryPanel.hide();
       this.orderBoard.hide();
+      this.questBoard?.hide();
       this.settingsPanel.toggle();
     });
 
@@ -403,6 +443,7 @@ export class Hud {
       this.audio.sfx('tap');
       this.orderBoard.hide();
       this.settingsPanel.hide();
+      this.questBoard?.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
     // The container is safe for the guide to scale-breathe: its only other
@@ -415,6 +456,47 @@ export class Hud {
       height: BUTTON_ICON_DISPLAY_SIZE,
       object: this.bagContainer,
     }));
+
+    // Scroll (Quests) icon (T3.10a): same bare-icon convention as the bag,
+    // left of it on the banner. Fully tutorial-inert (`railsAllow`'s
+    // 'quest-board' case is always false pre-completion, like 'decor-shop'),
+    // so unlike the bag it registers no pulse target - the tutorial never
+    // has a step that could point at it.
+    this.questContainer = this.scene.add
+      .container(QUEST_ICON_POSITION.x, QUEST_ICON_POSITION.y)
+      .setDepth(HUD_DEPTH);
+    this.questIcon = this.buildBareIcon('scroll');
+    this.questContainer.add(this.questIcon);
+    this.questIcon.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.inventoryPanel.hide();
+      this.orderBoard.hide();
+      this.settingsPanel.hide();
+      this.questBoard?.toggle(gameState.getState());
+    });
+    // Claimable "!" badge (T3.10a): gold Georgia bold, stroked, bobbing at
+    // the icon's top-right corner - mirrors the notice board's "!" badge
+    // (FarmScene.createNoticeBoard) exactly, styling and bounce alike.
+    // Visibility is re-derived every refresh tick (`anyQuestClaimable`), not
+    // toggled here.
+    this.questBadge = this.scene.add
+      .text(
+        QUEST_ICON_POSITION.x + QUEST_BADGE_OFFSET,
+        QUEST_ICON_POSITION.y - QUEST_BADGE_OFFSET,
+        '!',
+        QUEST_BADGE_TEXT_STYLE,
+      )
+      .setOrigin(0.5)
+      .setDepth(HUD_DEPTH + 1)
+      .setVisible(false);
+    this.scene.tweens.add({
+      targets: this.questBadge,
+      y: QUEST_ICON_POSITION.y - QUEST_BADGE_OFFSET + QUEST_BADGE_BOUNCE_OFFSET_Y,
+      duration: QUEST_BADGE_BOUNCE_HALF_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
 
     this.cropArc = new CropArc(this.scene);
 
@@ -458,19 +540,46 @@ export class Hud {
     this.audio.sfx('tap');
     this.inventoryPanel.hide();
     this.settingsPanel.hide();
+    this.questBoard?.hide();
     this.orderBoard.toggle(gameState.getState());
   }
 
   /**
-   * Close every Hud-owned panel (bag/orders/settings) - used when an
-   * externally owned modal exclusive with them (the crop info card, T2.15)
-   * opens, mirroring the same closing calls `toggleOrderBoard` and the
-   * bag/gear handlers already make for each other.
+   * Close every Hud-owned panel (bag/orders/settings/quests) - used when an
+   * externally owned modal exclusive with them (the crop info card, T2.15;
+   * the Decor Shop, T3.9) opens, mirroring the same closing calls
+   * `toggleOrderBoard` and the bag/gear/quest handlers already make for
+   * each other.
    */
   closePanels(): void {
     this.inventoryPanel.hide();
     this.orderBoard.hide();
     this.settingsPanel.hide();
+    this.questBoard?.hide();
+  }
+
+  /**
+   * Wire the Quest Board panel (T3.10a): `FarmScene` constructs it (it needs
+   * a `Hud` reference of its own for claim-reward juice, so it cannot be
+   * built inside this constructor without a cycle) and hands the instance in
+   * right after, before the scene's first refresh tick. From here on the
+   * scroll icon's toggle, the claimable badge, and `refresh`'s per-tick
+   * `questBoard.refresh` all go through this reference.
+   */
+  setQuestBoard(panel: QuestBoard): void {
+    this.questBoard = panel;
+  }
+
+  /**
+   * Fly a quest reward's moondust from the claiming row's world position to
+   * the HUD counter (T3.10a) - `gameState.claimQuest` grants it to state
+   * instantly with no animation of its own (a chest reward rides the
+   * existing ceremony queue instead; a trophy flashes locally on its row),
+   * so `QuestBoard` calls this the same way `ChestCeremony` calls
+   * `flyChestCoins`/`flyChestMoondust`.
+   */
+  flyQuestReward(worldX: number, worldY: number, before: number, gained: number): void {
+    this.flyMoondustToCounter([{ x: worldX, y: worldY, count: gained }], before, gained);
   }
 
   /**
@@ -523,8 +632,11 @@ export class Hud {
 
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
+    this.questBoard?.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
+
+    this.questBadge.setVisible(this.anyQuestClaimable(state));
 
     this.applyRailsGating();
 
@@ -567,6 +679,35 @@ export class Hud {
         this.bagIcon.disableInteractive();
       }
     }
+    const questAllowed = gameState.railsAllow('quest-board');
+    if (questAllowed !== this.questIconEnabled) {
+      this.questIconEnabled = questAllowed;
+      this.questContainer.setAlpha(questAllowed ? 1 : BUTTON_INERT_ALPHA);
+      if (questAllowed) {
+        this.questIcon.setInteractive();
+      } else {
+        this.questIcon.disableInteractive();
+      }
+    }
+  }
+
+  /**
+   * Whether the "!" badge should show: any LONG_QUESTS def complete and
+   * unclaimed, or any currently-active weekly quest complete and unclaimed -
+   * hidden outright during the tutorial (mirrors the notice board badge's
+   * own `onboarding.completed` gate) since the board itself is tutorial-inert.
+   */
+  private anyQuestClaimable(state: GameStateData): boolean {
+    if (!state.onboarding.completed) return false;
+    for (const def of LONG_QUESTS) {
+      const progress = gameState.questProgress(def.id);
+      if (progress?.complete && !progress.claimed) return true;
+    }
+    for (const id of state.quests.weekly.activeIds) {
+      const progress = gameState.questProgress(id);
+      if (progress?.complete && !progress.claimed) return true;
+    }
+    return false;
   }
 
   /** Level number in the crest's medallion, shrunk to fit at 1 or 2 digits. */

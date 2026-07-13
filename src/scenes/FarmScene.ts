@@ -56,6 +56,7 @@ import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { CropCountdown } from '../ui/CropCountdown';
 import { ParticleBurst } from '../ui/ParticleBurst';
+import { QuestBoard } from '../ui/QuestBoard';
 import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
 import { SeedBar } from '../ui/SeedBar';
 
@@ -469,6 +470,7 @@ export class FarmScene extends Phaser.Scene {
   /** Cached rails gating, mirrors `noticeBoardEnabled`. */
   private farmhouseEnabled = true;
   private decorShop!: DecorShop;
+  private questBoard!: QuestBoard;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
   private decorationSprites: Phaser.GameObjects.Image[] = [];
   private decorationShadowSprites: Phaser.GameObjects.Image[] = [];
@@ -587,6 +589,11 @@ export class FarmScene extends Phaser.Scene {
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
     this.hud = new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio);
+    // Constructed after Hud (needs it for claim-reward juice - see
+    // QuestBoard's own comment) and handed back in via setQuestBoard so the
+    // HUD's scroll icon can own toggling it, mirroring the bag.
+    this.questBoard = new QuestBoard(this, this.hud, this.audio);
+    this.hud.setQuestBoard(this.questBoard);
     this.createFarmhouse();
     this.createNoticeBoard();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
