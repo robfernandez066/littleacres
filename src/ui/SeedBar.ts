@@ -6,6 +6,7 @@ import type { AudioManager } from '../systems/audio';
 import { gameState } from '../systems/gameState';
 import { isModalOpen } from '../systems/modalPanels';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
+import { FULL_SIZE_BUTTONS, visibleSeedButtonCount } from './seedBarLayout';
 
 /**
  * Layout: primary actions live in the bottom third of the screen (design
@@ -15,6 +16,20 @@ const BAR_CENTER_Y = 1700;
 const BUTTON_WIDTH = 196;
 const BUTTON_HEIGHT = 280;
 const BUTTON_SPACING = 208;
+/**
+ * Seven-crop refit (T3.11): which crops get a button comes from
+ * `visibleSeedButtonCount` (seedBarLayout.ts) - every unlocked crop, exactly
+ * one next-locked teaser, further locked crops only as filler up to
+ * FULL_SIZE_BUTTONS; unlock order = CROPS order. Five-or-fewer buttons keep
+ * the historical fixed layout pixel-for-pixel. Past five, each unlock adds a
+ * button and the whole row shrinks uniformly (see `relayout`) - positions
+ * scale via BUTTON_SPACING, everything inside a button (panel, icon, price
+ * row, name, lock text, badge and every hit area) scales via its container -
+ * to fit inside DESIGN_WIDTH with BAR_SIDE_MARGIN clear on each side. The
+ * 12px inter-button gap shrinks proportionally and stays visible (8.7px at
+ * seven buttons).
+ */
+const BAR_SIDE_MARGIN = 20;
 /** Above the field and crop sprites (whose depth is their screen y). */
 const BAR_DEPTH = 2000;
 
@@ -87,8 +102,10 @@ interface SeedButton {
 
 /**
  * Bottom-anchored seed selection bar: one button per crop showing icon, name
- * and seed cost. Locked crops (player level below unlockLevel) are visible
- * but dimmed with a "Lv N" requirement instead of the cost. At most one seed
+ * and seed cost. Which buttons show, and at what size, comes from the player
+ * level via `relayout` (see FULL_SIZE_BUTTONS). Locked crops (player level
+ * below unlockLevel) are visible but dimmed with a "Lv N" requirement
+ * instead of the cost. At most one seed
  * is selected at a time; tapping the selected seed deselects it - except
  * during the tutorial, where the rails own selection: only the step's crop
  * is selectable (others dim, alpha only), re-taps never deselect, and a seed
@@ -101,16 +118,21 @@ export class SeedBar {
   private selected: CropId | null = null;
   /** Level the lock visuals were last derived from; -1 forces a first pass. */
   private lastLevel = -1;
+  /** Uniform shrink factor from the last relayout; 1 = the full-size layout. */
+  private layoutScale = 1;
+  /** How many leading buttons (unlock order) the bar currently shows. */
+  private visibleCount = 0;
+  /** Whole-bar visibility (arrange mode), ANDed with per-button visibility. */
+  private barShown = true;
 
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly audio: AudioManager,
     private readonly onInfoTap: (crop: CropDef) => void,
   ) {
-    const crops = Object.values(CROPS);
-    crops.forEach((crop, index) => {
-      this.buttons.push(this.buildButton(crop, index, crops.length));
-    });
+    for (const crop of Object.values(CROPS)) {
+      this.buttons.push(this.buildButton(crop));
+    }
     registerPulseTarget('seed-sunwheat', () => this.seedPulseTarget('sunwheat'));
     registerPulseTarget('seed-starcorn', () => this.seedPulseTarget('starcorn'));
     this.refresh();
@@ -128,9 +150,10 @@ export class SeedBar {
    * the duration and restores it on Done.
    */
   setVisible(visible: boolean): void {
-    for (const button of this.buttons) {
-      button.container.setVisible(visible);
-    }
+    this.barShown = visible;
+    this.buttons.forEach((button, index) => {
+      button.container.setVisible(visible && index < this.visibleCount);
+    });
   }
 
   /**
@@ -150,8 +173,8 @@ export class SeedBar {
     return {
       x: button.baseX,
       y: BAR_CENTER_Y,
-      width: BUTTON_WIDTH,
-      height: BUTTON_HEIGHT,
+      width: BUTTON_WIDTH * this.layoutScale,
+      height: BUTTON_HEIGHT * this.layoutScale,
       object: button.container,
     };
   }
@@ -166,6 +189,7 @@ export class SeedBar {
     const level = gameState.getState().level;
     if (level !== this.lastLevel) {
       this.lastLevel = level;
+      this.relayout(level);
       for (const button of this.buttons) {
         button.locked = level < button.crop.unlockLevel;
         this.applyLockVisuals(button);
@@ -174,6 +198,36 @@ export class SeedBar {
       if (selectedButton?.locked === true) this.setSelected(null);
     }
     this.applyRailsGating();
+  }
+
+  /**
+   * Re-derive the visible button set and the row layout from the player
+   * level. The count rule lives in `visibleSeedButtonCount`: unlocked crops
+   * + one next-locked teaser + locked filler up to FULL_SIZE_BUTTONS. A
+   * teaser/filler button renders exactly like any locked button (lock
+   * treatment, "Lv N" tag, live info badge, silent taps). At
+   * FULL_SIZE_BUTTONS or fewer the row renders at the historical fixed
+   * layout (scale 1); more shrink uniformly so the row - (count - 1)
+   * spacings plus one button - spans exactly the design width minus both
+   * side margins. Ends by re-asserting selection visuals so every container
+   * lands on the new base scale.
+   */
+  private relayout(level: number): void {
+    const unlockedCount = this.buttons.filter((b) => b.crop.unlockLevel <= level).length;
+    this.visibleCount = visibleSeedButtonCount(unlockedCount, this.buttons.length);
+    const rowWidth = (this.visibleCount - 1) * BUTTON_SPACING + BUTTON_WIDTH;
+    this.layoutScale =
+      this.visibleCount <= FULL_SIZE_BUTTONS
+        ? 1
+        : Math.min(1, (DESIGN_WIDTH - 2 * BAR_SIDE_MARGIN) / rowWidth);
+    this.buttons.forEach((button, index) => {
+      button.baseX =
+        DESIGN_WIDTH / 2 +
+        (index - (this.visibleCount - 1) / 2) * BUTTON_SPACING * this.layoutScale;
+      button.container.setX(button.baseX);
+      button.container.setVisible(this.barShown && index < this.visibleCount);
+    });
+    this.setSelected(this.selected);
   }
 
   /**
@@ -209,7 +263,7 @@ export class SeedBar {
    */
   private reassertSelectedScale(): void {
     const button = this.buttons.find((b) => b.crop.id === this.selected);
-    if (button !== undefined) button.container.setScale(SELECTED_SCALE);
+    if (button !== undefined) button.container.setScale(this.layoutScale * SELECTED_SCALE);
   }
 
   /**
@@ -227,7 +281,7 @@ export class SeedBar {
     button.container.setX(button.baseX);
     this.scene.tweens.add({
       targets: button.container,
-      x: button.baseX + SHAKE_DISTANCE,
+      x: button.baseX + SHAKE_DISTANCE * this.layoutScale,
       duration: 40,
       yoyo: true,
       repeat: 3,
@@ -243,9 +297,10 @@ export class SeedBar {
     });
   }
 
-  private buildButton(crop: CropDef, index: number, count: number): SeedButton {
-    const baseX = DESIGN_WIDTH / 2 + (index - (count - 1) / 2) * BUTTON_SPACING;
-    const container = this.scene.add.container(baseX, BAR_CENTER_Y).setDepth(BAR_DEPTH);
+  private buildButton(crop: CropDef): SeedButton {
+    // Position, scale and visibility are owned by `relayout` (the first pass
+    // runs from the constructor's refresh(), before anything renders).
+    const container = this.scene.add.container(0, BAR_CENTER_Y).setDepth(BAR_DEPTH);
 
     const panel = this.scene.add.nineslice(
       0,
@@ -281,7 +336,7 @@ export class SeedBar {
       icon,
       coinIcon,
       costText,
-      baseX,
+      baseX: 0,
       locked: false,
       lastFlashAt: -Infinity,
       flashTimer: null,
@@ -351,10 +406,10 @@ export class SeedBar {
     for (const button of this.buttons) {
       if (button.crop.id === cropId) {
         button.panel.setTint(SELECTED_TINT);
-        button.container.setScale(SELECTED_SCALE);
+        button.container.setScale(this.layoutScale * SELECTED_SCALE);
       } else {
         button.panel.clearTint();
-        button.container.setScale(1);
+        button.container.setScale(this.layoutScale);
       }
     }
   }

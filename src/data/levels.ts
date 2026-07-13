@@ -1,12 +1,12 @@
 /** Highest attainable player level in the current balance pass. */
-export const MAX_LEVEL = 6;
+export const MAX_LEVEL = 8;
 
 /**
  * Cumulative xp thresholds. Index i is the xp needed to REACH level i+1, so
  * `XP_THRESHOLDS[level - 1]` is the answer for any level 1..MAX_LEVEL.
  * Provisional balance, will be tuned later.
  */
-const XP_THRESHOLDS: readonly number[] = [0, 30, 90, 450, 1000, 2000];
+const XP_THRESHOLDS: readonly number[] = [0, 30, 90, 450, 1000, 2000, 3500, 5500];
 
 /** Cumulative xp required to reach `level`. Clamped to 1..MAX_LEVEL. */
 export function xpForLevel(level: number): number {

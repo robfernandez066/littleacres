@@ -28,7 +28,7 @@
  *   scalloped/torn-edge fringe and lip removed (mirrored top-face + deep-
  *   interior sample + a synthetic diamond alpha mask), for the 'tiles_flat'
  *   ground mode. See processTileFlat.
- * - Crops (15): trimmed, scaled to a per-stage height target (stage 2 = 100%
+ * - Crops (21): trimmed, scaled to a per-stage height target (stage 2 = 100%
  *   of the max legal height, stage 1 = 78%, stage 0 = 55% - a glance must
  *   read small -> medium -> full), width still capped at 128, placed on a
  *   128x128 frame horizontally centered (bbox center at x = 64) with the
@@ -167,6 +167,12 @@ const CROP_NAMES = [
   'emberpepper_0',
   'emberpepper_1',
   'emberpepper_2',
+  'dewmelon_0',
+  'dewmelon_1',
+  'dewmelon_2',
+  'sagesprig_0',
+  'sagesprig_1',
+  'sagesprig_2',
 ];
 const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch'];
 const SIGN_NAMES = ['sign'];

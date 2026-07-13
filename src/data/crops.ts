@@ -1,5 +1,6 @@
 /** All gameplay numbers live here, never in scene/system logic. */
-export type CropId = 'sunwheat' | 'starcorn' | 'glowberry' | 'moonroot' | 'emberpepper';
+export type CropId =
+  'sunwheat' | 'starcorn' | 'glowberry' | 'moonroot' | 'emberpepper' | 'dewmelon' | 'sagesprig';
 
 /** Growth stages per crop: 0 = sprout, 1 = mid, 2 = ready to harvest. */
 export const CROP_STAGES = 3;
@@ -114,5 +115,29 @@ export const CROPS: Record<CropId, CropDef> = {
     xp: 70,
     unlockLevel: 5,
     flavor: 'Warm to the touch, warmer in a stew. It never seems to burn out.',
+  },
+  dewmelon: {
+    id: 'dewmelon',
+    name: 'Dewmelon',
+    pluralName: 'Dewmelons',
+    stageFrames: ['dewmelon_0', 'dewmelon_1', 'dewmelon_2'],
+    seedCost: 260,
+    sellValue: 500,
+    growMs: 2_700_000,
+    xp: 150,
+    unlockLevel: 7,
+    flavor: 'Chilled by night air and swollen with sweet dew - best eaten cold at noon.',
+  },
+  sagesprig: {
+    id: 'sagesprig',
+    name: 'Sagesprig',
+    pluralName: 'Sagesprigs',
+    stageFrames: ['sagesprig_0', 'sagesprig_1', 'sagesprig_2'],
+    seedCost: 600,
+    sellValue: 1200,
+    growMs: 7_200_000,
+    xp: 400,
+    unlockLevel: 8,
+    flavor: 'A fragrant herb that seasons every stew in the village - and a potion or two.',
   },
 };

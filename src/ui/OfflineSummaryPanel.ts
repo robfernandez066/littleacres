@@ -15,7 +15,8 @@ import { ModalBackdrop } from './ModalBackdrop';
  */
 
 const PANEL_WIDTH = 900;
-const PANEL_HEIGHT = 620;
+/** Tall enough for all 7 crop rows (T3.11) to clear the Confirm button. */
+const PANEL_HEIGHT = 780;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = 780;
 /** Above the seed bar (2000), below flying coins (2200) - same tier as InventoryPanel. */
@@ -27,7 +28,8 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 /** Minimum gap (px) the title's shrink-to-fit must leave clear of the close X. */
 const TITLE_CLOSE_CLEARANCE_PX = 16;
 
-const ROW_START_Y = -170;
+/** 140px below the panel top, same title clearance as before the 7-row refit (T3.11). */
+const ROW_START_Y = -PANEL_HEIGHT / 2 + 140;
 const ROW_SPACING = 75;
 const ROW_ICON_X = -300;
 const ROW_ICON_SCALE = 0.5;

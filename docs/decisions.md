@@ -15,6 +15,11 @@ Format:
 
 ---
 
+## 2026-07-13 - Seed bar always shows the next locked crop (T3.11 follow-up rule)
+**Context:** T3.11's refit showed locked crops only as filler below 5 buttons, leaving L5-L6 players with no visible next goal - contradicting the "anticipation lives in the seed bar" rationale from the teaser-order removal. Coder flagged the ambiguity; owner picked the teaser rule.
+**Decision:** Bar shows all unlocked crops plus exactly ONE next-locked crop (lock + level tag), minimum 5 buttons total (early levels fill with further locked crops, preserving the historical look). L5-L6 = 6 buttons at 0.84 scale; the row shrink is the accepted cost. Teaser ORDERS remain banned - the seed bar is the one sanctioned anticipation surface.
+**Trigger:** T3.11 report review, owner decision 2026-07-13.
+
 ## 2026-07-13 - Chest open sound: reuse radiant chime + add shake (chest.mp3 dropped)
 **Context:** User could not find a good chest-opening sound on Pixabay; ceremony was shipping silent (sparkle burst + haptic only). User spec: chest shakes/vibrates briefly, then opens with a radiant chime.
 **Decision:** No new audio asset. Reuse staged radiant.mp3 at the open moment; add an escalating shake tween between the pop-in beat and the open. Sound doubles with radiant harvest procs - acceptable, both mean "something special". Shipped as small task T3.10a. If a great chest sound ever turns up, it slots in as a one-line SFX_DEFS swap.

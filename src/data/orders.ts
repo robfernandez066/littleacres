@@ -73,6 +73,8 @@ export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
   glowberry: 2,
   moonroot: 3,
   emberpepper: 2,
+  dewmelon: 2,
+  sagesprig: 1,
 };
 
 export interface OrderItem {

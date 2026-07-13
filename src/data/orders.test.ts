@@ -150,6 +150,28 @@ describe('generateOrder', () => {
     expect(order.xpReward).toBe(Math.ceil(2 * CROPS.emberpepper.xp * ORDER_XP_MULTIPLIER));
   });
 
+  it('a single-item dewmelon order (no second item) is still capped (T3.11)', () => {
+    // Level 7 unlocks dewmelon; totalUnits = 2 + 1*7 = 9, capped to 2. First
+    // rng() (0.99) fails premium; second (0.99) fails the second-item roll;
+    // third (0.9) picks index 5 of the 6 unlocked crops (dewmelon).
+    const rng = queuedRng([0.99, 0.99, 0.9]);
+    const order = generateOrder(7, rng);
+    expect(order.items).toEqual([{ cropId: 'dewmelon', count: 2 }]);
+    expect(order.coinReward).toBe(Math.ceil(2 * CROPS.dewmelon.sellValue * ORDER_COIN_MULTIPLIER));
+    expect(order.xpReward).toBe(Math.ceil(2 * CROPS.dewmelon.xp * ORDER_XP_MULTIPLIER));
+  });
+
+  it('a single-item sagesprig order (no second item) is still capped (T3.11)', () => {
+    // Level 8 unlocks sagesprig; totalUnits = 2 + 1*8 = 10, capped to 1.
+    // First rng() (0.99) fails premium; second (0.99) fails the second-item
+    // roll; third (0.95) picks index 6 of the 7 unlocked crops (sagesprig).
+    const rng = queuedRng([0.99, 0.99, 0.95]);
+    const order = generateOrder(8, rng);
+    expect(order.items).toEqual([{ cropId: 'sagesprig', count: 1 }]);
+    expect(order.coinReward).toBe(Math.ceil(1 * CROPS.sagesprig.sellValue * ORDER_COIN_MULTIPLIER));
+    expect(order.xpReward).toBe(Math.ceil(1 * CROPS.sagesprig.xp * ORDER_XP_MULTIPLIER));
+  });
+
   it('clamps a sub-1 level to level 1 rules', () => {
     const order = generateOrder(0, () => 0.99);
     expect(order.items).toEqual([
