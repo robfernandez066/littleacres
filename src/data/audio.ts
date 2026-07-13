@@ -82,7 +82,8 @@ export const SFX_DEFS: Record<SfxKey, SfxDef> = {
   // Skips the recording's harsh attack transient; still ends at the same point.
   harvest: { volume: 0.55, rate: 0.9, marker: { start: 0.05, duration: 0.95 }, volumeJitter: 0.1 },
   plant: { volume: 0.45, rate: 0.9, volumeJitter: 0.1 },
-  coin: { volume: 0.3, volumeJitter: 0.1 },
+  // 0.3 was tuned on desktop speakers and vanished on phone speakers (2026-07-13).
+  coin: { volume: 0.45, volumeJitter: 0.1 },
   // A wooden footstep sped up 4x reads as a snappy UI tick.
   tap: { volume: 0.4, rate: 4.0 },
   fanfare: { volume: 0.7 },
