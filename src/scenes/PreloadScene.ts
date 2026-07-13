@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 
 import atlasJsonUrl from '../../assets/atlas.json?url';
 import atlasPngUrl from '../../assets/atlas.png';
+import grassTextureAUrl from '../../assets/grass_texture_a.png';
+import grassTextureBUrl from '../../assets/grass_texture_b.png';
 import ambientMp3Url from '../../assets/audio/ambient.mp3?url';
 import bagpopMp3Url from '../../assets/audio/bagpop.mp3?url';
 import coinMp3Url from '../../assets/audio/coin.mp3?url';
@@ -16,7 +18,13 @@ import musicMfccMp3Url from '../../assets/audio/music_mfcc.mp3?url';
 import plantMp3Url from '../../assets/audio/plant.mp3?url';
 import radiantMp3Url from '../../assets/audio/radiant.mp3?url';
 import tapOggUrl from '../../assets/audio/tap.ogg?url';
-import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import {
+  ATLAS_KEY,
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  GROUND_TEXTURE_A_KEY,
+  GROUND_TEXTURE_B_KEY,
+} from '../config';
 import { AMBIENT_KEY, type SfxKey } from '../data/audio';
 
 /** Loader key -> fingerprinted URL for the ten one-shot effects. */
@@ -87,6 +95,10 @@ export class PreloadScene extends Phaser.Scene {
     });
 
     this.load.atlas(ATLAS_KEY, atlasPngUrl, atlasJsonUrl);
+    // Ground textures (T2.28 experiment): standalone images, not atlas frames
+    // - see ASSETS.md "Ground textures (standalone, not atlas frames)".
+    this.load.image(GROUND_TEXTURE_A_KEY, grassTextureAUrl);
+    this.load.image(GROUND_TEXTURE_B_KEY, grassTextureBUrl);
     for (const [key, url] of Object.entries(SFX_URLS)) {
       this.load.audio(key, url);
     }

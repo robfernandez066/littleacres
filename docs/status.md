@@ -6,16 +6,15 @@
 
 ## Active
 
-- **T2.25** (coder, FRESH, Sonnet): chest card simplification - text line out, compact icon into the reward row. Prompt delivered.
-- 2026-07-10 mega-stack (T2.22 series, T2.23 series, T2.24) COMMITTED + PUSHED after full combined playtest (all items passed incl. fresh tutorial; dirt path verdict: GOOD, needs blend dressing).
+- **T2.28 series close-out** (user): pack:atlas (v2 tufts) -> trio -> look-over (tiles_flat now DEFAULT after owner verdict + depth fix; full-screen ground; owner-baked dressing layout; front-decals capped below UI) -> optional re-place with v2 tufts (send JSON, PM bakes) -> commit (message delivered).
+- Dressing workflow ESTABLISHED: owner places in the dev editor, Copy layout, PM bakes JSON into config PM-direct. Ground texture candidates PARKED (verdict: garbage); tiles_flat (pack-time derived seamless face from existing tile art, synthetic rhombus mask) WON.
+- Since last status: T2.25, T2.15 (seed info cards), T2.23b+T2.27+T2.23c (multi-chest ceremony, dev buttons, moondust fly-in), T2.26 (music playlist + credits) all DONE committed+pushed. PM-direct fixes this round: background depth -2, ground-layer depth pin, full-screen ground, front-depth 1950, layout bake, v2 tufts in packer/palette, GROUND_MODE=tiles_flat.
 
 ## Queue (in order)
 
-1. T2.25 chest card simplification (chest = the mystery bonus; icon-only advertisement, ceremony pays it off - user + PM aligned)
-2. T2.15 seed info button ("i" on seed buttons: grow time, cost, sell, xp + flavor line; PM writes copy; card pattern reusable for Phase 4 recipes)
-3. Scene-blend round (art in generation): flat seamless grass tile attempt (kills the taped-on grid lines - predicted in the original art-direction log) + tuft/stone/dirt decals dressing the road edges; MUST re-verify at 16 plots (grid grows toward the road)
-4. PHASE 2 GATE: external playtest round - 3-5 fresh installs (user-approved), PM triages notes as a mini-gate
-5. Post-gate: Phase 3 planning (balance-v1.xlsx is the economy source of truth)
+1. T2.28 series commit (in flight above)
+2. PHASE 2 GATE: external playtest round - 3-5 fresh installs (user-approved), PM triages notes as a mini-gate. PM prep: a short tester brief (what to try, where to send notes)
+3. Post-gate: Phase 3 planning (balance-v1.xlsx is the economy source of truth)
 
 ## Waiting on user (whenever convenient)
 

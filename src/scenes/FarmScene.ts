@@ -5,7 +5,15 @@ import {
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
   DIRT_PATH_POSITION,
+  type DressingPlacement,
+  DRESSING,
   FARMHOUSE_POSITION,
+  GROUND_MODE,
+  GROUND_TEXTURE_A_KEY,
+  GROUND_TEXTURE_A_TILE_SCALE,
+  GROUND_TEXTURE_B_KEY,
+  GROUND_TEXTURE_B_TILE_SCALE,
+  type GroundMode,
   NOTICE_BOARD_POSITION,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
@@ -14,7 +22,12 @@ import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } fr
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
-import { registerCoinArcTest, registerHitboxToggle } from '../systems/dev';
+import {
+  registerCoinArcTest,
+  registerDressingEditorHooks,
+  registerGroundModeCycle,
+  registerHitboxToggle,
+} from '../systems/dev';
 import { gameState } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
@@ -50,15 +63,28 @@ const BACKGROUND_COLOR = 0x55913f;
 const TILE_ORIGIN_Y = TILE_DIAMOND_CENTER_Y / TILE_FRAME_HEIGHT;
 
 /**
- * Vertical band (in design pixels) covered by grass tiles. Everything above
- * and below stays plain background - headroom reserved for the future HUD.
+ * Vertical range (in design pixels) covered by the ground layer: the FULL
+ * screen. Historically a 420..1500 band (headroom for HUD/seed bar), but the
+ * band edges read as visible seams against any ground whose green differs
+ * from BACKGROUND_COLOR - the HUD and seed bar draw over the ground anyway
+ * (user report + PM-direct fix, 2026-07-12).
  */
-const FIELD_MIN_Y = 420;
-const FIELD_MAX_Y = 1500;
+const FIELD_MIN_Y = 0;
+const FIELD_MAX_Y = DESIGN_HEIGHT;
 
-/** Grid range scanned when laying grass; wide enough to fill the band above. */
-const GRASS_GRID_MIN = -6;
-const GRASS_GRID_MAX = 9;
+/** Grid range scanned when laying grass; wide enough to fill the range above. */
+const GRASS_GRID_MIN = -9;
+const GRASS_GRID_MAX = 13;
+
+/**
+ * Depth of the WHOLE ground layer - the texture TileSprite AND the grass
+ * tile images alike: below plot tiles (default depth 0) and above the
+ * background rect (-2). Grass tiles need this explicitly because the dev
+ * ground-mode cycle rebuilds them AFTER the plots exist - at a shared
+ * default depth, later insertion drew grass over the plots (user report +
+ * PM-direct fix, 2026-07-12).
+ */
+const GROUND_LAYER_DEPTH = -1;
 
 /** How often (ms of real time) growth visuals re-derive from state/clock. */
 const CROP_REFRESH_INTERVAL_MS = 250;
@@ -136,6 +162,34 @@ const DIRT_PATH_FRAME_SIZE = 288;
 const DIRT_PATH_DISPLAY_WIDTH = 280;
 const DIRT_PATH_SCALE = DIRT_PATH_DISPLAY_WIDTH / DIRT_PATH_FRAME_SIZE;
 const DIRT_PATH_DEPTH = 5;
+
+/**
+ * Scene dressing decals (T2.28, collapsed to one array + depth in T2.28a):
+ * `DRESSING` reads as ground decals just above the dirt path (depth 5) -
+ * see `DRESSING`'s own comment in config.ts. `createSceneDressing` is the
+ * one call in `create()` that draws it - commenting it out disables all of
+ * this task's dressing.
+ */
+const DRESSING_DEPTH = 6;
+
+/**
+ * Dressing editor (T2.28a, dev-only): drag/spawn/scale/delete step sizes and
+ * the newly-spawned decal's default scale/position, plus the selection
+ * highlight tint - see `setDressingEditActive`/`spawnDressingDecal`.
+ */
+const DRESSING_SCALE_MIN = 0.2;
+const DRESSING_SCALE_MAX = 1.5;
+const DRESSING_SPAWN_SCALE = 0.55;
+const DRESSING_SELECTED_TINT = 0x66ccff;
+/**
+ * "Move to front" (T2.28a follow-up): a decal's depth when `front` is set -
+ * above every y-depth-sorted FIELD object (crops/structures top out around
+ * DESIGN_HEIGHT, 1920) but strictly below the UI tier (seed bar 2000, panels
+ * 2100): fronted decals are farm art, never overlays on menus (user report +
+ * PM-direct fix, 2026-07-12).
+ */
+const DRESSING_FRONT_DEPTH = 1950;
+
 /**
  * The notice board's hit area covers its full display bounds (not just its
  * trimmed opaque art - the user-facing tap target is the whole roof + board +
@@ -254,16 +308,51 @@ export class FarmScene extends Phaser.Scene {
   private pendingReplant: ReplantEntry[] = [];
   /** Container children's own depth, saved while the hitbox visualizer bumps it - see `toggleHitboxDebug`. */
   private readonly hitboxOriginalDepths = new Map<HitboxDebuggable, number>();
+  /** Current ground rendering mode (T2.28 dev experiment) - see `createGroundLayer`. */
+  private groundMode: GroundMode = GROUND_MODE;
+  /** The grass diamond tile images, kept only so 'tiles' mode can be torn down live. */
+  private groundTiles: Phaser.GameObjects.Image[] = [];
+  /** The field-band TileSprite in 'texture_a'/'texture_b' mode; null in 'tiles'/'tiles_flat' mode. */
+  private groundTexture: Phaser.GameObjects.TileSprite | null = null;
+  /**
+   * Live, mutable dressing layout (T2.28a dev editor) - starts as a clone of
+   * `DRESSING` from config.ts; drag/spawn/scale/delete all mutate this array
+   * (and its parallel `dressingSprites`), never the imported constant. This
+   * is what "Copy layout" serializes.
+   */
+  private dressingState: DressingPlacement[] = [];
+  /** One sprite per `dressingState` entry, same index - kept in lockstep on spawn/delete. */
+  private dressingSprites: Phaser.GameObjects.Image[] = [];
+  /** Whether the dev-overlay "Edit dressing" toggle is on - see `setDressingEditActive`. */
+  private dressingEditActive = false;
+  /** Index into `dressingState`/`dressingSprites` of the tapped decal, or null - see `setDressingSelection`. */
+  private selectedDressingIndex: number | null = null;
+  /**
+   * Every OTHER interactive object this scene's input plugin knew about when
+   * dressing edit mode turned on (bag, gear, seed buttons, notice board,
+   * expand sign, replant chip, ...) - disabled for the duration so dragging a
+   * decal near them never fires their own tap handler, restored on toggle
+   * off. See `setOtherHitboxesEnabled`.
+   */
+  private readonly dressingEditDisabledObjects: Phaser.GameObjects.GameObject[] = [];
 
   constructor() {
     super('Farm');
   }
 
   create(): void {
-    this.add.rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR).setOrigin(0, 0);
+    // Depth -2: below the whole ground layer (GROUND_LAYER_DEPTH, -1),
+    // which must render above this rect but below every depth-0 gameplay
+    // object. Without this, texture mode drew beneath the opaque background
+    // and read as solid green (PM-direct fix after T2.28).
+    this.add
+      .rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR)
+      .setOrigin(0, 0)
+      .setDepth(-2);
 
-    this.layGrassField();
+    this.createGroundLayer(this.groundMode);
     this.createDirtPath();
+    this.createSceneDressing();
     this.buildPlotVisuals();
     // Before any UI that plays sounds; startMusic self-defers until the
     // sound system unlocks on the first user gesture.
@@ -322,6 +411,15 @@ export class FarmScene extends Phaser.Scene {
     // console hook so curved flights can be verified now.
     registerCoinArcTest((n) => this.coinArc.fly(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, n));
     registerHitboxToggle((enabled) => this.toggleHitboxDebug(enabled));
+    registerGroundModeCycle(() => this.cycleGroundMode());
+    registerDressingEditorHooks({
+      toggle: (enabled) => this.setDressingEditActive(enabled),
+      spawn: (frame) => this.spawnDressingDecal(frame),
+      scaleSelected: (delta) => this.scaleSelectedDressing(delta),
+      toggleSelectedFront: () => this.toggleSelectedDressingFront(),
+      deleteSelected: () => this.deleteSelectedDressing(),
+      copyLayoutJson: () => JSON.stringify(this.dressingState, null, 2),
+    });
   }
 
   override update(_time: number, delta: number): void {
@@ -466,7 +564,7 @@ export class FarmScene extends Phaser.Scene {
    * tutorial chip owns countdown duty there) or a modal panel is open.
    */
   private maybeShowCountdown(plotIndex: number | null): void {
-    if (plotIndex === null || isModalOpen()) return;
+    if (plotIndex === null || isModalOpen() || this.dressingEditActive) return;
     const state = gameState.getState();
     if (!state.onboarding.completed) return;
     const plot = state.plots[plotIndex];
@@ -495,7 +593,8 @@ export class FarmScene extends Phaser.Scene {
       plotIndex === null ||
       this.levelUpCelebration.isActive() ||
       this.chestCeremony.isActive() ||
-      isModalOpen()
+      isModalOpen() ||
+      this.dressingEditActive
     )
       return;
     if (this.gestureMode !== 'plant') {
@@ -633,16 +732,76 @@ export class FarmScene extends Phaser.Scene {
     });
   }
 
-  /** Cover the field band with grass tiles (they also run under the plots). */
-  private layGrassField(): void {
+  /**
+   * Build the ground layer for the given mode, tearing down whatever the
+   * previous mode built first - this is the ONLY entry point that creates
+   * ground visuals, so the dev-overlay cycle button can rebuild just this
+   * layer live without touching anything else in the scene (`cycleGroundMode`).
+   */
+  private createGroundLayer(mode: GroundMode): void {
+    this.destroyGroundLayer();
+    this.groundMode = mode;
+    if (mode === 'tiles' || mode === 'tiles_flat') {
+      this.layGrassField(mode === 'tiles_flat' ? 'grass_flat' : 'grass');
+    } else {
+      this.layGroundTexture(mode);
+    }
+  }
+
+  /** Tear down whichever ground visuals the current mode built. Idempotent. */
+  private destroyGroundLayer(): void {
+    for (const tile of this.groundTiles) tile.destroy();
+    this.groundTiles = [];
+    this.groundTexture?.destroy();
+    this.groundTexture = null;
+  }
+
+  /**
+   * Cover the field band with grass diamond tiles (they also run under the
+   * plots). `frame` is `'grass'` for 'tiles' mode or `'grass_flat'` (T2.28a
+   * - see tools/pack-atlas.mjs `processTileFlat`) for 'tiles_flat' mode;
+   * same grid math either way, since both frames share the same
+   * TILE_DIAMOND_WIDTH x TILE_DIAMOND_HEIGHT geometry.
+   */
+  private layGrassField(frame: 'grass' | 'grass_flat'): void {
     for (let col = GRASS_GRID_MIN; col <= GRASS_GRID_MAX; col++) {
       for (let row = GRASS_GRID_MIN; row <= GRASS_GRID_MAX; row++) {
         const { x, y } = gridToIso(col, row);
         if (y < FIELD_MIN_Y || y > FIELD_MAX_Y) continue;
         if (x < -TILE_WIDTH / 2 || x > DESIGN_WIDTH + TILE_WIDTH / 2) continue;
-        this.add.image(x, y, ATLAS_KEY, 'grass').setOrigin(0.5, TILE_ORIGIN_Y);
+        this.groundTiles.push(
+          this.add
+            .image(x, y, ATLAS_KEY, frame)
+            .setOrigin(0.5, TILE_ORIGIN_Y)
+            .setDepth(GROUND_LAYER_DEPTH),
+        );
       }
     }
+  }
+
+  /**
+   * Ground texture experiment (T2.28): one TileSprite spans the full-width
+   * field band, replacing the grass diamond tiles entirely (plot tiles are
+   * untouched either way). See GROUND_LAYER_DEPTH for why it renders
+   * beneath everything else.
+   */
+  private layGroundTexture(mode: 'texture_a' | 'texture_b'): void {
+    const key = mode === 'texture_a' ? GROUND_TEXTURE_A_KEY : GROUND_TEXTURE_B_KEY;
+    const tileScale =
+      mode === 'texture_a' ? GROUND_TEXTURE_A_TILE_SCALE : GROUND_TEXTURE_B_TILE_SCALE;
+    this.groundTexture = this.add
+      .tileSprite(0, FIELD_MIN_Y, DESIGN_WIDTH, FIELD_MAX_Y - FIELD_MIN_Y, key)
+      .setOrigin(0, 0)
+      .setTileScale(tileScale, tileScale)
+      .setDepth(GROUND_LAYER_DEPTH);
+  }
+
+  /** Cycle tiles -> tiles_flat -> texture_a -> texture_b -> tiles (dev button); returns the new mode. */
+  private cycleGroundMode(): GroundMode {
+    const order: GroundMode[] = ['tiles', 'tiles_flat', 'texture_a', 'texture_b'];
+    const next = order[(order.indexOf(this.groundMode) + 1) % order.length]!;
+    this.createGroundLayer(next);
+    return next;
   }
 
   /**
@@ -854,6 +1013,160 @@ export class FarmScene extends Phaser.Scene {
       .image(DIRT_PATH_POSITION.x, DIRT_PATH_POSITION.y, ATLAS_KEY, 'dirt_path')
       .setScale(DIRT_PATH_SCALE)
       .setDepth(DIRT_PATH_DEPTH);
+  }
+
+  /**
+   * All scene dressing (T2.28, collapsed to one array in T2.28a) - reads
+   * straight from `DRESSING` in config.ts, cloned into the live, editable
+   * `dressingState`/`dressingSprites` pair (see the dressing editor methods
+   * below). No interaction, no runtime randomness while the dev-overlay
+   * "Edit dressing" toggle is off. Commenting out this single call disables
+   * all of it.
+   */
+  private createSceneDressing(): void {
+    this.dressingState = DRESSING.map((d) => ({ ...d }));
+    this.dressingSprites = this.dressingState.map((d) => this.createDressingSprite(d));
+  }
+
+  /** One dressing decal's sprite, wired for the editor's select/drag events (inert until edit mode is on). */
+  private createDressingSprite(d: DressingPlacement): Phaser.GameObjects.Image {
+    const sprite = this.add
+      .image(d.x, d.y, ATLAS_KEY, d.frame)
+      .setScale(d.scale)
+      .setDepth(d.front === true ? DRESSING_FRONT_DEPTH : DRESSING_DEPTH);
+    sprite.on('pointerdown', () => {
+      if (!this.dressingEditActive) return;
+      const index = this.dressingSprites.indexOf(sprite);
+      if (index !== -1) this.setDressingSelection(index);
+    });
+    sprite.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+      if (!this.dressingEditActive) return;
+      sprite.setPosition(dragX, dragY);
+      const index = this.dressingSprites.indexOf(sprite);
+      const entry = index !== -1 ? this.dressingState[index] : undefined;
+      if (entry !== undefined) {
+        entry.x = Math.round(dragX);
+        entry.y = Math.round(dragY);
+      }
+    });
+    if (this.dressingEditActive) sprite.setInteractive({ draggable: true });
+    return sprite;
+  }
+
+  /**
+   * Dressing editor toggle (T2.28a dev overlay): enables/disables drag on
+   * every current decal and disables every OTHER interactive object in the
+   * scene for the duration (`setOtherHitboxesEnabled`) so dragging a decal
+   * near the notice board/seed bar/HUD buttons never fires their own tap
+   * handler. Field gestures are ALSO suppressed while active, same
+   * `isModalOpen()`-style gating as the level-up/chest/panel checks in
+   * `handlePlotEntered`/`maybeShowCountdown`, but via this scene-level flag
+   * instead of the shared modal registry (the editor is dev-only, not a
+   * player-facing panel). Turning it off clears the selection highlight too.
+   */
+  private setDressingEditActive(enabled: boolean): void {
+    this.dressingEditActive = enabled;
+    for (const sprite of this.dressingSprites) {
+      if (enabled) sprite.setInteractive({ draggable: true });
+      else sprite.disableInteractive();
+    }
+    this.setOtherHitboxesEnabled(!enabled);
+    if (!enabled) this.setDressingSelection(null);
+  }
+
+  /**
+   * Disables (or restores) every interactive object in the scene EXCEPT the
+   * dressing decals themselves, for the duration of dressing edit mode - see
+   * `setDressingEditActive`. Same `_list` technique as `toggleHitboxDebug`
+   * (InputPlugin has no public accessor for "every interactive object");
+   * iterates a snapshot copy since `disableInteractive()` mutates the live
+   * list. Restoring uses no-arg `setInteractive()` (never a config object)
+   * so each object's own custom hit area (e.g. the notice board's measured
+   * pad) survives the round trip, per this project's hit-area convention.
+   */
+  private setOtherHitboxesEnabled(enabled: boolean): void {
+    if (!enabled) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- InputPlugin's interactive-object list (`_list`) is internal/private with no public accessor
+      const rawList = (this.input as any)._list as Phaser.GameObjects.GameObject[];
+      const interactiveObjects = [...rawList];
+      this.dressingEditDisabledObjects.length = 0;
+      for (const object of interactiveObjects) {
+        if ((this.dressingSprites as Phaser.GameObjects.GameObject[]).includes(object)) continue;
+        this.dressingEditDisabledObjects.push(object);
+        object.disableInteractive();
+      }
+    } else {
+      for (const object of this.dressingEditDisabledObjects) {
+        object.setInteractive();
+      }
+      this.dressingEditDisabledObjects.length = 0;
+    }
+  }
+
+  /** Highlights the tapped/spawned decal with a tint; clears the previous selection's tint first. */
+  private setDressingSelection(index: number | null): void {
+    if (this.selectedDressingIndex !== null) {
+      this.dressingSprites[this.selectedDressingIndex]?.clearTint();
+    }
+    this.selectedDressingIndex = index;
+    if (index !== null) {
+      this.dressingSprites[index]?.setTint(DRESSING_SELECTED_TINT);
+    }
+  }
+
+  /** Dev-overlay palette "+" button: spawns one decal at screen center, immediately selected and draggable. */
+  private spawnDressingDecal(frame: string): void {
+    const entry: DressingPlacement = {
+      frame,
+      x: Math.round(DESIGN_WIDTH / 2),
+      y: Math.round(DESIGN_HEIGHT / 2),
+      scale: DRESSING_SPAWN_SCALE,
+    };
+    this.dressingState.push(entry);
+    const sprite = this.createDressingSprite(entry);
+    this.dressingSprites.push(sprite);
+    this.setDressingSelection(this.dressingSprites.length - 1);
+  }
+
+  /** Dev-overlay "Scale +"/"Scale -": adjusts the selected decal, clamped, no-op with nothing selected. */
+  private scaleSelectedDressing(delta: number): void {
+    if (this.selectedDressingIndex === null) return;
+    const entry = this.dressingState[this.selectedDressingIndex];
+    const sprite = this.dressingSprites[this.selectedDressingIndex];
+    if (entry === undefined || sprite === undefined) return;
+    entry.scale = Math.min(
+      DRESSING_SCALE_MAX,
+      Math.max(DRESSING_SCALE_MIN, Math.round((entry.scale + delta) * 100) / 100),
+    );
+    sprite.setScale(entry.scale);
+  }
+
+  /**
+   * Dev-overlay "Move to front"/"Send to back": toggles the selected decal's
+   * `front` flag, immediately re-depthing its sprite (DRESSING_FRONT_DEPTH,
+   * above every y-depth-sorted object, vs the normal DRESSING_DEPTH) so it's
+   * visible on top of the farmhouse/notice board/crops for precise
+   * placement. Persisted in "Copy layout" so the decision survives the
+   * export. No-op with nothing selected.
+   */
+  private toggleSelectedDressingFront(): void {
+    if (this.selectedDressingIndex === null) return;
+    const entry = this.dressingState[this.selectedDressingIndex];
+    const sprite = this.dressingSprites[this.selectedDressingIndex];
+    if (entry === undefined || sprite === undefined) return;
+    if (entry.front === true) delete entry.front;
+    else entry.front = true;
+    sprite.setDepth(entry.front === true ? DRESSING_FRONT_DEPTH : DRESSING_DEPTH);
+  }
+
+  /** Dev-overlay "Delete": removes the selected decal entirely, no-op with nothing selected. */
+  private deleteSelectedDressing(): void {
+    if (this.selectedDressingIndex === null) return;
+    const index = this.selectedDressingIndex;
+    this.dressingSprites[index]?.destroy();
+    this.dressingSprites.splice(index, 1);
+    this.dressingState.splice(index, 1);
+    this.selectedDressingIndex = null;
   }
 
   /**

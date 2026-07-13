@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 
+import { DRESSING_PALETTE_FRAMES, DRESSING_SCALE_STEP } from '../config';
 import { MAX_LEVEL } from '../data/levels';
 import { gameState } from '../systems/gameState';
 import { getPoolStatsRegistry } from '../systems/pool';
@@ -67,6 +68,7 @@ export class DevOverlay {
     this.root.appendChild(readouts);
 
     this.root.appendChild(this.buildButtons());
+    this.root.appendChild(this.buildDressingEditorControls());
 
     this.stateEl = document.createElement('pre');
     this.stateEl.style.cssText =
@@ -137,7 +139,80 @@ export class DevOverlay {
       window.dev?.toggleHitboxes?.(hitboxesOn);
     });
 
+    // T2.28/T2.28a: cycles the ground rendering mode live (tiles -> tiles_flat
+    // -> texture_a -> texture_b -> tiles) so the owner can compare in-game.
+    // Label carries the current mode; the button owns its own text since the
+    // ground mode isn't part of the JSON state dump below.
+    const groundButton = document.createElement('button');
+    groundButton.textContent = 'Ground: tiles';
+    groundButton.style.cssText = 'font-family: monospace; font-size: 12px; padding: 4px 8px;';
+    groundButton.addEventListener('click', () => {
+      const mode = window.dev?.cycleGroundMode?.();
+      if (mode !== undefined) groundButton.textContent = `Ground: ${mode}`;
+    });
+    bar.appendChild(groundButton);
+
     return bar;
+  }
+
+  /**
+   * Dressing editor (T2.28a): an "Edit dressing" toggle, a palette row (one
+   * "+" button per DRESSING_PALETTE_FRAMES entry that spawns a decal at
+   * screen center) and an action row (Scale +/-, Move to front, Delete,
+   * Copy layout) - the
+   * palette/action rows only show while editing is on, since they act on a
+   * FarmScene-owned selection that doesn't exist while it's off. All state
+   * lives in FarmScene; this is a thin DOM front end over the dev hooks
+   * registered by `registerDressingEditorHooks`.
+   */
+  private buildDressingEditorControls(): HTMLDivElement {
+    const container = document.createElement('div');
+    container.style.cssText = 'display: flex; flex-direction: column; gap: 6px; margin-top: 6px;';
+
+    const mkButton = (label: string, onClick: () => void): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.style.cssText = 'font-family: monospace; font-size: 12px; padding: 4px 8px;';
+      button.addEventListener('click', onClick);
+      return button;
+    };
+
+    const paletteRow = document.createElement('div');
+    paletteRow.style.cssText = 'display: none; gap: 6px; flex-wrap: wrap;';
+    for (const frame of DRESSING_PALETTE_FRAMES) {
+      paletteRow.appendChild(mkButton(`+ ${frame}`, () => window.dev?.spawnDressing?.(frame)));
+    }
+
+    const actionRow = document.createElement('div');
+    actionRow.style.cssText = 'display: none; gap: 6px; flex-wrap: wrap;';
+    actionRow.appendChild(
+      mkButton('Scale +', () => window.dev?.scaleDressingSelected?.(DRESSING_SCALE_STEP)),
+    );
+    actionRow.appendChild(
+      mkButton('Scale -', () => window.dev?.scaleDressingSelected?.(-DRESSING_SCALE_STEP)),
+    );
+    actionRow.appendChild(
+      mkButton('Move to front', () => window.dev?.toggleDressingSelectedFront?.()),
+    );
+    actionRow.appendChild(mkButton('Delete', () => window.dev?.deleteDressingSelected?.()));
+    actionRow.appendChild(
+      mkButton('Copy layout', () => {
+        const json = window.dev?.copyDressingLayoutJson?.();
+        if (json !== undefined) void navigator.clipboard.writeText(json);
+      }),
+    );
+
+    let editOn = false;
+    const toggleButton = mkButton('Edit dressing: off', () => {
+      editOn = !editOn;
+      toggleButton.textContent = `Edit dressing: ${editOn ? 'on' : 'off'}`;
+      paletteRow.style.display = editOn ? 'flex' : 'none';
+      actionRow.style.display = editOn ? 'flex' : 'none';
+      window.dev?.toggleDressingEdit?.(editOn);
+    });
+
+    container.append(toggleButton, paletteRow, actionRow);
+    return container;
   }
 
   private onPointerDown = (event: PointerEvent): void => {

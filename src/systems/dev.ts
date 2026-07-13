@@ -1,3 +1,4 @@
+import type { GroundMode } from '../config';
 import type { CropId } from '../data/crops';
 import type { GameStateData, GameStateStore } from './gameState';
 import { advanceTime, getTimeOffsetMs } from './time';
@@ -26,6 +27,26 @@ export interface DevTools {
    * them up too - see the overlay button's own title.
    */
   toggleHitboxes?(enabled: boolean): void;
+  /**
+   * Cycle the ground rendering mode tiles -> tiles_flat -> texture_a ->
+   * texture_b -> tiles (T2.28/T2.28a dev experiment), rebuilding only the
+   * ground layer. Registered by FarmScene. Returns the new mode so the
+   * caller (the overlay button) can update its own label.
+   */
+  cycleGroundMode?(): GroundMode;
+  /**
+   * Dressing editor (T2.28a dev overlay): toggle drag-editing of every scene
+   * dressing decal, spawn one from the palette, scale/delete the current
+   * selection, or serialize the live layout for "Copy layout". All optional
+   * and registered together by FarmScene - see `registerDressingEditorHooks`.
+   */
+  toggleDressingEdit?(enabled: boolean): void;
+  spawnDressing?(frame: string): void;
+  scaleDressingSelected?(delta: number): void;
+  /** Toggles the "Move to front" flag on the current selection - see FarmScene.toggleSelectedDressingFront. */
+  toggleDressingSelectedFront?(): void;
+  deleteDressingSelected?(): void;
+  copyDressingLayoutJson?(): string;
 }
 
 declare global {
@@ -74,4 +95,34 @@ export function registerCoinArcTest(test: (n: number) => void): void {
  */
 export function registerHitboxToggle(toggle: (enabled: boolean) => void): void {
   if (window.dev !== undefined) window.dev.toggleHitboxes = toggle;
+}
+
+/**
+ * Late-bind `dev.cycleGroundMode` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerGroundModeCycle(cycle: () => GroundMode): void {
+  if (window.dev !== undefined) window.dev.cycleGroundMode = cycle;
+}
+
+/**
+ * Late-bind the dressing editor's five hooks once the Farm scene exists, same
+ * pattern as `registerCoinArcTest` - bundled into one call since the overlay
+ * always wires all five together for the "Edit dressing" feature.
+ */
+export function registerDressingEditorHooks(hooks: {
+  toggle: (enabled: boolean) => void;
+  spawn: (frame: string) => void;
+  scaleSelected: (delta: number) => void;
+  toggleSelectedFront: () => void;
+  deleteSelected: () => void;
+  copyLayoutJson: () => string;
+}): void {
+  if (window.dev === undefined) return;
+  window.dev.toggleDressingEdit = hooks.toggle;
+  window.dev.spawnDressing = hooks.spawn;
+  window.dev.scaleDressingSelected = hooks.scaleSelected;
+  window.dev.toggleDressingSelectedFront = hooks.toggleSelectedFront;
+  window.dev.deleteDressingSelected = hooks.deleteSelected;
+  window.dev.copyDressingLayoutJson = hooks.copyLayoutJson;
 }
