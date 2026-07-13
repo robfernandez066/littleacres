@@ -15,6 +15,11 @@ Format:
 
 ---
 
+## 2026-07-13 - Currency info is an anchored popup, not a modal (T3.13 fix); dead sell-sunwheat pulse id found
+**Context:** Owner tested T3.13: the centered currency card read as a full window; owner wants tooltip-scale UI for glanceable info. Separately, PM's test list cited a tutorial sell step that does not exist (selling was cut from the tutorial in the day-3 notes pass) - the 'sell-sunwheat' pulse-target id survives as dead code.
+**Decision:** CurrencyInfoCard reworked to a 560px popup anchored under the tapped counter (fade/slide 120ms, no dim, edge-clamped). Convention going forward: glanceable info = anchored popup; decisions/ceremonies = centered panel. Dead pulse id logged as a backlog nit (remove both ends). Coder also fixed a latent double-fire on body taps (stopPropagation) - noted as a pattern to reuse for any element sitting over an input-catching backdrop.
+**Trigger:** T3.13 user test, 2026-07-13.
+
 ## 2026-07-13 - First playtest feedback triaged (observed session, 6 items - all accepted)
 **Context:** Owner silently observed the tester's first minutes. Six clarity failures, no systems problems: (1) plant costs invisible, (2) order board hard to find in tutorial, (3) quest Claim button misleads + board unexplained, (4/5) moondust and currencies unexplained, (6) Sell All fired with no confirmation.
 **Decision:** All six accepted, cut into two tasks. T3.13 economy clarity: floating "-cost" text on every plant; tap coin/moondust HUD counters for currency info cards (moondust card carries the explanation); inline two-tap arm-confirm on sell buttons (3s window, no modal - protects without taxing the core loop). T3.14 tutorial/quest guidance: structure-sized pulse + "!" bounce on the notice-board tutorial step; quest Claim greyed showing progress until claimable; one-time quest-board explainer popup (Confirm pattern). Fixes ship during the test window; retention answers still valid.

@@ -156,7 +156,7 @@ All of these layers are planned; they roll out across phases (see roadmap):
 ### Resources (complex economy, phased in)
 
 - **Coins** - primary soft currency (crops, orders)
-- **Moondust** - rare earned-only currency (level-ups, rare harvests, big orders, chests). Slot reserved from day one; never purchasable at launch. Spent on: special boosts, rare seeds, cosmetic decorations, mystery merchant stock.
+- **Moondust** - rare earned-only currency (level-ups, rare harvests, big orders, chests). Slot reserved from day one; never purchasable at launch. Spent on: special boosts, rare seeds, cosmetic decorations, mystery merchant stock. (Shipped sources today: Radiant harvests, premium orders, chests. Shipped sink: decorations. Tap the HUD counter for the in-game explanation - T3.13.)
 - **Seeds** - purchased with coins or found
 - **Crops** - raw harvest goods
 - **Processed goods** - outputs of machines (later)
@@ -198,7 +198,7 @@ You inherited the farm from a relative the villagers remember fondly. The villag
 ### UI/UX
 
 - Portrait, one-hand reachable: primary actions in the bottom third.
-- Main screen shows: farm, coin/Moondust/XP HUD (top), order board button, shop button, level progress.
+- Main screen shows: farm, coin/Moondust/XP HUD (top), order board button, shop button, level progress. (As shipped, orders and the decor shop are on-farm structures - notice board T2.22, farmhouse T3.9 - not HUD buttons; the scroll HUD button is the quest board, T3.10.)
 - Contextual hint system: pulsing highlight on the next relevant tappable thing when the player seems stuck; no forced tutorial overlays.
 - Onboarding is quest-driven: the first orders teach the loop ("Plant 3 Sunwheat," "Deliver 5 Carrots").
 

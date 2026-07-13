@@ -101,7 +101,10 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 - **T3.9** Decorations v1 (DONE): decor shop opened from the farmhouse (coins/moondust - THE moondust sink), save-persisted placements (schema v10), ground-shadow system, decor art pack; **T3.9a** player arrange mode (store-authoritative transforms); **T3.9b** warehouse model (purchases go to a warehouse, placed from arrange mode at fixed default/max size); **T3.9c** polish pass parked as a backlog nit.
 - **T3.10** Quests/Bounties v1 (DONE): scroll icon returns as the quest board; 7 long cumulative quests + weekly quests (real-clock weekly reset; Weekly Growth is grow-minutes based to resist sunwheat spam); rewards: quest-exclusive trophy decor > chests > moondust; persistent counters (schema v11).
 - **T3.11** Crops + cap 8 (DONE 2026-07-13): Dewmelon L7, Sagesprig L8 (balance sheet v2 numbers; thresholds 3500/5500); seed bar next-locked-teaser rule.
-- **PHASE GATE (ACTIVE):** external playtest round (3-5 fresh installs) - wave 2 complete 2026-07-13, gate now running.
+- **PHASE GATE (ACTIVE, rescoped to 1 tester - see decisions):** running since 2026-07-13; first observed session triaged into T3.12-T3.14.
+- **T3.12** Pre-gate polish (DONE 2026-07-13): vibration settings toggle (schema v12), tutorial structures stay opaque, coin sfx phone-audible.
+- **T3.13** Economy clarity (DONE 2026-07-13): plant cost floats, anchored currency info popups, two-tap sell confirm.
+- **T3.14** Tutorial + quest board guidance (NEXT): notice-board step structure pulse + "!" bounce, quest Claim gating, first-open quest explainer.
 
 ---
 
