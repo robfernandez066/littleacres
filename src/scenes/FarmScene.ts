@@ -174,12 +174,12 @@ const DIRT_PATH_DEPTH = 5;
 
 /**
  * Decor Shop (T3.9): opened by tapping the farmhouse, which becomes
- * interactive for the first time - hit area and tutorial-inert dim mirror
- * the notice board's exactly (see NOTICE_BOARD_HIT_PAD_DISPLAY_PX/
- * NOTICE_BOARD_INERT_ALPHA below), just under their own names.
+ * interactive for the first time - hit area mirrors the notice board's
+ * exactly (see NOTICE_BOARD_HIT_PAD_DISPLAY_PX below), just under its own
+ * name. Rails still block taps while inert; the tutorial's pulse highlight
+ * is the only visual treatment (the T3.12 dim was removed - PM decision).
  */
 const FARMHOUSE_HIT_PAD_DISPLAY_PX = 20;
-const FARMHOUSE_INERT_ALPHA = 0.6;
 
 /**
  * Arrange mode (T3.9a, control row moved into the seed bar's own band in
@@ -366,8 +366,6 @@ const DRESSING_FRONT_DEPTH = 1950;
  * are specified in the texture's own unscaled local space).
  */
 const NOTICE_BOARD_HIT_PAD_DISPLAY_PX = 20;
-/** Rails-inert dim, per this task's spec (distinct from the HUD icons' BUTTON_INERT_ALPHA). */
-const NOTICE_BOARD_INERT_ALPHA = 0.6;
 
 /**
  * The "!" badge on the notice board, shown when an open order is fully
@@ -606,11 +604,11 @@ export class FarmScene extends Phaser.Scene {
       object: this.noticeBoardImage,
     }));
     // Applied once immediately (not just on the periodic tick) so a fresh
-    // scene start never shows a flash of full-alpha, interactive board
-    // before the tutorial's rails have had a chance to dim it.
+    // scene start never shows a flash of interactive board before the
+    // tutorial's rails have had a chance to disable it.
     this.applyNoticeBoardRailsGating();
     this.refreshNoticeBoardBadge();
-    // Same "no flash of full-alpha, interactive before the rails dim it" reasoning as the notice board above.
+    // Same "no flash of interactive before the rails disable it" reasoning as the notice board above.
     this.applyFarmhouseRailsGating();
     this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
@@ -1262,15 +1260,15 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Tutorial rails on the farmhouse, mirroring `applyNoticeBoardRailsGating`
-   * exactly: inert and dimmed (alpha FARMHOUSE_INERT_ALPHA) outside the
-   * tutorial - which never has a shop step, so this dims for its entire
-   * duration and never toggles again once onboarding completes.
+   * exactly: inert (taps blocked) outside the tutorial - which never has a
+   * shop step, so this stays inert for its entire duration and never toggles
+   * again once onboarding completes. Renders at full alpha throughout (T3.12
+   * - PM decision); the tutorial's pulse highlight is the only visual cue.
    */
   private applyFarmhouseRailsGating(): void {
     const allowed = gameState.railsAllow('decor-shop');
     if (allowed === this.farmhouseEnabled) return;
     this.farmhouseEnabled = allowed;
-    this.farmhouseImage.setAlpha(allowed ? 1 : FARMHOUSE_INERT_ALPHA);
     if (allowed) {
       // No-arg re-enable, so the enlarged hit area set at construction
       // survives - passing a fresh config here would reset it to the
@@ -2165,14 +2163,15 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Tutorial rails on the notice board, mirroring the old Hud button's
-   * pattern: inert and dimmed (alpha 0.6, per this task's spec) outside the
-   * board-facing steps. Cached flag keeps per-tick work to one boolean check.
+   * pattern: inert (taps blocked) outside the board-facing steps. Cached flag
+   * keeps per-tick work to one boolean check. Renders at full alpha
+   * throughout (T3.12 - PM decision); the tutorial's pulse highlight is the
+   * only visual cue.
    */
   private applyNoticeBoardRailsGating(): void {
     const allowed = gameState.railsAllow('orders-button');
     if (allowed === this.noticeBoardEnabled) return;
     this.noticeBoardEnabled = allowed;
-    this.noticeBoardImage.setAlpha(allowed ? 1 : NOTICE_BOARD_INERT_ALPHA);
     if (allowed) {
       // No-arg re-enable, so the enlarged hit area set at construction
       // survives - passing a fresh config here would reset it to the

@@ -15,6 +15,16 @@ Format:
 
 ---
 
+## 2026-07-13 - Playtest gate rescoped to one tester
+**Context:** Owner has no tester pool and does not trust Reddit/Discord recruiting; can get exactly one fresh player they know.
+**Decision:** Gate runs with ONE external fresh install instead of 3-5. Mitigations: owner silently observes the first session where possible (behavior > recollection), and the 2-3 day voluntary-return signal is weighted as the primary fun metric. Owner's own continued play covers the rest. Accepted risk: single-device coverage, softer "is it fun" signal.
+**Trigger:** Owner tester availability, 2026-07-13.
+
+## 2026-07-13 - WAVE 2 closed; playtest gate opens
+**Context:** T3.11 (Dewmelon L7 + Sagesprig L8, cap 8, seed bar teaser rule) passed user test and pushed, completing wave 2 (decorations -> quests -> crops) exactly as blessed 2026-07-12.
+**Decision:** The twice-deferred external playtest gate now runs before any wave 3 work: 3-5 fresh installs on the live URL, unguided first sessions, feedback triaged by PM into the wave 3 cut. Suite at closure: 296 tests, schema v11, 7 crops, 8 levels.
+**Trigger:** T3.11 combined commit pushed, 2026-07-13.
+
 ## 2026-07-13 - Seed bar always shows the next locked crop (T3.11 follow-up rule)
 **Context:** T3.11's refit showed locked crops only as filler below 5 buttons, leaving L5-L6 players with no visible next goal - contradicting the "anticipation lives in the seed bar" rationale from the teaser-order removal. Coder flagged the ambiguity; owner picked the teaser rule.
 **Decision:** Bar shows all unlocked crops plus exactly ONE next-locked crop (lock + level tag), minimum 5 buttons total (early levels fill with further locked crops, preserving the historical look). L5-L6 = 6 buttons at 0.84 scale; the row shrink is the accepted cost. Teaser ORDERS remain banned - the seed bar is the one sanctioned anticipation surface.

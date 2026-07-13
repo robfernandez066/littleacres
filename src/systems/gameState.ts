@@ -130,6 +130,8 @@ export interface GameSettings {
   musicVolume: number;
   /** Sound-effects channel volume, 0..1. */
   sfxVolume: number;
+  /** Vibration on/off (T3.12); gates `haptics.buzz`. */
+  hapticsOn: boolean;
 }
 
 /**
@@ -501,6 +503,12 @@ const v10ToV11: Migration = (raw, rng) => ({
   quests: createDefaultQuestsState(Date.now(), rng),
 });
 
+/** v11 -> v12: adds the vibration toggle (T3.12), defaulted on for existing saves. */
+const v11ToV12: Migration = (raw) => ({
+  ...raw,
+  settings: isRecord(raw.settings) ? { ...raw.settings, hapticsOn: true } : raw.settings,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -513,6 +521,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v8ToV9,
   v9ToV10,
   v10ToV11,
+  v11ToV12,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -537,6 +546,7 @@ export function createDefaultState(version: number): GameStateData {
       sfxOn: true,
       musicVolume: DEFAULT_MUSIC_VOLUME,
       sfxVolume: DEFAULT_SFX_VOLUME,
+      hapticsOn: true,
     },
     createdAt: now,
     lastSavedAt: now,
@@ -732,6 +742,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     typeof raw.settings.sfxOn === 'boolean' &&
     isVolume(raw.settings.musicVolume) &&
     isVolume(raw.settings.sfxVolume) &&
+    typeof raw.settings.hapticsOn === 'boolean' &&
     isFiniteNumber(raw.createdAt) &&
     isFiniteNumber(raw.lastSavedAt)
   );
@@ -831,6 +842,12 @@ export class GameStateStore {
   /** Persist the sound-effects on/off setting. */
   setSfxOn(on: boolean): void {
     this.state.settings.sfxOn = on;
+    this.save();
+  }
+
+  /** Persist the vibration on/off setting. */
+  setHapticsOn(on: boolean): void {
+    this.state.settings.hapticsOn = on;
     this.save();
   }
 

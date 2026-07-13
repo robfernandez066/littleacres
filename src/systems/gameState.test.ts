@@ -116,6 +116,7 @@ describe('fresh default state', () => {
       sfxOn: true,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: true,
     });
     expect(state.createdAt).toBeLessThanOrEqual(Date.now());
     expect(state.lastSavedAt).toBeLessThanOrEqual(Date.now());
@@ -153,7 +154,7 @@ describe('save and load', () => {
   });
 });
 
-describe('settings (music/sfx toggles)', () => {
+describe('settings (music/sfx/vibration toggles)', () => {
   it('setMusicOn(false) persists through a save/load round-trip', () => {
     const storage = makeStorage();
     const writer = new GameStateStore({ storage });
@@ -166,6 +167,7 @@ describe('settings (music/sfx toggles)', () => {
       sfxOn: true,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: true,
     });
   });
 
@@ -181,16 +183,14 @@ describe('settings (music/sfx toggles)', () => {
       sfxOn: false,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: true,
     });
   });
 
-  it('toggling back on persists too', () => {
+  it('setHapticsOn(false) persists through a save/load round-trip', () => {
     const storage = makeStorage();
     const writer = new GameStateStore({ storage });
-    writer.setMusicOn(false);
-    writer.setSfxOn(false);
-    writer.setMusicOn(true);
-    writer.setSfxOn(true);
+    writer.setHapticsOn(false);
 
     const reader = new GameStateStore({ storage });
     reader.load();
@@ -199,6 +199,28 @@ describe('settings (music/sfx toggles)', () => {
       sfxOn: true,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: false,
+    });
+  });
+
+  it('toggling back on persists too', () => {
+    const storage = makeStorage();
+    const writer = new GameStateStore({ storage });
+    writer.setMusicOn(false);
+    writer.setSfxOn(false);
+    writer.setHapticsOn(false);
+    writer.setMusicOn(true);
+    writer.setSfxOn(true);
+    writer.setHapticsOn(true);
+
+    const reader = new GameStateStore({ storage });
+    reader.load();
+    expect(reader.getState().settings).toEqual({
+      musicOn: true,
+      sfxOn: true,
+      musicVolume: 0.2,
+      sfxVolume: 0.7,
+      hapticsOn: true,
     });
   });
 
@@ -301,7 +323,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(10);
+    expect(MIGRATIONS).toHaveLength(11);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -312,7 +334,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(11);
+    expect(state.version).toBe(12);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -335,7 +357,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(11);
+    expect(state.version).toBe(12);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -345,15 +367,15 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(11);
-    expect(store.getState().version).toBe(11);
+    expect(store.currentVersion).toBe(12);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
 
   it('resets cleanly on a save with structurally invalid orders', () => {
     const bad = {
-      ...createDefaultState(11),
+      ...createDefaultState(12),
       orders: [
         // An open order must request 1-2 items; an empty list is invalid.
         { state: 'open', order: { items: [], coinReward: 1, xpReward: 1 } },
@@ -382,7 +404,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -403,7 +425,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
 
   it('resets cleanly on structurally invalid onboarding', () => {
     const bad = {
-      ...createDefaultState(11),
+      ...createDefaultState(12),
       onboarding: { completed: 'yes', step: 0, progress: 0, progressB: 0 },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
@@ -426,7 +448,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -439,7 +461,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
   });
 
   it('resets cleanly on a current-version save whose onboarding is missing progressB', () => {
-    const bad = createDefaultState(11) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(12) as unknown as Record<string, unknown>;
     bad.onboarding = { completed: false, step: 0, progress: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -466,12 +488,13 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: true,
     });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -485,6 +508,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       sfxOn: false,
       musicVolume: 0.2,
       sfxVolume: 0.7,
+      hapticsOn: true,
     });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -496,7 +520,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
       { musicOn: true, sfxOn: true, musicVolume: 'loud', sfxVolume: 0.7 },
       { musicOn: true, sfxOn: true, musicVolume: 0.2 }, // sfxVolume missing
     ]) {
-      const bad = createDefaultState(11) as unknown as Record<string, unknown>;
+      const bad = createDefaultState(12) as unknown as Record<string, unknown>;
       bad.settings = settings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
       const store = new GameStateStore({ storage });
@@ -506,6 +530,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
         sfxOn: true,
         musicVolume: 0.2,
         sfxVolume: 0.7,
+        hapticsOn: true,
       });
       expect(console.warn).toHaveBeenCalled();
     }
@@ -515,7 +540,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
 describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   /** A v6-shaped save speaking 'carrot' everywhere saves store crop ids. */
   function v6CarrotSave(): Record<string, unknown> {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 6;
     saved.coins = 77;
     saved.xp = 31;
@@ -551,7 +576,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(11);
+    expect(state.version).toBe(12);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -576,18 +601,18 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
   });
 
   it('a carrot-free v6 save migrates untouched apart from the version bump', () => {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 6;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
 
   it('a current-version save still speaking carrot resets cleanly (validation, not migration)', () => {
-    const bad = createDefaultState(11) as unknown as Record<string, unknown>;
+    const bad = createDefaultState(12) as unknown as Record<string, unknown>;
     bad.inventory = { carrot: 3 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
@@ -600,7 +625,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
 describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', () => {
   /** A v7-shaped save with a chosen onboarding record. */
   function v7Save(onboarding: Record<string, unknown>): string {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = onboarding;
     return JSON.stringify(saved);
@@ -615,7 +640,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -650,13 +675,13 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
 describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
   it('a v8 save (no orderSkips field) gains a zeroed streak and migrates through to current', () => {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 8;
     delete saved.orderSkips; // a genuine v8 save never had this field
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -664,14 +689,14 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
 
 describe('real migration v9 -> v10 (decorations + warehouse)', () => {
   it('a v9 save (no decorations/warehouse fields) gains both empty and migrates through to current', () => {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 9;
     delete saved.decorations; // a genuine v9 save never had this field
     delete saved.warehouse; // nor this one
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(11);
+    expect(store.getState().version).toBe(12);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -680,13 +705,13 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
 
 describe('decorations and warehouse validation and round-trip', () => {
   it('accepts a save with placed decorations (incl. a trophy frame) and warehoused items, and it survives a reload', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.decorations = [
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55 },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8 },
     ];
     saved.warehouse = { decor_fence: 2, decor_mushrooms: 1 };
-    expect(isValidState(saved, 11)).toBe(true);
+    expect(isValidState(saved, 12)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -696,15 +721,15 @@ describe('decorations and warehouse validation and round-trip', () => {
   });
 
   it('rejects an unknown frame, a malformed entry, or too many placed decorations', () => {
-    const base = createDefaultState(11);
+    const base = createDefaultState(12);
     const unknownFrame = { ...base, decorations: [{ frame: 'not_a_frame', x: 0, y: 0, scale: 1 }] };
-    expect(isValidState(unknownFrame, 11)).toBe(false);
+    expect(isValidState(unknownFrame, 12)).toBe(false);
 
     const malformed = {
       ...base,
       decorations: [{ frame: 'decor_bench', x: 'far', y: 0, scale: 1 }],
     };
-    expect(isValidState(malformed, 11)).toBe(false);
+    expect(isValidState(malformed, 12)).toBe(false);
 
     const tooMany = {
       ...base,
@@ -715,20 +740,20 @@ describe('decorations and warehouse validation and round-trip', () => {
         scale: 1,
       })),
     };
-    expect(isValidState(tooMany, 11)).toBe(false);
+    expect(isValidState(tooMany, 12)).toBe(false);
   });
 
   it('rejects a warehouse with an unknown frame, a non-positive/non-integer count, or a malformed record', () => {
-    const base = createDefaultState(11);
-    expect(isValidState({ ...base, warehouse: { not_a_frame: 1 } }, 11)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: 0 } }, 11)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: -1 } }, 11)).toBe(false);
-    expect(isValidState({ ...base, warehouse: { decor_bench: 1.5 } }, 11)).toBe(false);
-    expect(isValidState({ ...base, warehouse: 'nope' }, 11)).toBe(false);
+    const base = createDefaultState(12);
+    expect(isValidState({ ...base, warehouse: { not_a_frame: 1 } }, 12)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 0 } }, 12)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: -1 } }, 12)).toBe(false);
+    expect(isValidState({ ...base, warehouse: { decor_bench: 1.5 } }, 12)).toBe(false);
+    expect(isValidState({ ...base, warehouse: 'nope' }, 12)).toBe(false);
   });
 
   it('rejects when placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
-    const base = createDefaultState(11);
+    const base = createDefaultState(12);
     const combined = {
       ...base,
       decorations: Array.from({ length: 20 }, () => ({
@@ -739,9 +764,9 @@ describe('decorations and warehouse validation and round-trip', () => {
       })),
       warehouse: { decor_fence: 11 },
     };
-    expect(isValidState(combined, 11)).toBe(false);
+    expect(isValidState(combined, 12)).toBe(false);
     combined.warehouse = { decor_fence: 10 };
-    expect(isValidState(combined, 11)).toBe(true);
+    expect(isValidState(combined, 12)).toBe(true);
   });
 });
 
@@ -1328,9 +1353,9 @@ describe('premium order validation', () => {
       xpReward: 4,
       premium: { moondust: 2, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 11)).toBe(true);
+    expect(isValidState(saved, 12)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -1339,12 +1364,12 @@ describe('premium order validation', () => {
   });
 
   it('accepts an order with no premium field (absence is valid, no version bump)', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.orders[0] = {
       state: 'open',
       order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 },
     };
-    expect(isValidState(saved, 11)).toBe(true);
+    expect(isValidState(saved, 12)).toBe(true);
   });
 
   it('rejects a malformed premium field: non-positive/non-finite moondust, or a non-string flavor', () => {
@@ -1359,14 +1384,14 @@ describe('premium order validation', () => {
     ];
     for (const premium of badPremiums) {
       const bad = {
-        ...createDefaultState(11),
+        ...createDefaultState(12),
         orders: [
           { state: 'open', order: { ...baseOrder, premium } },
           { state: 'pending' },
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 11)).toBe(false);
+      expect(isValidState(bad, 12)).toBe(false);
     }
   });
 
@@ -1378,9 +1403,9 @@ describe('premium order validation', () => {
         xpReward: 4,
         premium: { moondust: 2, flavor: 'A test flavor line', chests },
       };
-      const saved = createDefaultState(11);
+      const saved = createDefaultState(12);
       saved.orders[0] = { state: 'open', order: premiumOrder };
-      expect(isValidState(saved, 11)).toBe(true);
+      expect(isValidState(saved, 12)).toBe(true);
 
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
@@ -1396,9 +1421,9 @@ describe('premium order validation', () => {
       xpReward: 2,
       premium: { moondust: 1, flavor: 'A test flavor line' },
     };
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.orders[0] = { state: 'open', order: premiumOrder };
-    expect(isValidState(saved, 11)).toBe(true);
+    expect(isValidState(saved, 12)).toBe(true);
   });
 
   it('rejects a malformed premium.chests: zero, negative, non-integer, or non-finite', () => {
@@ -1406,7 +1431,7 @@ describe('premium order validation', () => {
     const badChestCounts = [0, -1, 1.5, Number.NaN, Infinity];
     for (const chests of badChestCounts) {
       const bad = {
-        ...createDefaultState(11),
+        ...createDefaultState(12),
         orders: [
           {
             state: 'open',
@@ -1416,7 +1441,7 @@ describe('premium order validation', () => {
           { state: 'pending' },
         ],
       };
-      expect(isValidState(bad, 11)).toBe(false);
+      expect(isValidState(bad, 12)).toBe(false);
     }
   });
 });
@@ -1425,24 +1450,24 @@ describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => 
   const emptyPlot: PlotState = { state: 'empty' };
 
   it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(11);
-    expect(isValidState(base, 11)).toBe(true);
+    const base = createDefaultState(12);
+    expect(isValidState(base, 12)).toBe(true);
     const expanded = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(expanded, 11)).toBe(true);
+    expect(isValidState(expanded, 12)).toBe(true);
   });
 
   it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(11);
+    const base = createDefaultState(12);
     const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 11)).toBe(false);
+    expect(isValidState(thirteen, 12)).toBe(false);
     const seventeen = {
       ...base,
       plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
     };
-    expect(isValidState(seventeen, 11)).toBe(false);
+    expect(isValidState(seventeen, 12)).toBe(false);
   });
 });
 
@@ -1481,7 +1506,7 @@ describe('orders', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -1879,7 +1904,7 @@ describe('onboarding', () => {
 
   /** A current-version save parked at `step` with overrides applied. */
   function savedAtStep(step: number, overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = { completed: false, step, progress: 0, progressB: 0 };
     return { ...saved, ...overrides };
   }
@@ -2216,7 +2241,7 @@ describe('onboarding', () => {
   });
 
   it('never tracks again after completion', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2249,7 +2274,7 @@ describe('onboarding', () => {
   });
 
   it('once completed, every rails gate is open - zero post-tutorial behavior change', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2302,7 +2327,7 @@ describe('onboarding', () => {
   });
 
   it('a mid-chain save completed via the v7 -> v8 migration never fires the one-shot', () => {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 7;
     saved.onboarding = { completed: false, step: 5, progress: 1, progressB: 0 };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2313,7 +2338,7 @@ describe('onboarding', () => {
   });
 
   it('loading an already-completed save never fires the one-shot', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2464,7 +2489,7 @@ describe('offline growth (app closed during growth)', () => {
 describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('clamps a future-stamped growing plot to load time; past-stamped plots are untouched', () => {
     const pastPlantedAt = Date.now() - 60_000;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
@@ -2492,7 +2517,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -2507,7 +2532,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('importSave clamps a future-stamped plot the same way', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.xp = 1;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2530,7 +2555,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   /** A current-version, onboarding-completed save with the given overrides. */
   function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2620,7 +2645,7 @@ describe('consumeOfflineSummary ("while you were away")', () => {
 
   it('is null while onboarding has not completed, even with a matured crop', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.lastSavedAt = lastSavedAt;
     saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
     const store = loadedStore(saved);
@@ -2689,7 +2714,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on load grants no moondust', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2701,7 +2726,7 @@ describe('moondust from level-ups', () => {
   });
 
   it('a silent reconcile on import grants no moondust', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.xp = xpForLevel(3);
     saved.level = 1;
     const store = new GameStateStore({ storage: makeStorage() });
@@ -2748,7 +2773,7 @@ describe('Radiant harvest proc', () => {
   });
 
   it('never procs during onboarding, even with an always-proc rng', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.plots[0] = {
@@ -2789,7 +2814,7 @@ describe('reset', () => {
 
 describe('real migration v10 -> v11 (quest system)', () => {
   it('a v10 save (no quests field) gains zeroed lifetime and a drawn weekly rotation, migrates through to current', () => {
-    const saved = createDefaultState(11) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
     saved.version = 10;
     delete saved.quests; // a genuine v10 save never had this field
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -2800,7 +2825,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(11);
+    expect(state.version).toBe(12);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -2815,6 +2840,35 @@ describe('real migration v10 -> v11 (quest system)', () => {
     expect(state.quests.weekly.anchor).toBeGreaterThan(0);
     expect(state.quests.longClaimed).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v11 -> v12 (vibration toggle)', () => {
+  it('a v11 save (no hapticsOn field) gains hapticsOn true and migrates through to current', () => {
+    const saved = createDefaultState(12) as unknown as Record<string, unknown>;
+    saved.version = 11;
+    const settings = saved.settings as Record<string, unknown>;
+    delete settings.hapticsOn; // a genuine v11 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(12);
+    expect(store.getState().settings.hapticsOn).toBe(true);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('resets cleanly on a current-version save whose hapticsOn is missing or non-boolean', () => {
+    for (const hapticsOn of [undefined, 'yes', 1]) {
+      const bad = createDefaultState(12) as unknown as Record<string, unknown>;
+      const settings = bad.settings as Record<string, unknown>;
+      if (hapticsOn === undefined) delete settings.hapticsOn;
+      else settings.hapticsOn = hapticsOn;
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().settings.hapticsOn).toBe(true);
+      expect(console.warn).toHaveBeenCalled();
+    }
   });
 });
 
@@ -2843,7 +2897,7 @@ describe('fresh quests state', () => {
 
 describe('quests validation and round-trip', () => {
   it('a customized valid quests state round-trips through save/load', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2854,7 +2908,7 @@ describe('quests validation and round-trip', () => {
     saved.quests.lifetime.totalHarvests = 100;
     saved.quests.longClaimed = ['golden_fields'];
     saved.quests.weekly.claimed = ['weekly_trader'];
-    expect(isValidState(saved, 11)).toBe(true);
+    expect(isValidState(saved, 12)).toBe(true);
 
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -2863,14 +2917,14 @@ describe('quests validation and round-trip', () => {
   });
 
   it('rejects malformed lifetime, weekly, or longClaimed shapes', () => {
-    const base = createDefaultState(11);
+    const base = createDefaultState(12);
     expect(
       isValidState(
         {
           ...base,
           quests: { ...base.quests, lifetime: { ...base.quests.lifetime, totalHarvests: 'lots' } },
         },
-        11,
+        12,
       ),
     ).toBe(false);
     expect(
@@ -2882,7 +2936,7 @@ describe('quests validation and round-trip', () => {
             weekly: { ...base.quests.weekly, activeIds: ['weekly_trader'] },
           },
         },
-        11,
+        12,
       ),
     ).toBe(false);
     expect(
@@ -2894,7 +2948,7 @@ describe('quests validation and round-trip', () => {
             weekly: { ...base.quests.weekly, activeIds: ['not_a_quest', 'weekly_trader'] },
           },
         },
-        11,
+        12,
       ),
     ).toBe(false);
     expect(
@@ -2903,7 +2957,7 @@ describe('quests validation and round-trip', () => {
           ...base,
           quests: { ...base.quests, weekly: { ...base.quests.weekly, featuredCrop: 'tomato' } },
         },
-        11,
+        12,
       ),
     ).toBe(false);
     expect(
@@ -2912,20 +2966,20 @@ describe('quests validation and round-trip', () => {
           ...base,
           quests: { ...base.quests, weekly: { ...base.quests.weekly, claimed: ['not_a_quest'] } },
         },
-        11,
+        12,
       ),
     ).toBe(false);
     expect(
-      isValidState({ ...base, quests: { ...base.quests, longClaimed: ['not_a_quest'] } }, 11),
+      isValidState({ ...base, quests: { ...base.quests, longClaimed: ['not_a_quest'] } }, 12),
     ).toBe(false);
-    expect(isValidState({ ...base, quests: 'nope' }, 11)).toBe(false);
+    expect(isValidState({ ...base, quests: 'nope' }, 12)).toBe(false);
   });
 });
 
 describe('quest counters from harvestPlot', () => {
   /** A completed-onboarding save with a single ready plot at index 0. */
   function readySave(cropId: CropId): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -2955,7 +3009,7 @@ describe('quest counters from harvestPlot', () => {
 
   it('counts toward quest counters even during the tutorial', () => {
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'harvest-first');
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.plots[0] = {
       state: 'growing',
@@ -2972,7 +3026,7 @@ describe('quest counters from harvestPlot', () => {
   });
 
   it("increments weekly featuredHarvests only when the harvested crop matches this week's featured crop", () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3025,7 +3079,7 @@ describe('quest counters from fulfillOrder', () => {
     order: Order,
     inventory: Partial<Record<CropId, number>>,
   ): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3085,7 +3139,7 @@ describe('quest counters from fulfillOrder', () => {
 
   it('counts toward quest counters during the tutorial too (the scripted deliver-sunwheat step)', () => {
     const stepIdx = ONBOARDING_STEPS.findIndex((step) => step.id === 'deliver-sunwheat');
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = { completed: false, step: stepIdx, progress: 0, progressB: 0 };
     saved.inventory = { sunwheat: 6 };
     saved.orders[0] = { state: 'open', order: ONBOARDING_ORDER_A };
@@ -3101,7 +3155,7 @@ describe('quest counters from fulfillOrder', () => {
 describe('ensureWeeklyQuests (weekly rotation)', () => {
   /** A completed-onboarding, current-version save. */
   function completedSave(): GameStateData {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3184,7 +3238,7 @@ describe('questProgress', () => {
 
   it("derives a long quest's progress from its lifetime counter", () => {
     const goldenFields = LONG_QUESTS.find((quest) => quest.id === 'golden_fields')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3205,7 +3259,7 @@ describe('questProgress', () => {
 
   it('marks a long quest complete once its counter reaches target, and claimed once in longClaimed', () => {
     const treasureHunter = LONG_QUESTS.find((quest) => quest.id === 'treasure_hunter')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3227,7 +3281,7 @@ describe('questProgress', () => {
 
   it("derives weekly_specialist's target from perCropTarget keyed by the featured crop", () => {
     const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3249,7 +3303,7 @@ describe('questProgress', () => {
 
   it("derives a flat-target weekly quest's progress (weekly_trader: orders vs its target)", () => {
     const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3273,7 +3327,7 @@ describe('claimQuest', () => {
   /** A completed-onboarding save with `questId`'s lifetime counter already at target. */
   function completedLongSave(questId: string): GameStateData {
     const def = LONG_QUESTS.find((quest) => quest.id === questId)!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3370,7 +3424,7 @@ describe('claimQuest', () => {
   });
 
   it('claims a moondust-only weekly quest (weekly_trader): ticks moondust directly, no chest event', () => {
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3393,7 +3447,7 @@ describe('claimQuest', () => {
 
   it('claims a composable chests+moondust weekly quest (weekly_specialist)', () => {
     const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3417,7 +3471,7 @@ describe('claimQuest', () => {
 
   it('rejects claiming a weekly quest that is complete but currently rotated out of activeIds, without mutation', () => {
     const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3436,7 +3490,7 @@ describe('claimQuest', () => {
 
   it('rejects a double-claim of the same weekly quest within the same week', () => {
     const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,
@@ -3455,7 +3509,7 @@ describe('claimQuest', () => {
 
   it('a rollover clears a previously-claimed weekly id and its counter - the old claim cannot leak into the new week', () => {
     const trader = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_trader')!;
-    const saved = createDefaultState(11);
+    const saved = createDefaultState(12);
     saved.onboarding = {
       completed: true,
       step: ONBOARDING_STEPS.length,

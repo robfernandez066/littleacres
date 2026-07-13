@@ -9,16 +9,19 @@ import { CreditsPanel } from './CreditsPanel';
 import { ModalBackdrop } from './ModalBackdrop';
 
 /**
- * Modal audio settings panel: one row per channel (Music / Sound), each with
- * a label, an on/off toggle, and a horizontal volume slider. Opened by the
- * HUD's Audio button. Sliders LIVE-apply while dragging (music volume changes
- * audibly under the finger) and persist through the store setters on release;
- * the sound slider plays a sample tap on release so the new level is heard.
+ * Modal settings panel: one row per channel (Music / Sound), each with a
+ * label, an on/off toggle, and a horizontal volume slider, plus a Vibration
+ * row (T3.12) with just the on/off toggle (there is no volume to adjust).
+ * Opened by the HUD's Audio button. Sliders LIVE-apply while dragging (music
+ * volume changes audibly under the finger) and persist through the store
+ * setters on release; the sound slider plays a sample tap on release so the
+ * new level is heard.
  */
 
 const PANEL_WIDTH = 640;
-/** Grown from 700 to fit the Credits button below the save row (T2.26). */
-const PANEL_HEIGHT = 900;
+/** Grown from 700 to fit the Credits button below the save row (T2.26), then
+ * from 900 to fit the Vibration toggle row below the sound rows (T3.12). */
+const PANEL_HEIGHT = 1200;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = DESIGN_HEIGHT / 2;
 /** Above the seed bar (2000), below flying coins (2200) - same as the other panels. */
@@ -30,9 +33,10 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
 
 const ROW_MUSIC_Y = -30;
 const ROW_SFX_Y = 120;
+const ROW_VIBRATION_Y = 270;
 const ROW_LABEL_X = -PANEL_WIDTH / 2 + 40;
 
-const SAVE_BUTTON_ROW_Y = 270;
+const SAVE_BUTTON_ROW_Y = 420;
 const SAVE_BUTTON_WIDTH = 260;
 const SAVE_BUTTON_HEIGHT = 70;
 const SAVE_BUTTON_GAP = 20;
@@ -115,11 +119,20 @@ interface SliderRow {
   gainScale: number;
 }
 
+/** A toggle-only row (no slider) - e.g. Vibration, which has no volume to adjust. */
+interface ToggleRow {
+  toggleContainer: Phaser.GameObjects.Container;
+  toggleText: Phaser.GameObjects.Text;
+  isOn: () => boolean;
+  setOn: (on: boolean) => void;
+}
+
 export class SettingsPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
   private readonly creditsPanel: CreditsPanel;
   private readonly rows: SliderRow[] = [];
+  private readonly toggleRows: ToggleRow[] = [];
   /** The row whose handle is being dragged, if any. */
   private activeRow: SliderRow | null = null;
   private visible = false;
@@ -202,6 +215,13 @@ export class SettingsPanel {
           this.audio.sfx('tap');
         },
         gainScale: 1,
+      }),
+    );
+
+    this.toggleRows.push(
+      this.buildToggleRow(ROW_VIBRATION_Y, 'Vibration', {
+        isOn: () => gameState.getState().settings.hapticsOn,
+        setOn: (on) => gameState.setHapticsOn(on),
       }),
     );
 
@@ -336,6 +356,60 @@ export class SettingsPanel {
     };
     handle.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, beginDrag);
     track.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, beginDrag);
+
+    return row;
+  }
+
+  /**
+   * Build one toggle-only row (no slider) - the same toggle widget and
+   * on/off tap pattern as `buildRow`'s rows, for a setting with no volume to
+   * adjust (Vibration, T3.12).
+   */
+  private buildToggleRow(
+    y: number,
+    label: string,
+    hooks: Pick<ToggleRow, 'isOn' | 'setOn'>,
+  ): ToggleRow {
+    const labelText = this.scene.add.text(ROW_LABEL_X, y, label, LABEL_STYLE).setOrigin(0, 0.5);
+
+    const toggleContainer = this.scene.add.container(TOGGLE_X, y);
+    const togglePanel = this.scene.add
+      .nineslice(
+        0,
+        0,
+        ATLAS_KEY,
+        'panel',
+        TOGGLE_WIDTH,
+        TOGGLE_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const toggleText = this.scene.add.text(0, 0, '', TOGGLE_STYLE).setOrigin(0.5);
+    toggleContainer.add([togglePanel, toggleText]);
+
+    this.container.add([labelText, toggleContainer]);
+
+    const row: ToggleRow = { toggleContainer, toggleText, ...hooks };
+
+    togglePanel.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        const on = !row.isOn();
+        row.setOn(on);
+        this.renderToggle(row);
+        // Same convention as buildRow's rows: a tap sound only when turning ON.
+        if (on) this.audio.sfx('tap');
+      },
+    );
 
     return row;
   }
@@ -477,7 +551,7 @@ export class SettingsPanel {
   }
 
   /** Re-derive a toggle's label and dimming from its setting. */
-  private renderToggle(row: SliderRow): void {
+  private renderToggle(row: Pick<SliderRow, 'toggleText' | 'toggleContainer' | 'isOn'>): void {
     const on = row.isOn();
     row.toggleText.setText(on ? 'On' : 'Off');
     row.toggleContainer.setAlpha(on ? 1 : TOGGLE_OFF_ALPHA);
@@ -496,6 +570,9 @@ export class SettingsPanel {
         const position = Phaser.Math.Clamp(row.getVolume() / row.gainScale, 0, 1);
         this.setHandleFromVolume(row, position);
       }
+    }
+    for (const row of this.toggleRows) {
+      this.renderToggle(row);
     }
   }
 
