@@ -15,6 +15,11 @@ Format:
 
 ---
 
+## 2026-07-13 - Chest open sound: reuse radiant chime + add shake (chest.mp3 dropped)
+**Context:** User could not find a good chest-opening sound on Pixabay; ceremony was shipping silent (sparkle burst + haptic only). User spec: chest shakes/vibrates briefly, then opens with a radiant chime.
+**Decision:** No new audio asset. Reuse staged radiant.mp3 at the open moment; add an escalating shake tween between the pop-in beat and the open. Sound doubles with radiant harvest procs - acceptable, both mean "something special". Shipped as small task T3.10a. If a great chest sound ever turns up, it slots in as a one-line SFX_DEFS swap.
+**Trigger:** User audio direction, 2026-07-13.
+
 ## 2026-07-13 - Balance sheet versioning convention (archive superseded versions)
 **Context:** balance-v2.xlsx never made it from outputs into docs/; PM regenerated it (identical blessed values, plus shipped decor/quest tables from src/data). User set the convention for superseded sheet versions.
 **Decision:** docs/ holds only the CURRENT balance sheet (balance-v2.xlsx); superseded versions move to docs/archive/ (v1 is the first occupant). Live docs reference only the current version; historical decisions.md entries are not retro-edited (per cleanup item 5.3).

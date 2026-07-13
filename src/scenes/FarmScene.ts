@@ -614,7 +614,7 @@ export class FarmScene extends Phaser.Scene {
     this.applyFarmhouseRailsGating();
     this.onboardingGuide = new OnboardingGuide(this);
     this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
-    this.chestCeremony = new ChestCeremony(this, this.particles, this.hud);
+    this.chestCeremony = new ChestCeremony(this, this.particles, this.hud, this.audio);
     this.expandSign = new ExpandSign(this, () => this.tryExpand());
     this.expandSign.refresh(gameState.getState());
     this.createArrangeControls();

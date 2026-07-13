@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import type { AudioManager } from '../systems/audio';
 import type { ChestEvent } from '../systems/gameState';
 import { gameState } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
@@ -16,8 +17,10 @@ import { ParticleBurst } from './ParticleBurst';
  * `FarmScene`'s refresh tick. No farm object, no card, no panel - a
  * full-screen theatrical beat: an input-blocking backdrop, one chest sprite
  * per `contents` entry scaling in TOGETHER at screen center (side by side
- * when there is more than one), opening on the same beat with one shared
- * sparkle burst + buzz, then each chest fades out AS its own loot (its coins,
+ * when there is more than one), shaking TOGETHER with escalating intensity
+ * (T3.10a) as a beat of anticipation before opening, then opening on the
+ * same beat with one shared sparkle burst + buzz + the 'radiant' chime,
+ * then each chest fades out AS its own loot (its coins,
  * its moondust only when > 0) pops into place - at screen center for a
  * single chest (unchanged from T2.23a), or in its own column beneath its own
  * position for two or more. A tap once everything has landed dismisses it -
@@ -51,8 +54,22 @@ const CHEST_SCALE_TO_MULTI = 1.6;
  * than one - e.g. two chests sit at CENTER_X ± 180. */
 const CHEST_SPACING_X = 360;
 const CHEST_SCALE_IN_MS = 400;
-/** Beat between the scale-in landing and the chest(s) swapping open. */
-const CHEST_OPEN_BEAT_MS = 300;
+/** Beat between the scale-in landing and the shake starting - lets the
+ * shake read as its own distinct moment rather than a continuation of the
+ * scale-in tween. */
+const CHEST_PRE_SHAKE_BEAT_MS = 130;
+/** Total shake duration (T3.10a): the chest(s) wobble in place, angle
+ * escalating, before the frame swap. Replaces the old CHEST_OPEN_BEAT_MS. */
+const CHEST_SHAKE_MS = 450;
+/** Shake angle range (degrees) at the start of the shake, ramping up to
+ * CHEST_SHAKE_ANGLE_MAX_DEG by the end. */
+const CHEST_SHAKE_ANGLE_MIN_DEG = 3;
+const CHEST_SHAKE_ANGLE_MAX_DEG = 7;
+/** Number of left-right wobble cycles the shake escalates through. */
+const CHEST_SHAKE_CYCLES = 4;
+/** A single light tap of haptic feedback at shake start - distinct from the
+ * heavier OPEN_BUZZ_MS at the open moment. */
+const SHAKE_BUZZ_MS = 15;
 const CHEST_FADE_OUT_MS = 250;
 const OPEN_BUZZ_MS = 25;
 
@@ -110,6 +127,7 @@ export class ChestCeremony {
     private readonly scene: Phaser.Scene,
     private readonly particles: ParticleBurst,
     private readonly hud: Hud,
+    private readonly audio: AudioManager,
   ) {
     this.backdrop = this.scene.add
       .rectangle(CENTER_X, CENTER_Y, DESIGN_WIDTH, DESIGN_HEIGHT, 0x000000, BACKDROP_ALPHA)
@@ -214,6 +232,7 @@ export class ChestCeremony {
         .setFrame('chest_closed')
         .setAlpha(1)
         .setScale(CHEST_SCALE_FROM)
+        .setAngle(0)
         .setPosition(this.chestX(i, n), CENTER_Y)
         .setVisible(true);
       slot.coinIcon.setVisible(false);
@@ -224,7 +243,7 @@ export class ChestCeremony {
     }
 
     // One tween over every active chest sprite: they scale in simultaneously
-    // and its single onComplete is the shared open beat.
+    // and its single onComplete schedules the shared shake beat.
     this.scene.tweens.add({
       targets: scaleTargets,
       scale: scaleTo,
@@ -232,8 +251,46 @@ export class ChestCeremony {
       ease: 'Back.easeOut',
       onComplete: () => {
         this.timer?.remove();
-        this.timer = this.scene.time.delayedCall(CHEST_OPEN_BEAT_MS, () => this.playOpen());
+        this.timer = this.scene.time.delayedCall(CHEST_PRE_SHAKE_BEAT_MS, () => this.playShake());
       },
+    });
+  }
+
+  /**
+   * Anticipation beat (T3.10a): every active chest wobbles together, the
+   * angle swing escalating from CHEST_SHAKE_ANGLE_MIN_DEG to
+   * CHEST_SHAKE_ANGLE_MAX_DEG and alternating direction each cycle, landing
+   * back at angle 0 - then `playOpen` fires on the chain's completion.
+   */
+  private playShake(): void {
+    const item = this.active;
+    if (item === null) return;
+    const n = item.contents.length;
+    const shakeTargets: Phaser.GameObjects.Image[] = [];
+    for (let i = 0; i < n; i++) shakeTargets.push(this.slots[i]!.chestImage);
+
+    buzz(SHAKE_BUZZ_MS);
+
+    const cycleDuration = CHEST_SHAKE_MS / CHEST_SHAKE_CYCLES / 2;
+    const cycles: Phaser.Types.Tweens.TweenBuilderConfig[] = [];
+    for (let i = 0; i < CHEST_SHAKE_CYCLES; i++) {
+      const t = i / (CHEST_SHAKE_CYCLES - 1);
+      const magnitude =
+        CHEST_SHAKE_ANGLE_MIN_DEG + (CHEST_SHAKE_ANGLE_MAX_DEG - CHEST_SHAKE_ANGLE_MIN_DEG) * t;
+      const sign = i % 2 === 0 ? 1 : -1;
+      cycles.push({
+        targets: shakeTargets,
+        angle: sign * magnitude,
+        duration: cycleDuration,
+        yoyo: true,
+        ease: 'Sine.easeInOut',
+      });
+    }
+
+    this.scene.tweens.chain({
+      targets: shakeTargets,
+      tweens: cycles,
+      onComplete: () => this.playOpen(),
     });
   }
 
@@ -251,6 +308,7 @@ export class ChestCeremony {
     // One shared burst + sound moment, regardless of chest count.
     this.particles.burst('sparkle', CENTER_X, CENTER_Y);
     buzz(OPEN_BUZZ_MS);
+    this.audio.sfx('radiant');
 
     this.scene.tweens.add({
       targets: fadeTargets,
