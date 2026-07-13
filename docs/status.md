@@ -1,33 +1,31 @@
 # Little Acres - Status
 
-**Updated:** 2026-07-10
-**Phase:** Phase 2 - content + polish (post design-review re-cut; see docs/design-review-2026-07-10.md)
-**Schema:** v9 · **Tests:** 226 · **Live:** robfernandez066.github.io/littleacres/
+**Updated:** 2026-07-13
+**Phase:** Wave 2 - content (decorations -> quests -> crops; external playtest gate after wave 2 - see decisions 2026-07-12)
+**Schema:** v11 · **Tests:** 283 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
-- **T3.9+T3.9a Decorations v1** - both reviews PASSED (schema v10 decorations, farmhouse-opened shop w/ decor-shop rails action, arrange mode w/ store-authoritative transforms, scene-wide ground-shadow system, 15 art frames + generated shadow blob packed; 240 tests). COMBINED USER TEST + single commit (message delivered). NEXT: T3.10 quest board prompt on push.
-- T2.28 series DONE committed+pushed (tiles_flat default, owner dressing layout rev 2 w/ v2 tufts, full-screen ground, front-depth cap).
-- Balance sheet v2 BLESSED (weekly quests redesigned: grow-minutes based - see decisions 2026-07-12); decor art sitting COMPLETE (15 pieces staged + packed).
+- **T3.11 Crops + cap 8** - art sitting IN PROGRESS (user, project style reference = emberpepper_2): dewmelon_0/1/2 picked and staged; sagesprig_0/1/2 pending. Coder prompt (T2.18 template: pack, config, thresholds 3500/5500, cap 8, 7-button seed bar refit check) goes out when all six are staged.
+- T3.10 series (quests v1: engine + board + progress labels) DONE, committed + pushed 2026-07-12.
+- T3.9 series (decorations v1: shop + warehouse + arrange mode + ground shadows) DONE, committed + pushed 2026-07-12.
 
-## Queue (WAVE 2, blessed 2026-07-12; playtest gate deferred until after it)
+## Queue (WAVE 2, blessed 2026-07-12; playtest gate after it)
 
-1. PM: balance sheet v2 (decor prices, quest reward tables, Dewmelon/Sagesprig numbers, thresholds 7-8) + decor item list/Sprixen prompts -> user approves/generates
-2. T3.9 Decorations v1: decor shop (coins/moondust sink) + player edit-farm mode (dressing-editor tech) + save-persisted placements (schema bump) + decor art pack
-3. T3.10 Quests/Bounties v1: scroll icon returns as the quest board; long cumulative quests + weekly harvest quests (real-time weekly reset); rewards: quest-exclusive decor > chests > moondust; persistent counters (schema)
-4. T3.11 Crops + cap 8: Dewmelon L7, Sagesprig L8 (sheet numbers, one small Sprixen sitting)
-5. PHASE GATE: external playtest round (3-5 fresh installs; PM writes tester brief)
-6. Wave 3 candidates: Mine v1 (self-contained), crop mastery, storage caps / Phase 3 roadmap proper
+1. T3.11 Crops + cap 8: Dewmelon L7 (45m, 260/500/150, cap 2), Sagesprig L8 (2h, 600/1200/400, cap 1); thresholds 3500/5500
+2. PHASE GATE: external playtest round (3-5 fresh installs; PM writes tester brief)
+3. Wave 3 candidates: Mine v1 (self-contained), crop mastery, storage caps / Phase 3 roadmap proper (then Phase 4 processing -> Phase 4A animals per the 2026-07-12 roadmap growth)
 
 ## Waiting on user (whenever convenient)
 
-- Blend-batch Sprixen picks: grass_flat, tuft_1/2, stones_1, dirt_wisp (prompts delivered 2026-07-10)
+- sagesprig_0/1/2 Sprixen picks (prompts delivered)
 - chest.mp3 (Pixabay: short treasure-chest open, <2s) - ceremony ships without it until staged
+- Confirm docs/balance-v2.xlsx was copied from the outputs folder into docs/ (v1 is confirmed there)
 
 ## Backlog nits (fold into convenient tasks)
 
 - T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
-
+- src/data/quests.ts header comment still says the board UI is "a follow-up task" - one-line fix in the next quest-area coder prompt (docs-cleanup report §9.1)
 - formatCurrency unit tests (pure function in Hud.ts)
 - Move formatAwayDuration to src/data/ so it's unit-testable (currently untestable: imports Phaser)
 
@@ -48,3 +46,4 @@
 - Coder sessions may leave dev servers on 5177 - kill before starting your own.
 - Close stray game tabs during coder sessions (two-tab autosave overwrite).
 - Atlas regen script: `npm run pack:atlas`.
+- Sprixen workflow: one style-reference image per project - emberpepper_2 while generating crops, swap to the farmhouse for structures/decor batches.

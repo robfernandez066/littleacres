@@ -1,7 +1,10 @@
 # Little Acres - Decision Log
 
-Chronological record of design and process decisions made during development.
-Newest entries at the bottom. One entry per decision.
+Record of design and process decisions made during development. One entry
+per decision. Order within the file is NOT strictly chronological (early
+entries were appended in mixed order) - search by date or task ID. From
+2026-07-13 onward, new entries are added directly below this header, newest
+first.
 
 Format:
 
@@ -11,6 +14,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+
+## 2026-07-13 - Docs cleanup report triaged (23 items)
+**Context:** User commissioned an external 23-item docs-cleanup review (littleacres-doc-cleanup-report.md). PM verified all moving facts first (schema v11 from MIGRATIONS, 283 tests from the T3.10 report, T3.10 committed+pushed, T3.11 art sitting in progress) and applied every approved edit directly (coder never touches docs/).
+**Decision:** APPROVED AS WRITTEN: 1.1-1.3 (status.md header/active/queue), 2.1-2.6 + 2.8 (ASSETS.md staleness), 3.1-3.5 (roadmap wave-2 block, T6.4->quests v2, T7.2->decor polish, spreadsheet bullet BUILT, Phase 2 heading note), 4.1-4.5 (gdd count-free layers, resolved spreadsheet question, rollout overview, coin-sink + mere annotations), 5.2 (glowberry 15 - as an addendum, not a silent edit), 9.1 logged as a backlog nit for the next quest-area coder prompt, 9.2 followed (facts re-verified before stamping). APPROVED AS MODIFIED: 1.4 (blend-batch waiting item removed entirely - fully overtaken by grass_flat + tufts; replaced with a balance-v2.xlsx location check), 2.7 (report's own "after" was stale post-T3.9b - rewritten to the warehouse purchase model, no spawn strip), 5.1 (Option B honest header, NOT the Option-A re-sort: a 68KB block-move risks mangling entries for zero content gain; new discipline = newest directly below the header). MODIFIED: 8.2 (Phase 0-1 collapsed to summary lines in roadmap.md, but NO docs/archive.md created - git history + this log already preserve the text; a third history file is one more thing to drift). NO CHANGE (agreed): CLAUDE.md (6), design-review doc (7), 8.1 (no new entries needed), 8.3 (RE-CUT paragraph stays until wave 2 closes), 5.3 (no retro-edits of historical drift).
+**Trigger:** Docs-cleanup report application, 2026-07-13.
 
 ## 2026-07-07 - PM workflow adopted
 **Context:** Development runs through a PM (this agent, owns docs/) and a separate coder (Claude Code, never reads docs/). User relays prompts and reports between them.
@@ -66,6 +74,7 @@ Format:
 **Context:** Sheet v2 delivered (decor prices, quest tables, Dewmelon/Sagesprig, thresholds 7-8). User caught the weekly-harvest flaw: count-based targets are sunwheat-spam trivial ("weekly" completed in ~10 active minutes).
 **Decision:** Weeklies redesigned to be week-shaped: Weekly Growth counts GROW-MINUTES harvested (400/wk -> chest; rewards long crops, resists spam), Specialist target scales by featured crop tier (60/25/12/8 -> chest + 2 moondust), Trader 12 orders -> 3 moondust (rushable, accepted, modest), Radiance 2 radiants -> chest (luck-gated). These figures supersede the sheet's weekly rows; the T3.10 prompt is the source of truth. Rest of sheet approved as proposed (decor 250-2000 coins / 4-8 moondust; 7 long quests w/ 5 exclusive trophies; Dewmelon L7 45m 260/500/150, Sagesprig L8 2h 600/1200/400; thresholds 3500/5500, cap 8). Art direction addenda (user research + farmhouse lesson): every decor generation includes a grounded base clause; T3.9 ships a scene-wide GROUND SHADOW system (pack-time radial alpha blob auto-rendered under structures/decor/dressing, config-tunable) - the systematic anti-"taped-on" fix; harsh black outlines = audition reject criterion; pack-time downscale already provides edge AA.
 **Trigger:** User sheet review.
+**Addendum (2026-07-13, docs-cleanup #5.2):** the Specialist tier list above has five tiers, not four - 60/25/15/12/8; glowberry's 15 was omitted when logged. Shipped config (`src/data/quests.ts` `perCropTarget`) is the source of truth.
 
 ## 2026-07-12 - Playtest gate deferred; content wave 2 blessed (decorations -> quests -> crops)
 **Context:** T2.28 series closed (tiles_flat default, owner-authored dressing via the editor loop). User deferred the external playtest gate: "we need more content" - same verdict the design review gave, and testers are a once-per-person resource. User wants side systems beyond farming/orders; ranked quests/bounties over the parked Mine.

@@ -51,14 +51,14 @@ keep them.
 | `sunwheat_0` .. `sunwheat_2`                                                                                                                                           | 128x128               | growth stages 0 (sprout) - 2 (ready)                                                                                     |
 | `starcorn_0` .. `starcorn_2`                                                                                                                                           | 128x128               | growth stages                                                                                                            |
 | `glowberry_0` .. `glowberry_2`                                                                                                                                         | 128x128               | growth stages; stage 2 glows                                                                                             |
-| `moonroot_0` .. `moonroot_2`                                                                                                                                           | 128x128               | growth stages (T2.21; not yet wired up)                                                                                  |
-| `emberpepper_0` .. `emberpepper_2`                                                                                                                                     | 128x128               | growth stages (T2.21; not yet wired up)                                                                                  |
-| `chest_closed`, `chest_open`                                                                                                                                           | 128x128               | crop-style, no growth stage (T2.21; unwired)                                                                             |
+| `moonroot_0` .. `moonroot_2`                                                                                                                                           | 128x128               | growth stages (packed T2.21, wired in T2.18)                                                                              |
+| `emberpepper_0` .. `emberpepper_2`                                                                                                                                     | 128x128               | growth stages (packed T2.21, wired in T2.18)                                                                                  |
+| `chest_closed`, `chest_open`                                                                                                                                           | 128x128               | crop-style, no growth stage; chest ceremony (`src/ui/ChestCeremony.ts`, T2.23a)                                                                             |
 | `coin`                                                                                                                                                                 | 96x96                 | currency icon                                                                                                            |
 | `moondust`                                                                                                                                                             | 96x96                 | currency icon                                                                                                            |
 | `bag`                                                                                                                                                                  | 96x96                 | HUD bag button icon                                                                                                      |
-| `scroll`                                                                                                                                                               | 96x96                 | HUD orders button icon                                                                                                   |
-| `note`                                                                                                                                                                 | 96x96                 | HUD audio button icon                                                                                                    |
+| `scroll`                                                                                                                                                               | 96x96                 | HUD quest-board button icon (orders moved to the notice board T2.22; scroll returned as quests T3.10)                                                                                                   |
+| `note`                                                                                                                                                                 | 96x96                 | reserved, unused (was the audio button; audio behind the gear since T2.13)                                                                                                    |
 | `pouch`                                                                                                                                                                | 96x96                 | reserved, unused                                                                                                         |
 | `sign`                                                                                                                                                                 | 192x192               | ExpandSign signpost                                                                                                      |
 | `panel`                                                                                                                                                                | 128x128               | UI 9-slice source                                                                                                        |
@@ -66,11 +66,11 @@ keep them.
 | `farmhouse`                                                                                                                                                            | 256x256               | FarmScene decorative farmhouse (T2.22)                                                                                   |
 | `dirt_path`                                                                                                                                                            | 288x288               | FarmScene ground decal, house->field (T2.22b)                                                                            |
 | `mere`                                                                                                                                                                 | 384x384               | staged as `mere_strip.png`; unwired (T2.21)                                                                              |
-| `hud_banner`                                                                                                                                                           | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
-| `hud_crest`                                                                                                                                                            | 192x192               | plain downscale; unwired (T2.21)                                                                                         |
-| `xpbar_frame`                                                                                                                                                          | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
-| `xpbar_fill`                                                                                                                                                           | 512 wide, keep aspect | plain downscale; unwired (T2.21)                                                                                         |
-| `gear_icon`                                                                                                                                                            | 128x128               | plain downscale; unwired (T2.21)                                                                                         |
+| `hud_banner`                                                                                                                                                           | 512 wide, keep aspect | HUD banner strip (`src/ui/Hud.ts`, T2.13b)                                                                               |
+| `hud_crest`                                                                                                                                                            | 192x192               | HUD level crest (`src/ui/Hud.ts`, T2.13b)                                                                                         |
+| `xpbar_frame`                                                                                                                                                          | 512 wide, keep aspect | HUD xp bar frame (`src/ui/Hud.ts`, T2.13b)                                                                               |
+| `xpbar_fill`                                                                                                                                                           | 512 wide, keep aspect | HUD xp bar fill (`src/ui/Hud.ts`, T2.13b)                                                                                         |
+| `gear_icon`                                                                                                                                                            | 128x128               | corner settings gear (`src/ui/Hud.ts`, T2.13)                                                                                         |
 | `button_push`                                                                                                                                                          | 256x256               | future nineslice source; unwired (T2.21)                                                                                 |
 | `button_slot`                                                                                                                                                          | 256x256               | plain downscale; unwired (T2.21)                                                                                         |
 | `button_close`                                                                                                                                                         | 96x96                 | staged as `xbutton.png`; unwired (T2.21)                                                                                 |
@@ -82,7 +82,7 @@ keep them.
 | `stones_1`                                                                                                                                                             | 128x128               | rock cluster decal (T2.28)                                                                                               |
 | `stone_a`, `stone_b`, `stone_c`                                                                                                                                        | 64x64                 | single-rock decals (T2.28); packed conditionally - only whichever are staged, `pack-atlas.mjs` logs the count            |
 | `decor_bench`, `decor_flowerbed`, `decor_fence`, `decor_barrels`, `decor_scarecrow`, `decor_birdbath`, `decor_well`, `decor_mushrooms`, `decor_gnome`, `decor_lantern` | 128x128               | purchasable decorations (T3.9); `src/data/decor.ts` `DECOR_ITEMS`, sold from `src/ui/DecorShop.ts`                       |
-| `trophy_goldscarecrow`, `trophy_moonwell`, `trophy_traderscart`                                                                                                        | 128x128               | quest trophy decorations (T3.9); not purchasable - `src/data/decor.ts` `TROPHY_FRAMES`, granted by a future quest system |
+| `trophy_goldscarecrow`, `trophy_moonwell`, `trophy_traderscart`                                                                                                        | 128x128               | quest trophy decorations (T3.9); not purchasable - `src/data/decor.ts` `TROPHY_FRAMES`, granted by quest rewards (`src/data/quests.ts`, T3.10) |
 | `trophy_starbanner`                                                                                                                                                    | 192x192               | quest trophy (T3.9), same as above - taller art, packed larger to stay legible                                           |
 | `trophy_ancientoak`                                                                                                                                                    | 256x256               | quest trophy (T3.9), same as above - tallest/most detailed art, packed larger to stay legible                            |
 | `ground_shadow`                                                                                                                                                        | 128x64                | **generated, not staged** (T3.9) - see "Ground shadows" below                                                            |
@@ -184,10 +184,12 @@ height target instead of a per-stage fraction.
 
 ## New UI art staged, not yet wired up (T2.21)
 
-`mere` (staged as `mere_strip.png`), `hud_banner`, `hud_crest`, `xpbar_frame`,
-`xpbar_fill`, `gear_icon`, `button_push`, `button_slot`, and `button_close`
-(staged as `xbutton.png`) are packed into the atlas but no scene or UI code
-references them yet - a later task wires them up. Square frames (`hud_crest`,
+`mere` (staged as `mere_strip.png`; parked 2026-07-10 - see decisions),
+`button_push`, `button_slot`, and `button_close` (staged as `xbutton.png`)
+are packed into the atlas but no scene or UI code references them yet - a
+later task wires them up. (`hud_banner`, `hud_crest`, `xpbar_frame`,
+`xpbar_fill`, and `gear_icon`, originally staged unwired in T2.21, were wired
+up by the T2.13 HUD theming series.) Square frames (`hud_crest`,
 `gear_icon`, `button_push`, `button_slot`, `button_close`, `mere`) get the
 same trim-fit-center treatment as the icons above, just at their own listed
 size. `hud_banner`, `xpbar_frame`, and `xpbar_fill` are trimmed and scaled to
@@ -314,13 +316,15 @@ state is session-only - it never touches the game save.
 `DECOR_ITEMS` (`src/data/decor.ts`) lists the 10 purchasable decorations
 (`decor_bench` .. `decor_lantern`, all packed at 128x128, priced in coins or
 moondust); `TROPHY_FRAMES` lists the 5 non-purchasable trophy frames, granted
-by a future quest system. Purchases (`src/ui/DecorShop.ts`, opened by tapping
-the farmhouse) append a `{ frame, x, y, scale }` placement to the save's
-`decorations` array (schema v10 - see `src/systems/gameState.ts`), which
-`FarmScene` renders iso-sorted by its own y like a crop or structure. A new
-purchase spawns at a staggered default position in the strip just above the
-seed bar (`buyDecoration`'s spawn formula); the player arrange/edit mode that
-moves them is a follow-up task.
+by quest rewards (`src/data/quests.ts`, T3.10). Purchases
+(`src/ui/DecorShop.ts`, opened by tapping the farmhouse) go into the save's
+`warehouse` (`Record<frame, count>`, T3.9b); placed decorations live in the
+save's `decorations` array as `{ frame, x, y, scale }` entries (see
+`src/systems/gameState.ts`), which `FarmScene` renders iso-sorted by its own
+y like a crop or structure. Placing from the warehouse happens in the player
+arrange/edit mode (T3.9a/T3.9b): items spawn at the default size
+(`DECOR_SPAWN_SCALE` - also the maximum) and are moved/stored with
+store-authoritative transforms.
 
 ## Ground shadows (T3.9)
 
@@ -342,10 +346,11 @@ every standing object - the farmhouse, the notice board, and every decoration
 ## Icons
 
 `coin`, `moondust`, `bag`, `scroll`, `note`, and `pouch` are all trimmed and
-fitted into 96x96, centered. `bag`/`scroll`/`note` are the HUD bag/orders/audio
-button icons (`src/ui/Hud.ts`), laid out beside their label as a single
-horizontally-centered group so button width and label length can vary without
-throwing the group off-center.
+fitted into 96x96, centered. `bag` is the HUD bag button icon and `scroll` is
+the HUD quest-board icon (`src/ui/Hud.ts`; orders moved to the farm's notice
+board in T2.22, and the scroll returned as the quest board in T3.10). `note`
+(the old audio button; audio moved behind the settings gear in T2.13) and
+`pouch` are reserved, unused.
 
 `sign` is trimmed and fitted into 192x192, centered - the ExpandSign signpost
 (`src/ui/ExpandSign.ts`), displayed at a fixed height with the cost text and

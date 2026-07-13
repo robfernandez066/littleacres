@@ -41,89 +41,19 @@ Conventions and process notes:
 
 ---
 
-## Phase 0 - Skeleton (est. 3-5 tasks)
+## Phase 0 - Skeleton - COMPLETE
 
-**Goal:** empty but running game you can open on your phone's browser.
-
-**T0.1 - Project scaffold**
-Set up Vite + Phaser 3 + TypeScript project with strict tsconfig, ESLint, Prettier, folder structure (`src/scenes`, `src/systems`, `src/data`, `src/ui`, `assets/`). Boot scene -> Preload scene -> Farm scene displaying a placeholder background at 1080x1920 portrait with FIT scaling. (`CLAUDE.md` and `docs/` already exist and are PM-owned; the coder does not create or touch them.)
-*Acceptance:* `npm run dev` opens a portrait game canvas; `npm run build` produces a deployable bundle; lint passes.
-
-**T0.2 - PWA + deploy pipeline**
-Add PWA manifest, service worker (via vite-plugin-pwa), and a GitHub Actions workflow deploying to GitHub Pages (or Netlify) on push to main.
-*Acceptance:* pushing to main publishes a URL; opening it on a phone allows "Add to Home Screen"; app launches fullscreen portrait.
-
-**T0.3 - Asset pipeline + placeholder art**
-Create a texture-atlas pipeline (free tool or script), load a placeholder isometric tile set: grass tile, dirt plot tile, 3 crop sprites x 3 growth stages, coin icon, simple UI 9-slice panel. Document how to swap the asset pack in `ASSETS.md`.
-*Acceptance:* Farm scene renders a 4x3 isometric grid of plots on a grass field; atlas loads via Preload scene with a progress bar.
-
-**T0.4 - GameState store + local save**
-Implement `GameState` (coins, xp, level, plots[], inventory, seeds, settings) with save/load to localStorage, autosave every 10s and on visibilitychange, versioned schema with migration hook, and manual export/import (copy-paste JSON string) in a debug menu.
-*Acceptance:* state survives refresh; corrupting the save triggers a clean reset without crashing; export/import round-trips.
-
-**T0.5 - Debug/dev overlay**
-Toggleable dev overlay: FPS, state inspector, buttons to add coins/XP, reset save, and time-warp (advance all timers by N minutes).
-*Acceptance:* overlay toggles with a hidden gesture/key; time-warp visibly matures crops.
+Closed 2026-07-07 (T0.1-T0.5: scaffold, PWA + deploy, asset pipeline, GameState store, dev overlay). Task-by-task detail lives in git history and decisions.md.
 
 ---
 
-## Phase 1 - MVP Core Loop (est. 10-12 tasks)
+## Phase 1 - MVP Core Loop - COMPLETE
 
-**Goal:** the complete plant -> grow -> harvest -> sell/fulfill -> level loop. Fun test at the end.
-
-**T1.1 - Crop data + plot state machine**
-Define `CropDef` config (id, name, seedCost, sellValue, growMs, xp, spriteKey, unlockLevel) with Sunwheat (30s, level 1), Carrot (2m, level 2), Glowberry (5m, level 3). Plot states: empty -> growing(cropId, plantedAt) -> ready. Growth is timestamp-derived.
-*Acceptance:* unit tests cover state transitions and growth math including "app closed during growth."
-
-**T1.2 - Grid rendering + growth visuals**
-Render 12 plots (4x3) isometric. Show crop sprite per growth stage (3 stages from elapsed fraction). Ready crops get a subtle bounce tween and slight glow tint.
-*Acceptance:* planting via debug shows staged growth in real time; ready state is visually obvious at a glance.
-
-**T1.3 - Seed selection UI + paint planting**
-Bottom-sheet seed bar showing unlocked seeds with cost. Select seed -> drag finger across empty plots to plant each touched plot (deduct seed cost per plot, spawn plant "plip" placeholder feedback). Tap single plot also works. Insufficient coins = gentle shake + red flash on cost, no error modal.
-*Acceptance:* one continuous drag plants 6+ plots; costs deducted correctly; cannot plant on occupied plots; locked seeds show level requirement.
-
-**T1.4 - Sweep harvesting**
-Drag across ready crops to harvest each in sequence: crop pops (scale tween), floating "+N" label, item flies to inventory HUD, plot returns to empty. Tap-to-harvest also works. Non-ready crops are ignored by the sweep.
-*Acceptance:* sweeping a full ready field harvests everything touched in one gesture at 60fps; inventory counts correct.
-
-**T1.5 - Floating text + particle + coin-arc systems (pooled)**
-Reusable pooled systems: FloatingText (arcs up, fades), ParticleBurst (leaf/sparkle presets), CoinArc (sprite flies along a curve to the HUD counter, counter ticks up on arrival).
-*Acceptance:* harvesting 12 crops rapidly spawns all effects with zero GC hitches; pool sizes logged in dev overlay.
-
-**T1.6 - HUD + inventory**
-Top HUD: coins (animated ticker), farm level + XP progress bar, Moondust slot (icon + count, earns nothing yet - reserved). Inventory panel listing crops with counts and sell-all-per-crop buttons (sell = coin arc + ticker).
-*Acceptance:* selling 50 wheat feels good (batched coin arcs, not 50 individual), totals correct.
-
-**T1.7 - XP + farm level system**
-XP from harvesting and orders. Level curve in config (levels 1-5 for MVP). Level-up: fast full-screen celebration (burst, chime hook, "Level 3!" banner) + unlock reveal card ("Carrot seeds unlocked!").
-*Acceptance:* leveling from 1 to 3 unlocks Carrot then Glowberry in the seed bar with reveal moments.
-
-**T1.8 - Order board**
-Order config + generator: 3 visible orders, each requesting 1-2 crop types in quantities scaled to player level, rewarding coins + XP (reward slightly better than raw selling to make orders the smart play). Fulfill button active when inventory covers it: goods fly out, stamp animation, reward burst. Skipped orders refresh after a short cooldown; no deadlines.
-*Acceptance:* orders always reference unlocked (or next-unlock teaser) crops; fulfilling and refreshing both work; reward math matches config.
-
-**T1.9 - Quest-driven onboarding**
-First-session scripted order chain teaching the loop: "Plant 3 Sunwheat" -> "Harvest your Sunwheat" -> "Deliver 5 Sunwheat" -> "Buy Carrot seeds" etc. Contextual pulse-highlight system: soft pulsing ring on the next relevant button/plot when a tutorial step is active or the player idles 10s+ during onboarding.
-*Acceptance:* a fresh save walks a new player to level 2 with zero text walls; pulses point at the correct targets; onboarding never triggers again after completion.
-
-**T1.10 - Plot expansion upgrade**
-Shop item: expand 12 -> 16 plots (coin cost from config). New plots appear with an overgrowth-clearing puff.
-*Acceptance:* purchase gate works, new plots fully functional, state persists.
-
-**T1.11 - Basic offline growth**
-On load, crops resolve growth from timestamps (already free via T1.1). Add a simple "While you were away" panel when >2 min elapsed: lists crops that became ready.
-*Acceptance:* close app with growing crops, reopen after grow time, panel shows results and field state is correct.
-
-**T1.12 - Sound hooks + placeholder SFX**
-AudioManager with channels (music, sfx), settings toggles, and placeholder sounds wired: harvest pop (with pitch-up on rapid chain), plant plip, coin, order fanfare, level-up chime, UI tap. Lo-fi placeholder music loop.
-*Acceptance:* rapid sweep-harvest produces the escalating pitch chain; mute settings persist.
-
-**PHASE 1 GATE: play it for a week. Is the loop fun with placeholder art? If not, iterate here before Phase 2.**
+Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game too thin" superseded the week-long gate). Task-by-task detail lives in git history and decisions.md.
 
 ---
 
-## Phase 2 - Juice + Quality of Life (est. 6-8 tasks)
+## Phase 2 - Juice + Quality of Life (originally est. 6-8 tasks; grew to ~18 in the 2026-07-10 re-cut)
 
 **Goal:** make the MVP *feel* shippable.
 
@@ -166,6 +96,13 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T3.7** Reward chests: chest item + opening ceremony (wiggle, tap, burst, card reveals) granting coins/seeds/Moondust/boost items.
 - **T3.8** Boost items: 2x growth speed (30 min), instant-grow single plot, etc.; inventory + activation UI.
 
+**WAVE 2 (blessed 2026-07-12, pulled ahead of T3.1-T3.8; see decisions):**
+
+- **T3.9** Decorations v1 (DONE): decor shop opened from the farmhouse (coins/moondust - THE moondust sink), save-persisted placements (schema v10), ground-shadow system, decor art pack; **T3.9a** player arrange mode (store-authoritative transforms); **T3.9b** warehouse model (purchases go to a warehouse, placed from arrange mode at fixed default/max size); **T3.9c** polish pass parked as a backlog nit.
+- **T3.10** Quests/Bounties v1 (DONE): scroll icon returns as the quest board; 7 long cumulative quests + weekly quests (real-clock weekly reset; Weekly Growth is grow-minutes based to resist sunwheat spam); rewards: quest-exclusive trophy decor > chests > moondust; persistent counters (schema v11).
+- **T3.11** Crops + cap 8 (NEXT): Dewmelon L7, Sagesprig L8 (balance sheet v2 numbers; thresholds 3500/5500).
+- **PHASE GATE:** external playtest round (3-5 fresh installs) runs after T3.11 (gate deferred from Phase 2 close per decisions 2026-07-12).
+
 ---
 
 ## Phase 4 - Production Chains (est. 6-8 tasks; REFINED 2026-07-12 per owner direction - layered recipes + quest integration; T3.2 storage caps are the prerequisite since inputs auto-pull from storage)
@@ -202,7 +139,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 - **T6.1** Research tree: research points from orders/mastery; branching config-driven tree (economy, growth, automation branches); node-unlock ceremony.
 - **T6.2** Weather ambiance v1: visual-only rain/sun/fireflies; later hook for surprise buffs ("Warm rain! Crops grow 20% faster for 10 min").
 - **T6.3** Player-level/account perks (or merge into farm level - decision point).
-- **T6.4** Quests/bounties board: rotating goals ("harvest 100 Moonroot this week") with chest rewards.
+- **T6.4** Quests/bounties v2 (v1 shipped early as T3.10 - wave 2, 2026-07-12): expand the pool, seasonal/rotating specials, processed-goods quests once Phase 4 lands.
 - **T6.5** Economy balancing pass with telemetry hooks (local analytics log to tune curves).
 
 ---
@@ -210,7 +147,7 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 ## Phase 7 - Comfort + Retention (est. 5-6 tasks)
 
 - **T7.1** Day/night visual cycle tied to real clock, gentle lighting shifts, firefly particles at night near the mere.
-- **T7.2** Decorations: placeable cosmetics purchasable with coins/Moondust; edit mode polish.
+- **T7.2** Decorations polish (v1 shipped early as T3.9/T3.9a/T3.9b - wave 2, 2026-07-12): edit-mode juice, sell-back/refund, expanded catalog. Overlaps the T3.9c backlog-nit list - reconcile scopes when scheduled.
 - **T7.3** Opt-in notifications (light): only "big order ready" and "storage full," max 1/day, full settings control.
 - **T7.4** Cloud save: anonymous account + sync (e.g., Supabase/Firebase), conflict resolution = newest-wins with manual restore.
 - **T7.5** Accessibility pass: color-blind-safe ready states, reduced-motion mode, text scaling.
@@ -236,4 +173,4 @@ AudioManager with channels (music, sfx), settings toggles, and placeholder sound
 
 - Phases 3 and 4 can partially interleave; workers (5) hard-depend on buildings (4.1) and storage (3.2).
 - Every phase ends with a "play it" gate. The roadmap is allowed to change after each gate - it's a plan, not a contract.
-- Balancing spreadsheet (crop values, level curve, upgrade costs) should be built alongside Phase 3 and treated as the single source of truth exported into `src/data/`.
+- Balancing spreadsheet: BUILT (v1 blessed 2026-07-10 - docs/balance-v1.xlsx; v2 blessed 2026-07-12, delivered via outputs); remains the single source of truth exported into `src/data/`. (Originally planned "alongside Phase 3"; moved to NOW by the 2026-07-10 re-cut.)

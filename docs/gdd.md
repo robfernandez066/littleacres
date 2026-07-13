@@ -127,7 +127,7 @@ Restore the farm -> unlock new crops, buildings, machines, workers, land -> vill
 
 ## 5. Progression Systems
 
-All nine layers are planned; they roll out across phases (see roadmap):
+All of these layers are planned; they roll out across phases (see roadmap):
 
 | Layer | What it does | Phase |
 |---|---|---|
@@ -168,6 +168,7 @@ All nine layers are planned; they roll out across phases (see roadmap):
 ### Coin sinks (in-game spending priority)
 
 More plots -> machines -> storage -> land expansion -> decorations.
+(Decorations arrived early - T3.9, 2026-07-12 - as the game's first Moondust sink alongside coins.)
 
 ### Balancing principles
 
@@ -181,7 +182,7 @@ More plots -> machines -> storage -> land expansion -> decorations.
 
 ### Setting
 
-Whimsical magic farm (A) with light witchy-cottage notes (B): glowberries, mushroom-capped sheds, friendly wisps, herb bundles, moonflowers on the fence line. The enchanted village sits at the screen's edge; the dim **glowing mere** frames the farm and brightens with farm level - the world's ambient light literally tracks your progress.
+Whimsical magic farm (A) with light witchy-cottage notes (B): glowberries, mushroom-capped sheds, friendly wisps, herb bundles, moonflowers on the fence line. The enchanted village sits at the screen's edge; the dim **glowing mere** frames the farm and brightens with farm level - the world's ambient light literally tracks your progress. (Two placement attempts parked 2026-07-10 - a pasted-on pond didn't read as landscape; returns with the T3.3 integrated region-art pass. See decisions.)
 
 ### Story wrapper (deliberately light)
 
@@ -254,11 +255,11 @@ Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, or
 - **Phase 0:** Project skeleton, tooling, asset pipeline
 - **Phase 1:** MVP core loop (above)
 - **Phase 2:** Juice pass + smart replant + offline summary + Moondust slot
-- **Phase 3:** More crops, storage caps, land expansion + camera scroll, crop mastery
+- **Phase 3:** More crops, storage caps, land expansion + camera scroll, crop mastery; wave 2 (2026-07-12) added decorations + quests/bounties here (T3.9/T3.10)
 - **Phase 4:** Buildings & first production chains, chests/reward polish
 - **Phase 5:** Magical workers (automation begins), tool upgrades
 - **Phase 6:** Research tree, premium timed orders, mystery merchant, weather ambiance
-- **Phase 7:** Day/night ambiance, decorations, notifications (opt-in), cloud save
+- **Phase 7:** Day/night ambiance, decoration polish, notifications (opt-in), cloud save
 - **Phase 8:** Capacitor wrap, store readiness, (optional) monetization decision point
 
 ---
@@ -269,7 +270,7 @@ Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, or
 
 ## 12. Open Questions (for future rounds)
 
-- Exact farm-level curve and coin economy numbers (needs a balancing spreadsheet once MVP is playable)
+- ~~Exact farm-level curve and coin economy numbers~~ - resolved: balance sheet v1 (2026-07-10) and v2 (2026-07-12), docs/balance-v1.xlsx, exported into src/data/
 - Worker acquisition model: found? hatched? built? hired with Moondust?
 - Land expansion shape: outward rings vs. distinct themed regions
 - Whether player level (account-wide) is worth keeping separate from farm level, or should merge
