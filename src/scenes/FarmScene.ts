@@ -690,14 +690,13 @@ export class FarmScene extends Phaser.Scene {
     this.refreshDecorations();
     this.onboardingGuide.refresh(gameState.getState());
 
-    // Checked once per scene start, after every other panel/backdrop exists -
-    // it blocks field input like any modal, via the same isModalOpen() gate.
+    // Drained in update() (T3.20), where it can also fire mid-session on a
+    // foreground resume, not just at scene start. It blocks field input like
+    // any modal, via the same isModalOpen() gate.
     this.offlineSummaryPanel = new OfflineSummaryPanel(this, this.audio);
     // Weekly rollover notice (T3.19): drained in update(), where it defers
     // behind the offline summary (via isModalOpen) and the celebrations.
     this.weeklyNoticePanel = new WeeklyNoticePanel(this, this.audio);
-    const offlineSummary = gameState.consumeOfflineSummary();
-    if (offlineSummary !== null) this.offlineSummaryPanel.show(offlineSummary);
 
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
@@ -743,11 +742,17 @@ export class FarmScene extends Phaser.Scene {
     this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
     if (gameState.consumeTutorialCompleteEvent()) this.levelUpCelebration.enqueueTutorialComplete();
-    // Weekly rollover notice (T3.19), deferred behind the celebrations and
-    // any open modal (isModalOpen covers the offline summary, so the order
-    // on a rollover load is offline summary -> weekly notice -> chests). If
-    // multiple somehow queued, show the first and drop the rest - they
-    // cannot stack in practice.
+    // Offline summary (T3.20) and weekly rollover notice (T3.19), both
+    // deferred behind the celebrations and any open modal. The summary drains
+    // first: showing it opens a modal, so the notice check below fails on the
+    // same tick, guaranteeing offline summary -> weekly notice -> chests on a
+    // resume/load where all three queue up at once. If multiple notices
+    // somehow queued, show the first and drop the rest - they cannot stack
+    // in practice.
+    if (!this.levelUpCelebration.isActive() && !this.chestCeremony.isActive() && !isModalOpen()) {
+      const offlineSummary = gameState.consumeOfflineSummary();
+      if (offlineSummary !== null) this.offlineSummaryPanel.show(offlineSummary);
+    }
     if (!this.levelUpCelebration.isActive() && !this.chestCeremony.isActive() && !isModalOpen()) {
       const notices = gameState.consumeWeeklyNotices();
       if (notices.length > 0) this.weeklyNoticePanel.show(notices[0]!);

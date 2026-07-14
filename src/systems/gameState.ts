@@ -897,6 +897,15 @@ export class GameStateStore {
   /** Pending "while you were away" summary from the last `load()`. Transient - never saved. */
   private offlineSummary: OfflineSummary | null = null;
   /**
+   * Real-clock moment the app last went to the background (T3.20a),
+   * in-memory only, never saved or touched by `load()`/`reset()`/
+   * `importSave()` - it belongs to the visibility lifecycle, not the save
+   * lifecycle. Null until the first `handleBackgrounded()`, and cleared
+   * again once `handleForegroundReturn()` consumes it, so a second
+   * foreground event with no intervening backgrounding measures nothing.
+   */
+  private hiddenAt: number | null = null;
+  /**
    * Game-clock timestamp when the active onboarding step became active.
    * Drives the `review-order` read-dwell in `autoAdvanceOnboarding`.
    * Deliberately in-memory only, not part of `GameStateData` - a reload
@@ -1044,7 +1053,7 @@ export class GameStateStore {
     return pending;
   }
 
-  /** Drain and return the pending offline summary (or null); the scene checks this once after `load()`. */
+  /** Drain and return the pending offline summary (or null); the scene checks this every tick, both after `load()` and after a foreground resume. */
   consumeOfflineSummary(): OfflineSummary | null {
     const summary = this.offlineSummary;
     this.offlineSummary = null;
@@ -1052,24 +1061,32 @@ export class GameStateStore {
   }
 
   /**
-   * Compute the "while you were away" summary from the just-restored state,
-   * before anything else touches it - `lastSavedAt` is still the real-clock
-   * end of the last session. Null when away under OFFLINE_SUMMARY_MIN_MS,
-   * nothing matured in the gap, or onboarding has not completed (a
-   * mid-tutorial return must not get a panel over the guide). Uses the real
-   * clock on both sides, deliberately not `now()` (the game clock, which the
-   * dev overlay can warp) - a session gap is measured in wall-clock time.
+   * Compute the "while you were away" summary measured from `sinceMs`, the
+   * moment the session actually ended. Null when away under
+   * OFFLINE_SUMMARY_MIN_MS, nothing matured in the gap, or onboarding has
+   * not completed (a mid-tutorial return must not get a panel over the
+   * guide). Uses the real clock on both sides, deliberately not `now()` (the
+   * game clock, which the dev overlay can warp) - a session gap is measured
+   * in wall-clock time.
+   *
+   * `sinceMs` MUST be a moment no live timer refreshes. It defaults to
+   * `lastSavedAt` for the `load()` path, where that is safe - a closed app's
+   * timers are dead, so `lastSavedAt` truly is the end of the last session.
+   * It is NOT safe for a merely-backgrounded tab: the autosave interval
+   * keeps firing (throttled but alive) and re-stamps `lastSavedAt` every
+   * time, which is exactly why the foreground path (T3.20a) passes the
+   * explicit `hiddenAt` timestamp instead.
    */
-  private computeOfflineSummary(): OfflineSummary | null {
+  private computeOfflineSummary(sinceMs: number = this.state.lastSavedAt): OfflineSummary | null {
     if (!this.state.onboarding.completed) return null;
     const nowMs = Date.now();
-    const elapsedMs = nowMs - this.state.lastSavedAt;
+    const elapsedMs = nowMs - sinceMs;
     if (elapsedMs < OFFLINE_SUMMARY_MIN_MS) return null;
     const readyCounts: Partial<Record<CropId, number>> = {};
     for (const plot of this.state.plots) {
       if (plot.state !== 'growing') continue;
       const readyAt = plot.plantedAt + CROPS[plot.cropId].growMs;
-      if (readyAt > this.state.lastSavedAt && readyAt <= nowMs) {
+      if (readyAt > sinceMs && readyAt <= nowMs) {
         readyCounts[plot.cropId] = (readyCounts[plot.cropId] ?? 0) + 1;
       }
     }
@@ -1318,9 +1335,9 @@ export class GameStateStore {
    * if anything was granted (a bare rotation stays silent). Uses
    * `Date.now()` deliberately, not the warpable `now()` - a warped game
    * clock must not skip a week. Called from `load()`, the FarmScene periodic
-   * tick, and visibility resume (`onVisibilityChange`), like `ensureOrders`;
-   * idempotent, a cheap no-op (one clock compare) when the week hasn't
-   * turned over.
+   * tick, and `handleForegroundReturn()` (visibility resume), like
+   * `ensureOrders`; idempotent, a cheap no-op (one clock compare) when the
+   * week hasn't turned over.
    */
   ensureWeeklyQuests(): void {
     const nowMs = Date.now();
@@ -2044,13 +2061,49 @@ export class GameStateStore {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
+  /**
+   * Backgrounding path (T3.20a): stamp the real-clock moment the app went
+   * hidden into `hiddenAt`, immune to the autosave interval's later
+   * re-stamps of `lastSavedAt` (browsers throttle but do not stop
+   * `setInterval` in a backgrounded tab). `atMs` is injectable for tests,
+   * same spirit as the store's `rng`/`storage`; production always calls this
+   * with no argument.
+   */
+  handleBackgrounded(atMs: number = Date.now()): void {
+    this.hiddenAt = atMs;
+    this.save();
+  }
+
+  /**
+   * Foreground-resume path (T3.20/T3.20a): a still-alive PWA returning from
+   * the background gets the same "while you were away" + weekly rollover
+   * treatment as a fresh load, without needing a reload. If nothing was
+   * recorded as backgrounded (e.g. this fires right after boot, with no
+   * prior `handleBackgrounded()`), there is no gap to measure - just roll
+   * the week and return. Otherwise, order is still load-bearing - compute
+   * the offline summary FIRST, against `hiddenAt`, THEN clear `hiddenAt` and
+   * roll the week: `computeOfflineSummary` must run while `hiddenAt` still
+   * holds the real backgrounding moment, before this method's own cleanup
+   * (or `ensureWeeklyQuests`'s rollover save) touches anything else. Never
+   * clobbers an already-pending summary (e.g. queued by load()) with a null
+   * result.
+   */
+  handleForegroundReturn(): void {
+    if (this.hiddenAt === null) {
+      this.ensureWeeklyQuests();
+      return;
+    }
+    const summary = this.computeOfflineSummary(this.hiddenAt);
+    if (summary !== null) this.offlineSummary = summary;
+    this.hiddenAt = null;
+    this.ensureWeeklyQuests();
+  }
+
   private onVisibilityChange = (): void => {
     if (document.hidden) {
-      this.save();
+      this.handleBackgrounded();
     } else {
-      // A resumed PWA rolls the weekly rotation over immediately (T3.19)
-      // rather than waiting for the scene's next tick.
-      this.ensureWeeklyQuests();
+      this.handleForegroundReturn();
     }
   };
 }

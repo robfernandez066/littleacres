@@ -1,18 +1,19 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (integrity cut nearly done; T3.18 in user test)
-**Schema:** v15 · **Tests:** 325 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** PLAYTEST GATE - RUNNING (integrity cut SHIPPED; P2 batch running)
+**Schema:** v15 · **Tests:** 336 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
-- **T3.18 series: T3.18b PM review passed (root cause: build-time-only setInteractive loses hit-tests; input now cycled by show/hide). Owner input-sweep re-check pending -> one T3.18+a+b commit.** Tests 328.
+- **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
+- **T3.20a PM review passed** (hiddenAt anchor fixes the background-autosave gap erasure; regression-tested + coder live-verified in a real browser). Owner tab-switch re-test pending -> one T3.20+T3.20a commit.
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. Owner: input-sweep re-check -> one T3.18+a+b commit -> P2 batch begins with T3.20
+1. Owner: tab-switch re-test -> one T3.20+T3.20a commit -> T3.21 staged audio prompt
 2. P2 batch: T3.20 / T3.21 / T3.22 / T3.23 / CI gate (T3.20 unblocked - T3.19 is committed; CI = deploy.yml only, anytime; T3.23 joins the batch - owner, 2026-07-14)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).

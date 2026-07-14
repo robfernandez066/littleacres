@@ -2861,6 +2861,191 @@ describe('consumeOfflineSummary ("while you were away")', () => {
   });
 });
 
+describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)', () => {
+  /** Comfortably over OFFLINE_SUMMARY_MIN_MS. */
+  const AWAY_MS = OFFLINE_SUMMARY_MIN_MS + 60_000;
+
+  /** A current-version, onboarding-completed save with the given overrides. */
+  function completedSave(overrides: Partial<GameStateData> = {}): GameStateData {
+    const saved = createDefaultState(12);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    return { ...saved, ...overrides };
+  }
+
+  function loadedStore(saved: GameStateData): GameStateStore {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    return store;
+  }
+
+  it('queues a summary for a qualifying hidden gap; a second consume returns null', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const plantedAt = hiddenAt + 5_000; // matures inside the gap
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    // Drain whatever load() itself queued (the save's own lastSavedAt is recent, so
+    // this is expected null) so this test isolates the foreground path.
+    store.consumeOfflineSummary();
+
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+
+    const summary = store.consumeOfflineSummary();
+    expect(summary?.readyCounts).toEqual({ sunwheat: 1 });
+    expect(summary?.elapsedMs).toBeGreaterThanOrEqual(AWAY_MS);
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('THE REGRESSION: survives repeated background autosaves re-stamping lastSavedAt', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const plantedAt = hiddenAt + 5_000;
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary();
+
+    store.handleBackgrounded(hiddenAt);
+    // The browser throttles but does not kill setInterval in a backgrounded tab -
+    // simulate a few autosave ticks firing while still hidden, each re-stamping
+    // lastSavedAt. Before T3.20a this would zero out the measured gap entirely.
+    store.save();
+    store.save();
+    store.save();
+
+    store.handleForegroundReturn();
+
+    const summary = store.consumeOfflineSummary();
+    expect(summary?.readyCounts).toEqual({ sunwheat: 1 });
+    expect(summary?.elapsedMs).toBeGreaterThanOrEqual(AWAY_MS);
+  });
+
+  it('queues nothing when the hidden gap is below OFFLINE_SUMMARY_MIN_MS', () => {
+    const hiddenAt = Date.now() - (OFFLINE_SUMMARY_MIN_MS - 5_000);
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt: hiddenAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary();
+
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('queues nothing when the hidden gap is long but nothing matured inside it', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const saved = completedSave(); // default plots are all empty
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary();
+
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('with no prior handleBackgrounded, queues no summary but still rolls over an expired week', () => {
+    const saved = completedSave();
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary(); // drain whatever load() itself queued (expected null)
+    // Expire the week only after load(), so load()'s own rollover does not consume
+    // it first - this isolates the "fresh hiddenAt" foreground path.
+    const expiredAnchor = Date.now() - WEEK_MS - 1000;
+    (store.getState() as unknown as GameStateData).quests.weekly.anchor = expiredAnchor;
+
+    store.handleForegroundReturn();
+
+    expect(store.consumeOfflineSummary()).toBeNull();
+    expect(store.getState().quests.weekly.anchor).toBe(expiredAnchor + WEEK_MS);
+  });
+
+  it('clears hiddenAt after a foreground return - a second call with no new handleBackgrounded queues nothing', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const plantedAt = hiddenAt + 5_000;
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary();
+
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+    expect(store.consumeOfflineSummary()).not.toBeNull();
+
+    store.handleForegroundReturn(); // no new handleBackgrounded call
+    expect(store.consumeOfflineSummary()).toBeNull();
+  });
+
+  it('never clobbers an already-pending summary with a null result', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const plantedAt = hiddenAt + 5_000;
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary();
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+    // A summary is now pending (deliberately not drained). Simulate a second,
+    // too-short background dip that produces no summary of its own.
+    store.handleBackgrounded(Date.now() - 5_000);
+    store.handleForegroundReturn();
+
+    const summary = store.consumeOfflineSummary();
+    expect(summary?.readyCounts).toEqual({ sunwheat: 1 });
+  });
+
+  it('computes the summary before the weekly rollover, so elapsedMs survives a same-call rollover save', () => {
+    const hiddenAt = Date.now() - AWAY_MS;
+    const plantedAt = hiddenAt + 5_000;
+    const saved = completedSave({
+      plots: [
+        { state: 'growing', cropId: 'sunwheat', plantedAt },
+        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+      ],
+    });
+    const store = loadedStore(saved);
+    store.consumeOfflineSummary(); // drain whatever load() itself queued
+    // Expire the week right before the foreground call, so ensureWeeklyQuests()
+    // rolls over (and saves) inside the same handleForegroundReturn() call.
+    const expiredAnchor = Date.now() - WEEK_MS - 1000;
+    (store.getState() as unknown as GameStateData).quests.weekly.anchor = expiredAnchor;
+
+    store.handleBackgrounded(hiddenAt);
+    store.handleForegroundReturn();
+
+    const summary = store.consumeOfflineSummary();
+    expect(summary?.readyCounts).toEqual({ sunwheat: 1 });
+    expect(summary?.elapsedMs).toBeGreaterThanOrEqual(AWAY_MS);
+    expect(store.getState().quests.weekly.anchor).toBe(expiredAnchor + WEEK_MS);
+  });
+});
+
 describe('moondust from level-ups', () => {
   it('grants MOONDUST_PER_LEVEL for a single level gained', () => {
     const store = new GameStateStore({ storage: null });
