@@ -1,4 +1,4 @@
-import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_UNITS } from './chests';
+import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_COIN_VALUE } from './chests';
 import { CROPS, type CropDef, type CropId } from './crops';
 
 /**
@@ -139,10 +139,10 @@ function pick<T>(pool: readonly T[], rng: () => number): T {
  *   [PREMIUM_MOONDUST_MIN, PREMIUM_MOONDUST_MAX]) and flavor (one rng call
  *   into PREMIUM_FLAVORS) are rolled last, after items and rewards.
  * - A premium order generated at CHEST_UNLOCK_LEVEL+ also carries
- *   `premium.chests`: 2 when the order's total requested units (summed
- *   across its final, post-clamp items) is >= PREMIUM_TWO_CHEST_UNITS, else
- *   1. Deterministic from the already-rolled items - no extra rng call.
- *   Absent below CHEST_UNLOCK_LEVEL.
+ *   `premium.chests`: 2 when the order's coinReward is >=
+ *   PREMIUM_TWO_CHEST_COIN_VALUE, else 1. Deterministic from the
+ *   already-computed reward - no extra rng call. Absent below
+ *   CHEST_UNLOCK_LEVEL.
  */
 export function generateOrder(
   level: number,
@@ -192,8 +192,7 @@ export function generateOrder(
     const flavor = pick(PREMIUM_FLAVORS, rng);
     order.premium = { moondust, flavor };
     if (effectiveLevel >= CHEST_UNLOCK_LEVEL) {
-      const totalRequested = items.reduce((sum, item) => sum + item.count, 0);
-      order.premium.chests = totalRequested >= PREMIUM_TWO_CHEST_UNITS ? 2 : 1;
+      order.premium.chests = order.coinReward >= PREMIUM_TWO_CHEST_COIN_VALUE ? 2 : 1;
     }
   }
   return order;

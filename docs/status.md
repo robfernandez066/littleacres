@@ -2,18 +2,18 @@
 
 **Updated:** 2026-07-14
 **Phase:** PLAYTEST GATE - RUNNING (integrity cut SHIPPED; P2 batch running)
-**Schema:** v15 · **Tests:** 336 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v15 · **Tests:** 337 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a SHIPPED 2026-07-14** (foreground WYWA, hiddenAt-anchored). **T3.21 staged audio: PM review passed, owner throttled-reload test pending** -> owner commits on pass.
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **T3.22a PM review passed (buttons cleared, measured live). Owner 30s re-check pending -> one T3.22+a commit closes the clarity batch.**
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. Owner: T3.21 throttled-reload test -> commit -> T3.22 clarity batch prompt; then T3.23 / CI gate
+1. Owner: premium-card glance -> one T3.22+a commit -> T3.23 seed bar prompt (last coder task of the P2 batch)
 2. P2 batch: T3.20 / T3.21 / T3.22 / T3.23 / CI gate (T3.20 unblocked - T3.19 is committed; CI = deploy.yml only, anytime; T3.23 joins the batch - owner, 2026-07-14)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).

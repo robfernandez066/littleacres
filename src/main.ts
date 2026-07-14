@@ -32,7 +32,10 @@ void navigator.storage
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'app',
-  backgroundColor: '#000000',
+  // Matches FarmScene's field green (T3.22) so the letterbox reads as
+  // extended lawn - interim presentation fix; the real safe-area/overscan
+  // work is scheduled with the camera era.
+  backgroundColor: '#55913f',
   // Cap rendering at 60fps: on high-refresh displays Phaser otherwise renders
   // at the full refresh rate (observed 144fps), wasting GPU on a mostly-static
   // farm and starving the OS compositor (system-wide lag when moving windows).

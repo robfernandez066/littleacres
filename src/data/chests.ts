@@ -8,8 +8,8 @@
 /** Player level (the cap) at which generated premium orders start carrying chests. */
 export const CHEST_UNLOCK_LEVEL = 6;
 
-/** A premium order's total requested units at or above this rolls 2 chests instead of 1. */
-export const PREMIUM_TWO_CHEST_UNITS = 12;
+/** A premium order whose coinReward is at or above this rolls 2 chests instead of 1 (T3.22 - the old raw-unit threshold was only reachable by Sunwheat). Provisional balance. */
+export const PREMIUM_TWO_CHEST_COIN_VALUE = 600;
 
 /** Inclusive range for one chest's rolled coin reward. */
 export const CHEST_COINS_MIN = 150;

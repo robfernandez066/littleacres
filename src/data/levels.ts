@@ -1,3 +1,5 @@
+import { CHEST_UNLOCK_LEVEL } from './chests';
+
 /** Highest attainable player level in the current balance pass. */
 export const MAX_LEVEL = 8;
 
@@ -21,3 +23,19 @@ export function levelForXp(xp: number): number {
   }
   return 1;
 }
+
+/** A level-up celebration card that announces a system unlock, not a crop. */
+export interface SystemUnlockCard {
+  level: number;
+  iconFrame: string;
+  label: string;
+}
+
+/** Future system unlocks (T3.22+) append here. */
+export const SYSTEM_UNLOCK_CARDS: readonly SystemUnlockCard[] = [
+  {
+    level: CHEST_UNLOCK_LEVEL,
+    iconFrame: 'chest_closed',
+    label: 'Treasure Chests unlocked!',
+  },
+];

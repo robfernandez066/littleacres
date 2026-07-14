@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
+import { SYSTEM_UNLOCK_CARDS } from '../data/levels';
 import type { AudioManager } from '../systems/audio';
 import type { LevelUpEvent } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
@@ -253,7 +254,23 @@ export class LevelUpCelebration {
 
   /** Whether this celebration follows its banner with a card stage. */
   private hasCards(item: CelebrationItem): boolean {
-    return item.kind === 'tutorial-complete' || item.event.unlockedCropIds.length > 0;
+    return item.kind === 'tutorial-complete' || this.cardsFor(item.event).length > 0;
+  }
+
+  /**
+   * Every card a level-up event shows, in order: one per unlocked crop, then
+   * one per SYSTEM_UNLOCK_CARDS entry matching this level (e.g. the level-6
+   * chest unlock). A level unlocking both a crop and a system shows both.
+   */
+  private cardsFor(event: LevelUpEvent): { iconFrame: string; label: string }[] {
+    const cropCards = event.unlockedCropIds.map((cropId) => {
+      const crop = CROPS[cropId];
+      return { iconFrame: crop.stageFrames[2], label: `${crop.name} seeds unlocked!` };
+    });
+    const systemCards = SYSTEM_UNLOCK_CARDS.filter((card) => card.level === event.level).map(
+      (card) => ({ iconFrame: card.iconFrame, label: card.label }),
+    );
+    return [...cropCards, ...systemCards];
   }
 
   private showBanner(item: CelebrationItem): void {
@@ -302,13 +319,12 @@ export class LevelUpCelebration {
       this.presentCard('scroll', TUTORIAL_CARD_TEXT, true);
       return;
     }
-    const cropId = item.event.unlockedCropIds[index];
-    if (cropId === undefined) {
+    const card = this.cardsFor(item.event)[index];
+    if (card === undefined) {
       this.finishEvent();
       return;
     }
-    const crop = CROPS[cropId];
-    this.presentCard(crop.stageFrames[2], `${crop.name} seeds unlocked!`, false);
+    this.presentCard(card.iconFrame, card.label, false);
   }
 
   /**
@@ -345,7 +361,7 @@ export class LevelUpCelebration {
       return;
     }
     const next = this.active.cardIndex + 1;
-    if (next < item.event.unlockedCropIds.length) {
+    if (next < this.cardsFor(item.event).length) {
       this.showCard(next);
     } else {
       this.finishEvent();

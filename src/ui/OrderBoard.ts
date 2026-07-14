@@ -191,8 +191,8 @@ const CHEST_ICON_SCALE = (REWARD_COIN_SCALE * 96) / 128;
 const CHEST_BADGE_OFFSET = (128 * CHEST_ICON_SCALE) / 2;
 
 /** Premium signal: the card's own bg nineslice tints light moondust blue
- * (cleared on non-premium/cooldown/pending) plus a small "Premium Order" tag
- * where the (now-removed) flavor line used to sit. */
+ * (cleared on non-premium/cooldown/pending) plus the order's own flavor line
+ * (T3.22 - restored; briefly replaced with static "Premium Order" text). */
 const PREMIUM_BG_TINT = 0xdce8ff;
 /**
  * Tag top margin from the card's own top edge and left inset from the card's
@@ -203,6 +203,9 @@ const PREMIUM_BG_TINT = 0xdce8ff;
  */
 const PREMIUM_TAG_TOP_MARGIN = 44;
 const PREMIUM_TAG_LEFT_INSET = 36;
+/** Flavor lines run longer than a static tag - shrink-to-fit against this
+ * (T3.22, restoring the flavor line the tag used to stand in for). */
+const PREMIUM_TAG_MAX_WIDTH = CARD_WIDTH - PREMIUM_TAG_LEFT_INSET * 2;
 
 /**
  * The item-cluster band's left-flow anchor (T2.20e) - the same content
@@ -211,14 +214,31 @@ const PREMIUM_TAG_LEFT_INSET = 36;
  */
 const CLUSTER_LEFT_MARGIN = -CARD_WIDTH / 2 + PREMIUM_TAG_LEFT_INSET;
 
-/** Right edge sits ~24px inside the card's right border (440): 440-24-120. */
+/**
+ * Right edge sits ~24px inside the card's right border (440): 440-24-120.
+ * Y (T3.22a): the restored flavor line spans the card's full width now (see
+ * PREMIUM_TAG_MAX_WIDTH), so the button column moved down to clear it - the
+ * same position on every card, premium or not. The tag's own text never
+ * shrinks below scale 1 (all PREMIUM_FLAVORS pool entries measure under
+ * PREMIUM_TAG_MAX_WIDTH), so its rendered height is always PREMIUM_TAG_STYLE's
+ * fontSize-driven 35px (measured live, T3.22a's report) regardless of which
+ * line is shown - the tag's bottom edge is a fixed
+ * -CARD_HEIGHT/2 + PREMIUM_TAG_TOP_MARGIN + 35 = -101. FULFILL_BUTTON_Y - half
+ * height (50) must sit at or below -101 + 12 = -89; -35 clears it by 16px.
+ */
 const FULFILL_BUTTON_X = 296;
-const FULFILL_BUTTON_Y = -60;
+const FULFILL_BUTTON_Y = -35;
 const FULFILL_BUTTON_WIDTH = 240;
 const FULFILL_BUTTON_HEIGHT = 100;
 const SKIP_BUTTON_X = 296;
-/** 24px below fulfillButton's bottom edge (-10): 14 (skip top) + 40 (half height). */
-const SKIP_BUTTON_Y = 54;
+/**
+ * Same 24px gap under fulfillButton's bottom edge as before (T3.22a moved
+ * both buttons down together, unchanged gap): 15 (fulfillButton's new bottom
+ * edge) + 24 + 40 (half height) = 79. Card's bottom margin at this Y
+ * (180 - (79 + 40) = 61px) stays well past the 16px floor, so the gap itself
+ * never needed shrinking.
+ */
+const SKIP_BUTTON_Y = 79;
 const SKIP_BUTTON_WIDTH = 240;
 const SKIP_BUTTON_HEIGHT = 80;
 
@@ -361,7 +381,7 @@ interface ItemCluster {
 interface OrderCard {
   /** Card body nineslice - tinted PREMIUM_BG_TINT on premium, clearTint otherwise. */
   cardBg: Phaser.GameObjects.NineSlice;
-  /** "Premium Order" tag, top of card, where the flavor line used to sit. */
+  /** The order's own flavor line, top of card, shrunk to fit if needed (T3.22). */
   premiumTag: Phaser.GameObjects.Text;
   clusters: ItemCluster[];
   /** "Reward:" caption above the reward row, shown on every open card. */
@@ -523,14 +543,14 @@ export class OrderBoard {
       PANEL_SLICE,
     );
 
-    // Where the (now-removed) flavor line used to sit - the only premium
-    // signal left besides cardBg's tint. Flush with the card's own inner
-    // content edge (PREMIUM_TAG_LEFT_INSET), left of the "Reward:" indent.
+    // The order's own flavor line (T3.22 - restored). Flush with the card's
+    // own inner content edge (PREMIUM_TAG_LEFT_INSET), left of the
+    // "Reward:" indent. Text set per order on refresh; shrunk to fit there.
     const premiumTag = this.scene.add
       .text(
         -CARD_WIDTH / 2 + PREMIUM_TAG_LEFT_INSET,
         y - CARD_HEIGHT / 2 + PREMIUM_TAG_TOP_MARGIN,
-        'Premium Order',
+        '',
         PREMIUM_TAG_STYLE,
       )
       .setOrigin(0, 0)
@@ -796,12 +816,14 @@ export class OrderBoard {
     card.rewardXpText.setText(`+${order.xpReward} xp`);
 
     // Premium signal: tint the card body itself (cleared on non-premium) plus
-    // a small tag where the flavor line used to sit. Moondust column is at a
-    // fixed x (see REWARD_ROW_Y's comment) - only its visibility toggles, so
-    // the xp/coin columns never move when it appears or disappears.
+    // the order's own flavor line (T3.22). Moondust column is at a fixed x
+    // (see REWARD_ROW_Y's comment) - only its visibility toggles, so the
+    // xp/coin columns never move when it appears or disappears.
     const isPremium = order.premium !== undefined;
     if (isPremium) {
       card.cardBg.setTint(PREMIUM_BG_TINT);
+      card.premiumTag.setText(order.premium!.flavor);
+      card.premiumTag.setScale(Math.min(1, PREMIUM_TAG_MAX_WIDTH / card.premiumTag.width));
     } else {
       card.cardBg.clearTint();
     }

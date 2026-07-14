@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_UNITS } from './chests';
+import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_COIN_VALUE } from './chests';
 import { CROPS } from './crops';
 import { MAX_LEVEL } from './levels';
 import {
@@ -261,43 +261,77 @@ describe('generateOrder premium orders', () => {
     expect(fraction).toBeLessThan(PREMIUM_CHANCE + 0.05);
   });
 
-  describe('premium.chests (T2.23a)', () => {
-    it('is absent below CHEST_UNLOCK_LEVEL, even when the total requested would be >= PREMIUM_TWO_CHEST_UNITS', () => {
-      expect(CHEST_UNLOCK_LEVEL).toBeGreaterThan(4);
-      const level = CHEST_UNLOCK_LEVEL - 1;
+  describe('premium.chests (T2.23a, value-tiered T3.22)', () => {
+    it('a Sunwheat-only max-budget premium at level 8 carries 1 chest, not 2 (the Sunwheat-bias fix)', () => {
       // premium roll (0), second-item roll fails (0.99), pick(unlocked)
-      // lands on sunwheat (0, uncapped) - single-item budget
-      // (ORDER_BASE_UNITS + level) * PREMIUM_UNITS_MULT is >= 12 at this
-      // level, proving the level gate applies regardless of the total.
+      // lands on sunwheat (0, first of 7 unlocked crops, uncapped) - the
+      // doubled single-item budget at MAX_LEVEL (20 units) used to trigger
+      // the old raw-unit threshold every time, purely because Sunwheat has
+      // no ORDER_UNIT_CAPS entry. Its low sell value keeps coinReward well
+      // under the new value-based threshold.
       const rng = queuedRng([0, 0.99, 0]);
-      const order = generateOrder(level, rng);
-      const total = order.items.reduce((sum, item) => sum + item.count, 0);
-      expect(total).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_UNITS);
-      expect(order.premium).toBeDefined();
-      expect(order.premium?.chests).toBeUndefined();
-    });
-
-    it('is 1 at/above CHEST_UNLOCK_LEVEL when the total requested is below PREMIUM_TWO_CHEST_UNITS', () => {
-      // premium roll (0), second-item roll fails (0.99), pick(unlocked)
-      // lands on starcorn (index 1 of 5 - 0.2*5=1) whose ORDER_UNIT_CAPS
-      // entry (5) clamps the doubled single-item budget well under
-      // PREMIUM_TWO_CHEST_UNITS.
-      const rng = queuedRng([0, 0.99, 0.2]);
-      const order = generateOrder(CHEST_UNLOCK_LEVEL, rng);
-      const total = order.items.reduce((sum, item) => sum + item.count, 0);
-      expect(total).toBeLessThan(PREMIUM_TWO_CHEST_UNITS);
+      const order = generateOrder(MAX_LEVEL, rng);
+      expect(order.items).toEqual([{ cropId: 'sunwheat', count: 20 }]);
+      expect(order.coinReward).toBeLessThan(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium?.chests).toBe(1);
     });
 
-    it('is 2 at/above CHEST_UNLOCK_LEVEL when the total requested is >= PREMIUM_TWO_CHEST_UNITS', () => {
+    it('a high-value premium (coinReward >= the threshold) carries 2 chests despite requesting very few units', () => {
       // premium roll (0), second-item roll fails (0.99), pick(unlocked)
-      // lands on sunwheat (0, uncapped) - nothing clamps the doubled
-      // single-item budget below PREMIUM_TWO_CHEST_UNITS at this level.
-      const rng = queuedRng([0, 0.99, 0]);
-      const order = generateOrder(CHEST_UNLOCK_LEVEL, rng);
-      const total = order.items.reduce((sum, item) => sum + item.count, 0);
-      expect(total).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_UNITS);
+      // lands on sagesprig (index 6 of 7 unlocked at MAX_LEVEL); the doubled
+      // budget (20) clamps to sagesprig's cap of 1, but its high sell value
+      // alone crosses PREMIUM_TWO_CHEST_COIN_VALUE.
+      const rng = queuedRng([0, 0.99, 0.95, 0, 0]);
+      const order = generateOrder(MAX_LEVEL, rng);
+      expect(order.items).toEqual([{ cropId: 'sagesprig', count: 1 }]);
+      expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium?.chests).toBe(2);
+    });
+
+    it('the threshold is inclusive at the tightest achievable margin', () => {
+      // No integer combination of crop sell values lands coinReward exactly
+      // on PREMIUM_TWO_CHEST_COIN_VALUE (every crop but Glowberry has an
+      // even sell value, and no reachable combination sums to the one odd
+      // coinBase - 461 - that would ceil to it). These two orders differ by
+      // exactly one Sunwheat unit and are the closest achievable pair
+      // straddling the threshold: 598 (below) still rolls 1 chest, 609 (the
+      // next reachable value, at/above) rolls 2 - proving the comparison is
+      // >=, not >.
+      const belowRng = queuedRng([0, 0, 0, 0.9, 0.3, 0, 0]);
+      const below = generateOrder(CHEST_UNLOCK_LEVEL, belowRng);
+      expect(below.items).toEqual([
+        { cropId: 'sunwheat', count: 5 },
+        { cropId: 'emberpepper', count: 2 },
+      ]);
+      expect(below.coinReward).toBe(598);
+      expect(below.premium?.chests).toBe(1);
+
+      const atRng = queuedRng([0, 0, 0, 0.9, 0.35, 0, 0]);
+      const at = generateOrder(CHEST_UNLOCK_LEVEL, atRng);
+      expect(at.items).toEqual([
+        { cropId: 'sunwheat', count: 6 },
+        { cropId: 'emberpepper', count: 2 },
+      ]);
+      expect(at.coinReward).toBe(609);
+      expect(at.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
+      expect(at.premium?.chests).toBe(2);
+    });
+
+    it('is absent below CHEST_UNLOCK_LEVEL, even when the coinReward would clear the threshold', () => {
+      expect(CHEST_UNLOCK_LEVEL).toBeGreaterThan(1);
+      const level = CHEST_UNLOCK_LEVEL - 1;
+      // Same Sunwheat + Emberpepper shape as the boundary test above (still
+      // well clear of the threshold at this level's smaller budget), proving
+      // the level gate applies regardless of value.
+      const rng = queuedRng([0, 0, 0, 0.9, 0.4, 0, 0]);
+      const order = generateOrder(level, rng);
+      expect(order.items).toEqual([
+        { cropId: 'sunwheat', count: 6 },
+        { cropId: 'emberpepper', count: 2 },
+      ]);
+      expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
+      expect(order.premium).toBeDefined();
+      expect(order.premium?.chests).toBeUndefined();
     });
 
     it('chests is always 1 or 2 (never another value) whenever present across many samples', () => {
