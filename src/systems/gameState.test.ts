@@ -32,7 +32,7 @@ import {
   WEEKLY_QUESTS,
   WEEK_MS,
 } from '../data/quests';
-import { TROPHY_FRAMES } from '../data/decor';
+import { DECOR_FRAMES, TROPHY_FRAMES, TROPHY_ITEMS } from '../data/decor';
 import {
   BACKUP_KEY,
   createDefaultState,
@@ -767,6 +767,26 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('TROPHY_ITEMS data consistency (T3.18)', () => {
+  it('has exactly 5 entries, each with a non-empty, distinct name', () => {
+    expect(TROPHY_ITEMS).toHaveLength(5);
+    for (const item of TROPHY_ITEMS) {
+      expect(item.name.length).toBeGreaterThan(0);
+    }
+    expect(new Set(TROPHY_ITEMS.map((item) => item.name)).size).toBe(TROPHY_ITEMS.length);
+  });
+
+  it('TROPHY_FRAMES equals TROPHY_ITEMS frames, in order', () => {
+    expect(TROPHY_FRAMES).toEqual(TROPHY_ITEMS.map((item) => item.frame));
+  });
+
+  it('every trophy frame is a legal decoration frame', () => {
+    for (const item of TROPHY_ITEMS) {
+      expect(DECOR_FRAMES.has(item.frame)).toBe(true);
+    }
   });
 });
 

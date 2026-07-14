@@ -25,7 +25,7 @@ import {
   TILE_FRAME_HEIGHT,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
-import { DECOR_ITEMS } from '../data/decor';
+import { DECOR_ITEMS, TROPHY_ITEMS } from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { isOrderCoverable } from '../data/orders';
@@ -280,11 +280,12 @@ const ARRANGE_STORE_DISABLED_ALPHA = 0.4;
  * outside the panel body - including on the now-covered control row - closes
  * it instead of reaching through to a control underneath. Built once in
  * `create()`, hidden and inert until opened; one row per `DECOR_ITEMS` frame
- * (the only frames a warehouse can ever hold today - trophies are not yet
- * purchasable), shown/hidden per-row from live owned counts.
+ * plus one per `TROPHY_ITEMS` frame (T3.18), shown/hidden per-row from live
+ * owned counts, decor rows before trophy rows, visible rows packed top-down
+ * with no gaps (see `refreshWarehousePanel`).
  */
-const WAREHOUSE_PANEL_WIDTH = 900;
-const WAREHOUSE_PANEL_HEIGHT = 1320;
+const WAREHOUSE_PANEL_WIDTH = 1020;
+const WAREHOUSE_PANEL_HEIGHT = 1620;
 const WAREHOUSE_PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const WAREHOUSE_PANEL_CENTER_Y = 980;
 const WAREHOUSE_BACKDROP_DEPTH = ARRANGE_UI_DEPTH + 50;
@@ -294,22 +295,38 @@ const WAREHOUSE_TITLE_Y = -WAREHOUSE_PANEL_HEIGHT / 2 + 60;
 const WAREHOUSE_CLOSE_OFFSET_X = WAREHOUSE_PANEL_WIDTH / 2 - 50;
 const WAREHOUSE_CLOSE_OFFSET_Y = -WAREHOUSE_PANEL_HEIGHT / 2 + 50;
 
-const WAREHOUSE_ROWS_PER_COLUMN = 5;
-const WAREHOUSE_COLUMN_X = [-215, 215] as const;
-const WAREHOUSE_ROW_START_Y = -380;
-const WAREHOUSE_ROW_SPACING = 190;
+const WAREHOUSE_ROWS_PER_COLUMN = 8;
+const WAREHOUSE_COLUMN_X = [-245, 245] as const;
+const WAREHOUSE_ROW_START_Y = -640;
+const WAREHOUSE_ROW_SPACING = 175;
 
-const WAREHOUSE_ICON_OFFSET_X = -195;
-const WAREHOUSE_ICON_NATIVE_SIZE = 128;
-const WAREHOUSE_ICON_DISPLAY_SIZE = 84;
-const WAREHOUSE_ICON_SCALE = WAREHOUSE_ICON_DISPLAY_SIZE / WAREHOUSE_ICON_NATIVE_SIZE;
+/**
+ * Icons render at one uniform square footprint via `setDisplaySize` (T3.18a)
+ * regardless of their source frame's native size - decor frames pack at
+ * 128px but trophy frames pack at up to 256px (trophy_ancientoak), and a
+ * plain `setScale` (the pre-T3.18a approach) scaled those native pixels
+ * directly, rendering oversized trophy icons that overran neighboring
+ * columns. 84 matches the on-screen size decor icons already had.
+ */
+const WAREHOUSE_ICON_SIZE = 84;
 
-const WAREHOUSE_NAME_OFFSET_X = -140;
+const WAREHOUSE_ICON_OFFSET_X = -190;
+
+const WAREHOUSE_NAME_OFFSET_X = -130;
 const WAREHOUSE_NAME_OFFSET_Y = -22;
-const WAREHOUSE_COUNT_OFFSET_X = -140;
+/**
+ * The name text's shrink-to-fit ceiling (T3.18a, same technique as
+ * `LevelUpCelebration`/`OnboardingGuide`/`WeeklyNoticePanel`): the longest
+ * trophy names ("Golden Scarecrow", "Trader's Cart") would otherwise clip
+ * against the Place button. Set from the real gap between the name's left
+ * edge and the Place button's left edge at the offsets above - see the
+ * WAREHOUSE_* geometry comment for the derivation if these offsets change.
+ */
+const WAREHOUSE_NAME_MAX_WIDTH = 200;
+const WAREHOUSE_COUNT_OFFSET_X = -130;
 const WAREHOUSE_COUNT_OFFSET_Y = 22;
 
-const WAREHOUSE_PLACE_BUTTON_OFFSET_X = 140;
+const WAREHOUSE_PLACE_BUTTON_OFFSET_X = 155;
 const WAREHOUSE_PLACE_BUTTON_WIDTH = 140;
 const WAREHOUSE_PLACE_BUTTON_HEIGHT = 90;
 
@@ -332,6 +349,16 @@ const WAREHOUSE_NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontSize: '30px',
   fontStyle: 'bold',
   color: '#4a3218',
+};
+/**
+ * Trophy rows (T3.18, recolored T3.18b): identical to `WAREHOUSE_NAME_STYLE`
+ * but in the same premium-blue used by the order board's "Premium Order" tag
+ * (`PREMIUM_TAG_STYLE` in OrderBoard.ts) - trophies share that "special" blue
+ * family, distinct from ordinary shop decor.
+ */
+const WAREHOUSE_TROPHY_NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  ...WAREHOUSE_NAME_STYLE,
+  color: '#3a4a8a',
 };
 const WAREHOUSE_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -438,7 +465,12 @@ interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
   setDepth(value: number): this;
 }
 
-/** One warehouse panel row (T3.9b) - one per `DECOR_ITEMS` frame, built once, shown/hidden per owned count. */
+/**
+ * One warehouse panel row (T3.9b) - one per `DECOR_ITEMS` frame plus one per
+ * `TROPHY_ITEMS` frame (T3.18), built once at a neutral position, shown/hidden
+ * per owned count and positioned into its packed slot by
+ * `positionWarehouseRow` (see `refreshWarehousePanel`).
+ */
 interface WarehouseRow {
   frame: string;
   icon: Phaser.GameObjects.Image;
@@ -530,6 +562,7 @@ export class FarmScene extends Phaser.Scene {
   /** Warehouse panel (T3.9b) - see `createWarehousePanel`. */
   private warehouseContainer!: Phaser.GameObjects.Container;
   private warehouseBackdropZone!: Phaser.GameObjects.Zone;
+  private warehouseBg!: Phaser.GameObjects.NineSlice;
   private warehouseCloseButton!: Phaser.GameObjects.Text;
   private warehouseRows: WarehouseRow[] = [];
   private warehouseEmptyText!: Phaser.GameObjects.Text;
@@ -1948,17 +1981,6 @@ export class FarmScene extends Phaser.Scene {
       PANEL_SLICE,
       PANEL_SLICE,
     );
-    // Swallow taps on the panel body so they never fall through to the backdrop beneath.
-    bg.setInteractive();
-    bg.on(
-      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
-      (
-        _pointer: Phaser.Input.Pointer,
-        _localX: number,
-        _localY: number,
-        event: Phaser.Types.Input.EventData,
-      ) => event.stopPropagation(),
-    );
     const title = this.add.text(0, WAREHOUSE_TITLE_Y, 'Shed', WAREHOUSE_TITLE_STYLE).setOrigin(0.5);
     this.warehouseCloseButton = this.add
       .text(WAREHOUSE_CLOSE_OFFSET_X, WAREHOUSE_CLOSE_OFFSET_Y, 'X', WAREHOUSE_CLOSE_STYLE)
@@ -1973,39 +1995,66 @@ export class FarmScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setVisible(false);
     this.warehouseContainer.add([bg, title, this.warehouseCloseButton, this.warehouseEmptyText]);
-
-    this.warehouseRows = DECOR_ITEMS.map((item, index) =>
-      this.buildWarehouseRow(item.frame, item.name, index),
+    this.warehouseBg = bg;
+    // Do NOT call bg.setInteractive() here (T3.18b root cause): a container
+    // child's FIRST setInteractive() call must happen while the panel is
+    // actually being shown, matching warehouseBackdropZone/warehouseCloseButton/
+    // each row's placeButton (all (re-)enabled from showWarehousePanel or
+    // refreshWarehousePanel, every open) - verified live that an object whose
+    // very first setInteractive() call happens once here, at panel-build time,
+    // never wins a real hit-test against warehouseBackdropZone anywhere except
+    // exactly on other already-interactive objects, even though its own
+    // position/origin/hitArea all read back as correct. bg.setInteractive()
+    // lives in showWarehousePanel/hideWarehousePanel instead.
+    bg.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => event.stopPropagation(),
     );
+
+    this.warehouseRows = [
+      ...DECOR_ITEMS.map((item) =>
+        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_NAME_STYLE),
+      ),
+      ...TROPHY_ITEMS.map((item) =>
+        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_TROPHY_NAME_STYLE),
+      ),
+    ];
   }
 
-  /** One warehouse panel row: icon, name, "xN" count, a Place button - built once, hidden/shown per owned count. */
-  private buildWarehouseRow(frame: string, name: string, index: number): WarehouseRow {
-    const colX = WAREHOUSE_COLUMN_X[Math.floor(index / WAREHOUSE_ROWS_PER_COLUMN)]!;
-    const y = WAREHOUSE_ROW_START_Y + (index % WAREHOUSE_ROWS_PER_COLUMN) * WAREHOUSE_ROW_SPACING;
-
+  /**
+   * One warehouse panel row: icon, name, "xN" count, a Place button - built
+   * once at a neutral (0, 0) position, hidden until shown. `nameStyle` is
+   * `WAREHOUSE_TROPHY_NAME_STYLE` for a trophy row, `WAREHOUSE_NAME_STYLE`
+   * otherwise - everything else (icon, count, Place button/behavior) is
+   * identical between decor and trophy rows. Actual on-panel position is
+   * assigned later, per visible slot, by `positionWarehouseRow`.
+   */
+  private buildWarehouseRow(
+    frame: string,
+    name: string,
+    nameStyle: Phaser.Types.GameObjects.Text.TextStyle,
+  ): WarehouseRow {
     const icon = this.add
-      .image(colX + WAREHOUSE_ICON_OFFSET_X, y, ATLAS_KEY, frame)
-      .setScale(WAREHOUSE_ICON_SCALE)
+      .image(0, 0, ATLAS_KEY, frame)
+      .setDisplaySize(WAREHOUSE_ICON_SIZE, WAREHOUSE_ICON_SIZE)
       .setVisible(false);
-    const nameText = this.add
-      .text(colX + WAREHOUSE_NAME_OFFSET_X, y + WAREHOUSE_NAME_OFFSET_Y, name, WAREHOUSE_NAME_STYLE)
-      .setOrigin(0, 0.5)
-      .setVisible(false);
+    const nameText = this.add.text(0, 0, name, nameStyle).setOrigin(0, 0.5).setVisible(false);
+    // Shrink-to-fit (T3.18a): never lets a long trophy name reach the Place button.
+    nameText.setScale(Math.min(1, WAREHOUSE_NAME_MAX_WIDTH / nameText.width));
     const countText = this.add
-      .text(
-        colX + WAREHOUSE_COUNT_OFFSET_X,
-        y + WAREHOUSE_COUNT_OFFSET_Y,
-        '',
-        WAREHOUSE_COUNT_STYLE,
-      )
+      .text(0, 0, '', WAREHOUSE_COUNT_STYLE)
       .setOrigin(0, 0.5)
       .setVisible(false);
 
     const placeButton = this.add
       .nineslice(
-        colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X,
-        y,
+        0,
+        0,
         ATLAS_KEY,
         'panel',
         WAREHOUSE_PLACE_BUTTON_WIDTH,
@@ -2017,7 +2066,7 @@ export class FarmScene extends Phaser.Scene {
       )
       .setVisible(false);
     const placeText = this.add
-      .text(colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X, y, 'Place', WAREHOUSE_PLACE_STYLE)
+      .text(0, 0, 'Place', WAREHOUSE_PLACE_STYLE)
       .setOrigin(0.5)
       .setVisible(false);
     placeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
@@ -2032,6 +2081,25 @@ export class FarmScene extends Phaser.Scene {
     return { frame, icon, nameText, countText, placeButton, placeText };
   }
 
+  /**
+   * Position one row's five objects into the slot for `visibleIndex` (T3.18):
+   * same per-object offsets `buildWarehouseRow` used to apply directly, now
+   * computed from the row's rank among VISIBLE rows rather than its fixed
+   * build-order index, so owned rows pack top-down with no gaps regardless of
+   * which frames are owned.
+   */
+  private positionWarehouseRow(row: WarehouseRow, visibleIndex: number): void {
+    const colX = WAREHOUSE_COLUMN_X[Math.floor(visibleIndex / WAREHOUSE_ROWS_PER_COLUMN)]!;
+    const y =
+      WAREHOUSE_ROW_START_Y + (visibleIndex % WAREHOUSE_ROWS_PER_COLUMN) * WAREHOUSE_ROW_SPACING;
+
+    row.icon.setPosition(colX + WAREHOUSE_ICON_OFFSET_X, y);
+    row.nameText.setPosition(colX + WAREHOUSE_NAME_OFFSET_X, y + WAREHOUSE_NAME_OFFSET_Y);
+    row.countText.setPosition(colX + WAREHOUSE_COUNT_OFFSET_X, y + WAREHOUSE_COUNT_OFFSET_Y);
+    row.placeButton.setPosition(colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X, y);
+    row.placeText.setPosition(colX + WAREHOUSE_PLACE_BUTTON_OFFSET_X, y);
+  }
+
   /** Open (or close) the warehouse panel from the control row's Warehouse button. */
   private toggleWarehousePanel(): void {
     if (this.warehousePanelVisible) this.hideWarehousePanel();
@@ -2043,6 +2111,7 @@ export class FarmScene extends Phaser.Scene {
     this.warehousePanelVisible = true;
     this.warehouseContainer.setVisible(true);
     this.warehouseBackdropZone.setVisible(true).setInteractive();
+    this.warehouseBg.setInteractive();
     this.warehouseCloseButton.setInteractive({ useHandCursor: true });
     setPanelOpen('decor-warehouse', true);
   }
@@ -2052,6 +2121,7 @@ export class FarmScene extends Phaser.Scene {
     this.warehousePanelVisible = false;
     this.warehouseContainer.setVisible(false);
     this.warehouseBackdropZone.setVisible(false).disableInteractive();
+    this.warehouseBg.disableInteractive();
     this.warehouseCloseButton.disableInteractive();
     for (const row of this.warehouseRows) row.placeButton.disableInteractive();
     setPanelOpen('decor-warehouse', false);
@@ -2062,12 +2132,15 @@ export class FarmScene extends Phaser.Scene {
    * live warehouse (T3.9b): rows with nothing owned hide entirely (icon,
    * name, count, button - never a dangling interactive hitbox on an invisible
    * row), rows with any owned show with a truthful "xN" and an interactive
-   * Place button. The empty-state text shows only when nothing is owned at
-   * all.
+   * Place button. Visible rows are also (re)positioned here (T3.18), in
+   * build order (decor before trophies), so they pack top-down with no gaps
+   * no matter which frames happen to be owned. The empty-state text shows
+   * only when nothing is owned at all.
    */
   private refreshWarehousePanel(): void {
     const warehouse = gameState.getState().warehouse;
     let anyOwned = false;
+    let visibleIndex = 0;
     for (const row of this.warehouseRows) {
       const owned = warehouse[row.frame] ?? 0;
       const has = owned > 0;
@@ -2078,6 +2151,8 @@ export class FarmScene extends Phaser.Scene {
       row.placeText.setVisible(has);
       row.placeButton.setVisible(has);
       if (has) {
+        this.positionWarehouseRow(row, visibleIndex);
+        visibleIndex++;
         row.placeButton.setInteractive({ useHandCursor: true });
       } else {
         row.placeButton.disableInteractive();

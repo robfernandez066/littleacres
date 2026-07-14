@@ -29,18 +29,26 @@ export const DECOR_ITEMS: readonly DecorItemDef[] = [
   { frame: 'decor_lantern', name: 'Lantern', currency: 'moondust', price: 8 },
 ];
 
+export interface TrophyDef {
+  frame: string;
+  name: string;
+}
+
 /**
- * The 5 trophy frames: not purchasable in the shop, granted by a future
- * quest system (T3.10). Listed here so the save schema can validate a
- * placement's frame without duplicating the frame list.
+ * The 5 trophies: not purchasable in the shop, granted by the quest system
+ * (T3.10). Named so the Shed can give each a display row (T3.18) once it
+ * lands in the warehouse.
  */
-export const TROPHY_FRAMES = [
-  'trophy_goldscarecrow',
-  'trophy_starbanner',
-  'trophy_moonwell',
-  'trophy_traderscart',
-  'trophy_ancientoak',
-] as const;
+export const TROPHY_ITEMS: readonly TrophyDef[] = [
+  { frame: 'trophy_goldscarecrow', name: 'Golden Scarecrow' },
+  { frame: 'trophy_starbanner', name: 'Star Banner' },
+  { frame: 'trophy_moonwell', name: 'Moonwell' },
+  { frame: 'trophy_traderscart', name: "Trader's Cart" },
+  { frame: 'trophy_ancientoak', name: 'Ancient Oak' },
+];
+
+/** The 5 trophy frames, in `TROPHY_ITEMS` order - kept for callers that only need the frame list. */
+export const TROPHY_FRAMES: readonly string[] = TROPHY_ITEMS.map((item) => item.frame);
 
 /** Every frame name a saved decoration placement may legally reference. */
 export const DECOR_FRAMES: ReadonlySet<string> = new Set([

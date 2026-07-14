@@ -1,19 +1,19 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (P0 closed; T3.18 in flight)
+**Phase:** PLAYTEST GATE - RUNNING (integrity cut nearly done; T3.18 in user test)
 **Schema:** v15 · **Tests:** 325 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
-- **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed with one modification: the weekly notice is now button-only dismiss (PM-direct WeeklyNoticePanel fix in the tree; owner runs trio + 30s re-check + commits). Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
-- **T3.18 trophy shelf prompt issued** (Sonnet, fresh session) - TROPHY_ITEMS names, Shed 2x8 dynamic grid, gold trophy accent.
+- **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
+- **T3.18 series: T3.18b PM review passed (root cause: build-time-only setInteractive loses hit-tests; input now cycled by show/hide). Owner input-sweep re-check pending -> one T3.18+a+b commit.** Tests 328.
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. Owner: trio + re-check + commit the notice-panel fix -> paste T3.18 to the coder
-2. T3.20 / T3.21 / T3.22 / CI gate (T3.20 after T3.19 commits - shares gameState.ts; CI = deploy.yml only, anytime); T3.23 when the owner picks its timing (PM recommends with the P2 batch)
+1. Owner: input-sweep re-check -> one T3.18+a+b commit -> P2 batch begins with T3.20
+2. P2 batch: T3.20 / T3.21 / T3.22 / T3.23 / CI gate (T3.20 unblocked - T3.19 is committed; CI = deploy.yml only, anytime; T3.23 joins the batch - owner, 2026-07-14)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
@@ -25,7 +25,6 @@
 
 ## Waiting on user (whenever convenient)
 
-- Approve or reject the T4.2 "one complete vertical chain first" sequencing PROPOSAL (roadmap, Phase 4) - not covered by the cut blessing
 - Collect the tester brief answers after 2-3 days (not day one); the voluntary-return signal is the key metric
 - Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (stale git-lock artifact + the T3.17 review diff)
 
@@ -58,6 +57,9 @@
 - PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md after every report/decision.
 - Every task prompt carries a model recommendation (Fable5/Opus vs Sonnet) and a session marking; /clear is the default.
 - Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; each green task commits alone (2026-07-14; combined commits only when an intermediate tree would be broken).
+- Every USER TEST verdict ships with explicit numbered test steps - exact console pastes, what to tap, what to expect (owner rule, 2026-07-14).
+- Test scripts that mutate the save start with backup = dev.exportSave() and end with dev.importSave(backup) (2026-07-14).
+- Owner reports any manual art-file edit even if the filename is unchanged - gitignored masters feed the next pack:atlas silently (2026-07-14).
 - PM reviews fresh coder work via the owner-generated diff file (see Watch items); direct Reads only for files not freshly written.
 - Coder sessions may leave dev servers on 5177 - kill before starting your own.
 - Close stray game tabs during coder sessions (two-tab autosave overwrite).
