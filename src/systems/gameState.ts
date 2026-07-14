@@ -10,6 +10,7 @@ import {
   DECOR_FRAMES,
   DECOR_SCALE_MAX,
   DECOR_SCALE_MIN,
+  DECOR_SPAWN_SCALE,
   DECOR_X_MAX,
   DECOR_X_MIN,
   DECOR_Y_MAX,
@@ -121,6 +122,8 @@ export interface DecorationPlacement {
   x: number;
   y: number;
   scale: number;
+  /** Horizontal mirror (T3.15) - flipX, never rotation. */
+  flip: boolean;
 }
 
 export interface GameSettings {
@@ -522,6 +525,19 @@ const v12ToV13: Migration = (raw) => ({
   quests: isRecord(raw.quests) ? { ...raw.quests, introSeen: false } : raw.quests,
 });
 
+/**
+ * v13 -> v14: adds decoration flip (T3.15, mirrored facing) - false (unmirrored)
+ * on every existing placement, matching how they already render.
+ */
+const v13ToV14: Migration = (raw) => ({
+  ...raw,
+  decorations: Array.isArray(raw.decorations)
+    ? raw.decorations.map((decoration) =>
+        isRecord(decoration) ? { ...decoration, flip: false } : decoration,
+      )
+    : raw.decorations,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -536,6 +552,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v10ToV11,
   v11ToV12,
   v12ToV13,
+  v13ToV14,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -652,7 +669,8 @@ function isDecorationPlacement(value: unknown): value is DecorationPlacement {
     DECOR_FRAMES.has(value.frame) &&
     isFiniteNumber(value.x) &&
     isFiniteNumber(value.y) &&
-    isFiniteNumber(value.scale)
+    isFiniteNumber(value.scale) &&
+    typeof value.flip === 'boolean'
   );
 }
 
@@ -1117,10 +1135,11 @@ export class GameStateStore {
 
   /**
    * Place one warehoused unit of `frame` onto the lawn (T3.9b), at screen
-   * center and max scale (WAREHOUSE_PLACE_X/Y, DECOR_SCALE_MAX) so a placed
-   * item is immediately visible and ready to drag. Decrements the warehouse
-   * count (removing the key entirely once it hits 0, never leaving a 0
-   * entry), appends the new placement, one save. Returns the new
+   * center and its intended art size (WAREHOUSE_PLACE_X/Y, DECOR_SPAWN_SCALE)
+   * so a placed item is immediately visible and ready to drag - grown or
+   * shrunk from there via arrange mode. Decrements the warehouse count
+   * (removing the key entirely once it hits 0, never leaving a 0 entry),
+   * appends the new placement (unmirrored), one save. Returns the new
    * placement's index (always `decorations.length - 1`, since placements
    * only ever append) so the caller can select it, or false if none are
    * owned.
@@ -1134,7 +1153,8 @@ export class GameStateStore {
       frame,
       x: WAREHOUSE_PLACE_X,
       y: WAREHOUSE_PLACE_Y,
-      scale: DECOR_SCALE_MAX,
+      scale: DECOR_SPAWN_SCALE,
+      flip: false,
     });
     this.save();
     return this.state.decorations.length - 1;
@@ -1155,19 +1175,28 @@ export class GameStateStore {
   }
 
   /**
-   * Reposition/rescale a placed decoration (the future arrange/edit mode;
-   * tested now). Returns false without mutating anything if `index` is out
-   * of range or any of x/y/scale is non-finite; otherwise clamps each to its
-   * legal range (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..MAX)
-   * and applies it, one save.
+   * Reposition/rescale/flip a placed decoration (the arrange mode; T3.9a,
+   * flip added T3.15). Returns false without mutating anything if `index` is
+   * out of range, any of x/y/scale is non-finite, or `flip` is not a
+   * boolean; otherwise clamps x/y/scale to their legal ranges
+   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..MAX), applies
+   * `flip` unclamped (a plain boolean), one save.
    */
-  setDecorationTransform(index: number, x: number, y: number, scale: number): boolean {
+  setDecorationTransform(
+    index: number,
+    x: number,
+    y: number,
+    scale: number,
+    flip: boolean,
+  ): boolean {
     const decoration = this.state.decorations[index];
     if (decoration === undefined) return false;
     if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(scale)) return false;
+    if (typeof flip !== 'boolean') return false;
     decoration.x = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
     decoration.y = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
     decoration.scale = Math.min(DECOR_SCALE_MAX, Math.max(DECOR_SCALE_MIN, scale));
+    decoration.flip = flip;
     this.save();
     return true;
   }

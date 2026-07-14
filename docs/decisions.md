@@ -15,6 +15,21 @@ Format:
 
 ---
 
+## 2026-07-13 - Fence variant CANCELLED: the existing fence is already diagonal
+**Context:** Before generating variant art, owner showed the current decor_fence: it is a diagonal segment. A diagonal's horizontal mirror IS the perpendicular iso direction.
+**Decision:** No new fence art. T3.15's flip button alone delivers the 90-degree fence turn. T3.15a dropped from the queue. Lesson (PM): look at the existing asset before commissioning replacement art.
+**Trigger:** Owner shared the current fence sprite, 2026-07-13.
+
+## 2026-07-13 - Free rotation SUPERSEDED before build: flip + orientation art variants
+**Context:** Owner probed what 90-degree turns would look like; PM explained flat-painting reality (flip mirrors facing; a true side view needs new art; rotating the painting tips it over). Owner re-decided before any code was written.
+**Decision:** T3.15 ships scale (spawn 0.7 / max 0.85) + horizontal FLIP for all placeables (per-placement boolean, schema v14) - no angle field, free rotation dropped. True 90-degree orientations come as per-item art variants where they matter, fence first (Sprixen side-view variant; wired as the item's second orientation in a follow-up task once staged). The prior free-rotation entry is superseded in full.
+**Trigger:** Owner follow-up on rotation, 2026-07-13.
+
+## 2026-07-13 - Decor scale ceiling raised + free rotation (tester request, T3.15)
+**Context:** Testers asked to grow placeables bigger and rotate them. PM flagged two conflicts: the default-equals-max scale rule (owner 2026-07-12), and that painted-viewpoint art rotated freely reads as tilted/fallen (PM recommended horizontal flip).
+**Decision:** Owner: spawn stays 0.7 but max grows to 0.85 (rule consciously broken: spawn != max now), and FREE ROTATION ships as requested over the PM's flip recommendation. Guard: ground shadows stay axis-aligned/unrotated so items keep their grounding. Rotation = 15-degree steps via arrange-mode buttons, angle persisted per placement (schema v14). If rotated art disappoints in play, re-scope to flip later.
+**Trigger:** Tester feedback via owner, 2026-07-13.
+
 ## 2026-07-13 - T3.14 shipped: all six observed-session playtest items closed
 **Context:** T3.14 (structure-wide tutorial pulse + "!" bounce, quest Claim hidden until claimable, one-time quest-board explainer, schema v13 quests.introSeen) passed PM review. With T3.12/T3.13 this closes all six items from the observed first session.
 **Decision:** Claim-button convention: an unavailable primary action is HIDDEN, not greyed - the progress label carries status. Explainer convention confirmed: read-and-confirm moments use a centered panel with an explicit button (vs anchored popups for glanceable info). Badge attention reuses the existing perpetual tween via visibility toggling - zero new tween lifecycle.

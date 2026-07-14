@@ -65,11 +65,17 @@ export const DECOR_Y_MIN = 380;
 export const DECOR_Y_MAX = 1520;
 export const DECOR_SCALE_MIN = 0.35;
 /**
- * The scale CEILING is also `placeFromWarehouse`'s spawn scale (owner rule,
- * 2026-07-12): art ships at its intended size - players can shrink and grow
- * back, never exceed it.
+ * The scale ceiling (owner decision 2026-07-13, playtester-requested):
+ * decoupled from spawn scale - items may now be grown past their intended art
+ * size, up to this cap, superseding the old spawn-equals-max rule.
  */
-export const DECOR_SCALE_MAX = 0.7;
+export const DECOR_SCALE_MAX = 0.85;
+/**
+ * `placeFromWarehouse`'s spawn scale: items spawn at intended art size and
+ * may be grown to DECOR_SCALE_MAX or shrunk to DECOR_SCALE_MIN (owner
+ * decision 2026-07-13, supersedes the spawn-equals-max rule).
+ */
+export const DECOR_SPAWN_SCALE = 0.7;
 
 /**
  * `placeFromWarehouse`'s spawn position (T3.9b): screen center, so a newly

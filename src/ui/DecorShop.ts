@@ -24,6 +24,18 @@ const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = 980;
 /** Above the seed bar (2000), below flying coins (2200) - same tier as the other panels. */
 const PANEL_DEPTH = 2100;
+/**
+ * Elevated depth (T3.16): arrange mode's Shop button opens this same panel
+ * without leaving arrange mode, so while open there it must sit above the
+ * arrange control row (FarmScene's ARRANGE_UI_DEPTH, 2200) exactly like the
+ * Shed panel already does - see FarmScene's WAREHOUSE_PANEL_DEPTH/
+ * WAREHOUSE_BACKDROP_DEPTH comment for why. `setElevated` toggles between
+ * this and the normal PANEL_DEPTH/ModalBackdrop tier; the farmhouse-tap flow
+ * always resets to normal first (`FarmScene.openDecorShop`), since nothing
+ * else there needs the panel to render above flying coins.
+ */
+const ELEVATED_PANEL_DEPTH = 2260;
+const ELEVATED_BACKDROP_DEPTH = 2250;
 
 const TITLE_Y = -PANEL_HEIGHT / 2 + 60;
 const CLOSE_OFFSET_X = PANEL_WIDTH / 2 - 50;
@@ -297,6 +309,12 @@ export class DecorShop {
 
   isVisible(): boolean {
     return this.visible;
+  }
+
+  /** See ELEVATED_PANEL_DEPTH/ELEVATED_BACKDROP_DEPTH above. */
+  setElevated(elevated: boolean): void {
+    this.container.setDepth(elevated ? ELEVATED_PANEL_DEPTH : PANEL_DEPTH);
+    this.backdrop.setDepth(elevated ? ELEVATED_BACKDROP_DEPTH : undefined);
   }
 
   toggle(state: GameStateData): void {

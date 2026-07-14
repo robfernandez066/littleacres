@@ -52,4 +52,15 @@ export class ModalBackdrop {
       this.zone.disableInteractive();
     }
   }
+
+  /**
+   * Override the default tier (T3.16): lets an owning panel sit above
+   * something normally higher than every other panel - e.g. arrange mode's
+   * control row - by bumping its backdrop above that tier too, so a tap
+   * anywhere outside the panel body still closes it. Pass undefined to
+   * restore BACKDROP_DEPTH.
+   */
+  setDepth(depth?: number): void {
+    this.zone.setDepth(depth ?? BACKDROP_DEPTH);
+  }
 }

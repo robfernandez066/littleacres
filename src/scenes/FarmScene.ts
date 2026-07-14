@@ -194,54 +194,63 @@ const FARMHOUSE_HIT_PAD_DISPLAY_PX = 20;
 
 /**
  * Arrange mode (T3.9a, control row moved into the seed bar's own band in
- * T3.9b): in-canvas Phaser objects only (phone-first, no DOM). While
- * arranging, the seed bar hides entirely (`SeedBar.setVisible`) and this row
- * - [Warehouse] [-] [+] [Store] [Done] - takes over its band (~y 1700), at a
- * depth above every other UI tier (seed bar 2000, panels 2100) so nothing can
- * render over these controls while arranging. Each button is a `panel`
- * nineslice sized directly to its own width/height (not scaled from a
- * smaller native frame), so its default interactive hit area already matches
- * its full display bounds one-to-one - no custom hitArea needed to satisfy
- * the >=100px/frame-relative hit-area rule. Positions are five varying-width
- * buttons, evenly gapped and centered on the design width - computed once
- * below rather than hand-placed, so the row stays centered if a width
- * changes.
+ * T3.9b, flip button added in T3.15, reworked into two rows in T3.16):
+ * in-canvas Phaser objects only (phone-first, no DOM). While arranging, the
+ * seed bar hides entirely (`SeedBar.setVisible`) and two rows take over its
+ * band (~y 1584-1750): row 1 (per-item actions, need a selection) - [-] [+]
+ * [Flip] [Put Away] - directly above row 2 (mode actions) - [Shed] [Shop]
+ * [Done]. Row 2 keeps the legacy single-row's exact Y (preserving its
+ * existing ~10px clearance to the Shed/Shop panel's bottom edge, see
+ * WAREHOUSE_PANEL_CENTER_Y); row 1 sits ARRANGE_ROW_VGAP above it. Both rows
+ * render at a depth above every other UI tier (seed bar 2000, panels 2100)
+ * so nothing can render over these controls while arranging. Each button is
+ * a `panel` nineslice sized directly to its own width/height (not scaled
+ * from a smaller native frame), so its default interactive hit area already
+ * matches its full display bounds one-to-one - no custom hitArea needed to
+ * satisfy the >=100px/frame-relative hit-area rule. Positions within each
+ * row are computed once below (`arrangeRowCenterXs`) rather than
+ * hand-placed, so each row stays centered if a width changes.
  */
 const ARRANGE_UI_DEPTH = 2200;
-const ARRANGE_ROW_Y = 1700;
 const ARRANGE_ROW_HEIGHT = 100;
 const ARRANGE_ROW_GAP = 24;
-const ARRANGE_WAREHOUSE_WIDTH = 200;
+const ARRANGE_ROW_VGAP = 16;
+const ARRANGE_ROW2_Y = 1700;
+const ARRANGE_ROW1_Y = ARRANGE_ROW2_Y - ARRANGE_ROW_HEIGHT - ARRANGE_ROW_VGAP;
+
 const ARRANGE_SCALE_BUTTON_SIZE = 100;
-const ARRANGE_STORE_WIDTH = 170;
+const ARRANGE_FLIP_BUTTON_WIDTH = 170;
+const ARRANGE_PUT_AWAY_WIDTH = 240;
+const ARRANGE_SHED_WIDTH = 170;
+const ARRANGE_SHOP_WIDTH = 170;
 const ARRANGE_DONE_WIDTH = 220;
 const ARRANGE_DONE_HEIGHT = ARRANGE_ROW_HEIGHT;
 
-const ARRANGE_ROW_WIDTHS = [
-  ARRANGE_WAREHOUSE_WIDTH,
-  ARRANGE_SCALE_BUTTON_SIZE,
-  ARRANGE_SCALE_BUTTON_SIZE,
-  ARRANGE_STORE_WIDTH,
-  ARRANGE_DONE_WIDTH,
-];
-const ARRANGE_ROW_TOTAL_WIDTH =
-  ARRANGE_ROW_WIDTHS.reduce((sum, width) => sum + width, 0) +
-  ARRANGE_ROW_GAP * (ARRANGE_ROW_WIDTHS.length - 1);
-const ARRANGE_ROW_CENTER_XS: number[] = (() => {
-  let x = DESIGN_WIDTH / 2 - ARRANGE_ROW_TOTAL_WIDTH / 2;
-  return ARRANGE_ROW_WIDTHS.map((width) => {
+/** Centers `widths` as a single row, evenly gapped by ARRANGE_ROW_GAP, on the design width. */
+function arrangeRowCenterXs(widths: number[]): number[] {
+  const totalWidth =
+    widths.reduce((sum, width) => sum + width, 0) + ARRANGE_ROW_GAP * (widths.length - 1);
+  let x = DESIGN_WIDTH / 2 - totalWidth / 2;
+  return widths.map((width) => {
     const center = x + width / 2;
     x += width + ARRANGE_ROW_GAP;
     return center;
   });
-})();
-const [
-  ARRANGE_WAREHOUSE_X,
-  ARRANGE_SCALE_DOWN_X,
-  ARRANGE_SCALE_UP_X,
-  ARRANGE_STORE_X,
-  ARRANGE_DONE_X,
-] = ARRANGE_ROW_CENTER_XS as [number, number, number, number, number];
+}
+
+const [ARRANGE_SCALE_DOWN_X, ARRANGE_SCALE_UP_X, ARRANGE_FLIP_X, ARRANGE_PUT_AWAY_X] =
+  arrangeRowCenterXs([
+    ARRANGE_SCALE_BUTTON_SIZE,
+    ARRANGE_SCALE_BUTTON_SIZE,
+    ARRANGE_FLIP_BUTTON_WIDTH,
+    ARRANGE_PUT_AWAY_WIDTH,
+  ]) as [number, number, number, number];
+
+const [ARRANGE_SHED_X, ARRANGE_SHOP_X, ARRANGE_DONE_X] = arrangeRowCenterXs([
+  ARRANGE_SHED_WIDTH,
+  ARRANGE_SHOP_WIDTH,
+  ARRANGE_DONE_WIDTH,
+]) as [number, number, number];
 
 const ARRANGE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -504,11 +513,16 @@ export class FarmScene extends Phaser.Scene {
   private arrangeScaleDownText!: Phaser.GameObjects.Text;
   private arrangeScaleUpButton!: Phaser.GameObjects.NineSlice;
   private arrangeScaleUpText!: Phaser.GameObjects.Text;
+  private arrangeFlipButton!: Phaser.GameObjects.NineSlice;
+  private arrangeFlipText!: Phaser.GameObjects.Text;
   /** T3.9b control row additions. */
   private arrangeWarehouseButton!: Phaser.GameObjects.NineSlice;
   private arrangeWarehouseText!: Phaser.GameObjects.Text;
   private arrangeStoreButton!: Phaser.GameObjects.NineSlice;
   private arrangeStoreText!: Phaser.GameObjects.Text;
+  /** T3.16 two-row rework: Shop button, mode row - see `openDecorShopFromArrange`. */
+  private arrangeShopButton!: Phaser.GameObjects.NineSlice;
+  private arrangeShopText!: Phaser.GameObjects.Text;
   /** Every OTHER interactive object suppressed for the duration of arrange mode - see `setOtherHitboxesEnabled`. */
   private readonly arrangeModeDisabledObjects: Phaser.GameObjects.GameObject[] = [];
   /** Warehouse panel (T3.9b) - see `createWarehousePanel`. */
@@ -1278,11 +1292,31 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Tap handler for the farmhouse: same panel-exclusivity + tap sfx
-   * convention as the notice board's `Hud.toggleOrderBoard`.
+   * convention as the notice board's `Hud.toggleOrderBoard`. Explicitly
+   * un-elevates the shop's depth (`setElevated(false)`) in case it was last
+   * opened from arrange mode - see `openDecorShopFromArrange`.
    */
   private openDecorShop(): void {
     this.audio.sfx('tap');
     this.hud.closePanels();
+    this.decorShop.setElevated(false);
+    this.decorShop.toggle(gameState.getState());
+  }
+
+  /**
+   * Shop button handler (T3.16): opens the same Decor Shop the farmhouse tap
+   * does, without leaving arrange mode. Closes the Shed panel first (panel
+   * exclusivity) and elevates the shop's depth above the arrange control row
+   * (`setElevated(true)`) exactly like the Shed panel's own backdrop already
+   * sits above the row - see DecorShop's ELEVATED_* constants - so a tap
+   * outside the shop's body (including on the now-covered row) closes it
+   * instead of reaching through to a control underneath. Purchases land in
+   * the warehouse as usual; closing the shop leaves arrange mode untouched.
+   */
+  private openDecorShopFromArrange(): void {
+    this.audio.sfx('tap');
+    this.hideWarehousePanel();
+    this.decorShop.setElevated(true);
     this.decorShop.toggle(gameState.getState());
   }
 
@@ -1393,6 +1427,7 @@ export class FarmScene extends Phaser.Scene {
     const sprite = this.add
       .image(decoration.x, decoration.y, ATLAS_KEY, decoration.frame)
       .setScale(decoration.scale)
+      .setFlipX(decoration.flip)
       .setDepth(decoration.y);
     sprite.on('pointerdown', () => {
       if (!this.arrangeModeActive) return;
@@ -1423,11 +1458,14 @@ export class FarmScene extends Phaser.Scene {
    * sprite wherever the finger let go.
    */
   private commitDecorationTransform(index: number, sprite: Phaser.GameObjects.Image): void {
+    const current = gameState.getState().decorations[index];
+    if (current === undefined) return;
     const committed = gameState.setDecorationTransform(
       index,
       Math.round(sprite.x),
       Math.round(sprite.y),
       sprite.scale,
+      current.flip,
     );
     if (!committed) return;
     const decoration = gameState.getState().decorations[index];
@@ -1451,12 +1489,49 @@ export class FarmScene extends Phaser.Scene {
     const decoration = gameState.getState().decorations[index];
     if (sprite === undefined || decoration === undefined) return;
     const nextScale = Math.round((decoration.scale + delta) * 100) / 100;
-    if (!gameState.setDecorationTransform(index, decoration.x, decoration.y, nextScale)) return;
+    if (
+      !gameState.setDecorationTransform(
+        index,
+        decoration.x,
+        decoration.y,
+        nextScale,
+        decoration.flip,
+      )
+    )
+      return;
     const updated = gameState.getState().decorations[index];
     if (updated === undefined) return;
     sprite.setScale(updated.scale);
     const shadow = this.decorationShadowSprites[index];
     if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+  }
+
+  /**
+   * Flip button (T3.15): mirrors the selected decoration's facing
+   * (`setFlipX`), persisted through the same transform setter as scale
+   * changes - a no-op with nothing selected, matching the scale buttons.
+   * Ground shadows are symmetric ellipses, so unlike a scale change there is
+   * no shadow geometry to re-derive.
+   */
+  private toggleSelectedDecorationFlip(): void {
+    if (this.selectedDecorationIndex === null) return;
+    const index = this.selectedDecorationIndex;
+    const sprite = this.decorationSprites[index];
+    const decoration = gameState.getState().decorations[index];
+    if (sprite === undefined || decoration === undefined) return;
+    if (
+      !gameState.setDecorationTransform(
+        index,
+        decoration.x,
+        decoration.y,
+        decoration.scale,
+        !decoration.flip,
+      )
+    )
+      return;
+    const updated = gameState.getState().decorations[index];
+    if (updated === undefined) return;
+    sprite.setFlipX(updated.flip);
   }
 
   /**
@@ -1477,8 +1552,10 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Build the floating control row once (T3.9a, extended to 5 buttons in
-   * T3.9b): [Warehouse] [-] [+] [Store] [Done], hidden and inert until
+   * Build the floating control rows once (T3.9a, extended to 5 buttons in
+   * T3.9b, 6 in T3.15, reworked into two rows + a Shop button in T3.16):
+   * row 1 (per-item, needs a selection) - [-] [+] [Flip] [Put Away] - above
+   * row 2 (mode actions) - [Shed] [Shop] [Done]. Hidden and inert until
    * `enterArrangeMode` shows them. Each is a `panel` nineslice sized
    * directly to its own display bounds, so its default interactive hit area
    * already covers that full rectangle - no custom hitArea needed.
@@ -1487,7 +1564,7 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeDoneButton = this.add
       .nineslice(
         ARRANGE_DONE_X,
-        ARRANGE_ROW_Y,
+        ARRANGE_ROW2_Y,
         ATLAS_KEY,
         'panel',
         ARRANGE_DONE_WIDTH,
@@ -1500,7 +1577,7 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(ARRANGE_UI_DEPTH)
       .setVisible(false);
     this.arrangeDoneText = this.add
-      .text(ARRANGE_DONE_X, ARRANGE_ROW_Y, 'Done', ARRANGE_BUTTON_STYLE)
+      .text(ARRANGE_DONE_X, ARRANGE_ROW2_Y, 'Done', ARRANGE_BUTTON_STYLE)
       .setOrigin(0.5)
       .setDepth(ARRANGE_UI_DEPTH + 1)
       .setVisible(false);
@@ -1512,7 +1589,7 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeScaleDownButton = this.add
       .nineslice(
         ARRANGE_SCALE_DOWN_X,
-        ARRANGE_ROW_Y,
+        ARRANGE_ROW1_Y,
         ATLAS_KEY,
         'panel',
         ARRANGE_SCALE_BUTTON_SIZE,
@@ -1525,7 +1602,7 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(ARRANGE_UI_DEPTH)
       .setVisible(false);
     this.arrangeScaleDownText = this.add
-      .text(ARRANGE_SCALE_DOWN_X, ARRANGE_ROW_Y, '-', ARRANGE_SCALE_BUTTON_STYLE)
+      .text(ARRANGE_SCALE_DOWN_X, ARRANGE_ROW1_Y, '-', ARRANGE_SCALE_BUTTON_STYLE)
       .setOrigin(0.5)
       .setDepth(ARRANGE_UI_DEPTH + 1)
       .setVisible(false);
@@ -1537,7 +1614,7 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeScaleUpButton = this.add
       .nineslice(
         ARRANGE_SCALE_UP_X,
-        ARRANGE_ROW_Y,
+        ARRANGE_ROW1_Y,
         ATLAS_KEY,
         'panel',
         ARRANGE_SCALE_BUTTON_SIZE,
@@ -1550,7 +1627,7 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(ARRANGE_UI_DEPTH)
       .setVisible(false);
     this.arrangeScaleUpText = this.add
-      .text(ARRANGE_SCALE_UP_X, ARRANGE_ROW_Y, '+', ARRANGE_SCALE_BUTTON_STYLE)
+      .text(ARRANGE_SCALE_UP_X, ARRANGE_ROW1_Y, '+', ARRANGE_SCALE_BUTTON_STYLE)
       .setOrigin(0.5)
       .setDepth(ARRANGE_UI_DEPTH + 1)
       .setVisible(false);
@@ -1559,13 +1636,38 @@ export class FarmScene extends Phaser.Scene {
       this.scaleSelectedDecoration(DRESSING_SCALE_STEP);
     });
 
-    this.arrangeWarehouseButton = this.add
+    this.arrangeFlipButton = this.add
       .nineslice(
-        ARRANGE_WAREHOUSE_X,
-        ARRANGE_ROW_Y,
+        ARRANGE_FLIP_X,
+        ARRANGE_ROW1_Y,
         ATLAS_KEY,
         'panel',
-        ARRANGE_WAREHOUSE_WIDTH,
+        ARRANGE_FLIP_BUTTON_WIDTH,
+        ARRANGE_ROW_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeFlipText = this.add
+      .text(ARRANGE_FLIP_X, ARRANGE_ROW1_Y, 'Flip', ARRANGE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeFlipButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.toggleSelectedDecorationFlip();
+    });
+
+    this.arrangeWarehouseButton = this.add
+      .nineslice(
+        ARRANGE_SHED_X,
+        ARRANGE_ROW2_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_SHED_WIDTH,
         ARRANGE_ROW_HEIGHT,
         PANEL_SLICE,
         PANEL_SLICE,
@@ -1575,7 +1677,7 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(ARRANGE_UI_DEPTH)
       .setVisible(false);
     this.arrangeWarehouseText = this.add
-      .text(ARRANGE_WAREHOUSE_X, ARRANGE_ROW_Y, 'Warehouse', ARRANGE_BUTTON_STYLE)
+      .text(ARRANGE_SHED_X, ARRANGE_ROW2_Y, 'Shed', ARRANGE_BUTTON_STYLE)
       .setOrigin(0.5)
       .setDepth(ARRANGE_UI_DEPTH + 1)
       .setVisible(false);
@@ -1584,13 +1686,37 @@ export class FarmScene extends Phaser.Scene {
       this.toggleWarehousePanel();
     });
 
-    this.arrangeStoreButton = this.add
+    this.arrangeShopButton = this.add
       .nineslice(
-        ARRANGE_STORE_X,
-        ARRANGE_ROW_Y,
+        ARRANGE_SHOP_X,
+        ARRANGE_ROW2_Y,
         ATLAS_KEY,
         'panel',
-        ARRANGE_STORE_WIDTH,
+        ARRANGE_SHOP_WIDTH,
+        ARRANGE_ROW_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(ARRANGE_UI_DEPTH)
+      .setVisible(false);
+    this.arrangeShopText = this.add
+      .text(ARRANGE_SHOP_X, ARRANGE_ROW2_Y, 'Shop', ARRANGE_BUTTON_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    this.arrangeShopButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.openDecorShopFromArrange();
+    });
+
+    this.arrangeStoreButton = this.add
+      .nineslice(
+        ARRANGE_PUT_AWAY_X,
+        ARRANGE_ROW1_Y,
+        ATLAS_KEY,
+        'panel',
+        ARRANGE_PUT_AWAY_WIDTH,
         ARRANGE_ROW_HEIGHT,
         PANEL_SLICE,
         PANEL_SLICE,
@@ -1600,7 +1726,7 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(ARRANGE_UI_DEPTH)
       .setVisible(false);
     this.arrangeStoreText = this.add
-      .text(ARRANGE_STORE_X, ARRANGE_ROW_Y, 'Store', ARRANGE_BUTTON_STYLE)
+      .text(ARRANGE_PUT_AWAY_X, ARRANGE_ROW1_Y, 'Put Away', ARRANGE_BUTTON_STYLE)
       .setOrigin(0.5)
       .setDepth(ARRANGE_UI_DEPTH + 1)
       .setVisible(false);
@@ -1625,7 +1751,9 @@ export class FarmScene extends Phaser.Scene {
       [this.arrangeDoneButton, this.arrangeDoneText],
       [this.arrangeScaleDownButton, this.arrangeScaleDownText],
       [this.arrangeScaleUpButton, this.arrangeScaleUpText],
+      [this.arrangeFlipButton, this.arrangeFlipText],
       [this.arrangeWarehouseButton, this.arrangeWarehouseText],
+      [this.arrangeShopButton, this.arrangeShopText],
     ];
     for (const [button, label] of controls) {
       button.setVisible(visible);
@@ -1708,7 +1836,9 @@ export class FarmScene extends Phaser.Scene {
       this.arrangeDoneButton,
       this.arrangeScaleDownButton,
       this.arrangeScaleUpButton,
+      this.arrangeFlipButton,
       this.arrangeWarehouseButton,
+      this.arrangeShopButton,
       this.arrangeStoreButton,
     ];
   }
@@ -1810,9 +1940,7 @@ export class FarmScene extends Phaser.Scene {
         event: Phaser.Types.Input.EventData,
       ) => event.stopPropagation(),
     );
-    const title = this.add
-      .text(0, WAREHOUSE_TITLE_Y, 'Warehouse', WAREHOUSE_TITLE_STYLE)
-      .setOrigin(0.5);
+    const title = this.add.text(0, WAREHOUSE_TITLE_Y, 'Shed', WAREHOUSE_TITLE_STYLE).setOrigin(0.5);
     this.warehouseCloseButton = this.add
       .text(WAREHOUSE_CLOSE_OFFSET_X, WAREHOUSE_CLOSE_OFFSET_Y, 'X', WAREHOUSE_CLOSE_STYLE)
       .setOrigin(0.5)
