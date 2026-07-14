@@ -1,18 +1,17 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (T3.17 done; T3.19 weekly numbers awaiting owner approval)
-**Schema:** v14 · **Tests:** 311 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** PLAYTEST GATE - RUNNING (T3.17+T3.19 done; owner user-test -> combined commit)
+**Schema:** v15 · **Tests:** 325 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
-- **T3.17 save/trophy integrity DONE** - PM review passed (via the diff-file channel, see decisions), verdict COMMIT issued 2026-07-14 with the PM-direct .prettierignore fix (AGENTS.md ignored, lint green). The trophy save-wipe P0 closes when the commit lands. Commit strategy changed: each green task commits alone (see decisions).
-- **T3.19 weekly quests v1.1 is next** - all design decided; CONCRETE TARGET NUMBERS proposed to owner, awaiting yes/tweak before the prompt goes out: Specialist adds Dewmelon 5 / Sagesprig 3; Growing Strong becomes level-scaled with the target snapshot at week start (schema v15), L1-L8 = 240/240/400/600/900/1300/1900/2800; Trader and Radiance unchanged.
+- **T3.17 + T3.19 DONE in PM review** - both ship as ONE combined commit (T3.17 was never committed separately; they share gameState.ts - see decisions). T3.19 verdict: USER TEST (3-min script: banking notice, chest-after-notice ordering, silent rotation), owner commits directly on pass. The trophy save-wipe P0 closes when the commit lands. Weekly numbers owner-approved 2026-07-14: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot (schema v15) L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. T3.19 prompt (once numbers blessed) -> coder -> T3.18 trophy shelf
+1. Owner user-test + combined T3.17+T3.19 commit -> then T3.18 trophy shelf prompt
 2. T3.20 / T3.21 / T3.22 / CI gate (T3.20 after T3.19 commits - shares gameState.ts; CI = deploy.yml only, anytime); T3.23 when the owner picks its timing (PM recommends with the P2 batch)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).
@@ -25,7 +24,6 @@
 
 ## Waiting on user (whenever convenient)
 
-- Approve or tweak the T3.19 weekly numbers (Active, bullet 2)
 - Approve or reject the T4.2 "one complete vertical chain first" sequencing PROPOSAL (roadmap, Phase 4) - not covered by the cut blessing
 - Collect the tester brief answers after 2-3 days (not day one); the voluntary-return signal is the key metric
 - Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (stale git-lock artifact + the T3.17 review diff)
