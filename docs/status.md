@@ -1,20 +1,19 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (review repair cut BLESSED; T3.17 is next)
-**Schema:** v14 · **Tests:** 305 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** PLAYTEST GATE - RUNNING (T3.17 done; T3.19 weekly numbers awaiting owner approval)
+**Schema:** v14 · **Tests:** 311 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
-- **P0 OPEN (fix first): a trophy claim while placed+warehoused decor sits at the 30 cap saves a state that fails validation, and the next launch resets the farm.** Code-verified 2026-07-14 (see decisions). Reachability is mechanical: any claimable trophy long quest + 30 owned decorations. Interim guard: export the save before long sessions; don't claim trophy quests at or near the cap.
-- **Repair cut BLESSED (owner, 2026-07-14):** T3.17 save/trophy integrity -> T3.19 weekly quests v1.1 -> T3.18 trophy shelf (shared files; likely one combined commit), then T3.20/T3.21/T3.22 + CI test+lint gate sequenced to avoid file conflicts (T3.20 after the integrity commit - shares gameState.ts; CI = deploy.yml only, anytime). T3.23 kept separate, timing open (PM recommends with the P2 batch). PM writes the T3.17 prompt next.
-- Rollover decision (owner): completed-unclaimed weeklies AUTO-GRANT before reset + queued notice; no inbox. Weekly recalibration approach approved; CONCRETE NUMBERS NOT YET APPROVED - proposed in the T3.19 prompt for explicit sign-off.
+- **T3.17 save/trophy integrity DONE** - PM review passed (via the diff-file channel, see decisions), verdict COMMIT issued 2026-07-14 with the PM-direct .prettierignore fix (AGENTS.md ignored, lint green). The trophy save-wipe P0 closes when the commit lands. Commit strategy changed: each green task commits alone (see decisions).
+- **T3.19 weekly quests v1.1 is next** - all design decided; CONCRETE TARGET NUMBERS proposed to owner, awaiting yes/tweak before the prompt goes out: Specialist adds Dewmelon 5 / Sagesprig 3; Growing Strong becomes level-scaled with the target snapshot at week start (schema v15), L1-L8 = 240/240/400/600/900/1300/1900/2800; Trader and Radiance unchanged.
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. T3.17 prompt (PM, now) -> coder -> T3.19 -> T3.18
-2. T3.20 / T3.21 / T3.22 / CI gate (file-conflict-aware order above); T3.23 when the owner picks its timing
+1. T3.19 prompt (once numbers blessed) -> coder -> T3.18 trophy shelf
+2. T3.20 / T3.21 / T3.22 / CI gate (T3.20 after T3.19 commits - shares gameState.ts; CI = deploy.yml only, anytime); T3.23 when the owner picks its timing (PM recommends with the P2 batch)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
@@ -26,9 +25,10 @@
 
 ## Waiting on user (whenever convenient)
 
+- Approve or tweak the T3.19 weekly numbers (Active, bullet 2)
 - Approve or reject the T4.2 "one complete vertical chain first" sequencing PROPOSAL (roadmap, Phase 4) - not covered by the cut blessing
 - Collect the tester brief answers after 2-3 days (not day one); the voluntary-return signal is the key metric
-- Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (holds only the stale git-index.lock artifact)
+- Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (stale git-lock artifact + the T3.17 review diff)
 
 ## Staged future assets (tools/art-staging, NOT packed - owner picks 2026-07-13)
 
@@ -51,16 +51,15 @@
 
 ## Watch items
 
-- P0 trophy/save wipe open until T3.17 lands (interim guard in Active).
 - Broader save durability stays open after T3.17 (T3.17 is corruption recovery only): browser eviction + cross-device loss wait for later save work (T7.4 era).
-- PM environment: never run git through the device VM (a read-only status created a stale .git/index.lock; artifact now in _to_delete/), and never trust VM-mount reads of fresh writes - they clip to old byte lengths; verify via desktop-app stage/list reads (same failure class as the 2026-07-10 mount lesson).
+- PM environment (two stale-read incidents 2026-07-14): never run git through the device VM; never trust VM-mount reads or same-path restages of fresh writes. Standing review channel for fresh coder work: owner runs `git diff > _to_delete\tNNN-review.diff`, PM stages the new path.
 
 ## Standing notes
 
 - PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md after every report/decision.
 - Every task prompt carries a model recommendation (Fable5/Opus vs Sonnet) and a session marking; /clear is the default.
-- Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; tasks sharing files get one combined commit.
-- PM reviews fresh coder work via direct Reads only (sandbox mount corrupts fresh writes - see decisions 2026-07-10 audit entry).
+- Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; each green task commits alone (2026-07-14; combined commits only when an intermediate tree would be broken).
+- PM reviews fresh coder work via the owner-generated diff file (see Watch items); direct Reads only for files not freshly written.
 - Coder sessions may leave dev servers on 5177 - kill before starting your own.
 - Close stray game tabs during coder sessions (two-tab autosave overwrite).
 - Atlas regen script: `npm run pack:atlas`.
