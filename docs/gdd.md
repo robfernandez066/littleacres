@@ -175,6 +175,7 @@ More plots -> machines -> storage -> land expansion -> decorations.
 - First 30 minutes: player should never wait more than ~60 seconds with nothing to do.
 - Every unlock should be visible slightly before it's affordable (anticipation).
 - Storage caps (when introduced) should pinch gently ~1-2 sessions before an affordable upgrade.
+- Weekly quests should be sized as a week of ordinary check-ins (roughly 6-10 sessions) for the player's tier - never clearable by one field or one sitting (principle owner-approved 2026-07-14; concrete targets are proposed in the T3.19 prompt and need explicit approval).
 
 ---
 
@@ -267,6 +268,7 @@ Included: paint-planting, sweep-harvesting, coins, crop inventory, seed shop, or
 ## 11a. Parked future concepts
 
 - **Mine scene** (2026-07-10): daily rapid-mine mini-game (unfailable, juice-driven, participation-rewarded per pillar 2 and the avoided-verbs list), mine XP/levels, random material drops, AFK yields scaling with mine level + rare-material odds. Materials feed the building/tool upgrade gates in section 6. Daily cadence is bonus-only - no streaks, no FOMO. Post-Phase-6 candidate; details in roadmap "Parked concepts."
+- **Bonus-framed daily goals** (approved future direction, owner 2026-07-14; earliest post-wave-3): a small set of flexible daily goals as a return hook. Hard rules per the pillars: no streak-reset punishment, no loss for missing a day, never mandatory, no FOMO-exclusive progression; prefer carryover, catch-up, or rested bonuses. The MVP's "daily events" exclusion (section 10) was Phase 1 scope, not a permanent ban - it stands as history. Design-only for now; explicitly NOT part of the 2026-07-14 integrity cut.
 
 ## 12. Open Questions (for future rounds)
 
