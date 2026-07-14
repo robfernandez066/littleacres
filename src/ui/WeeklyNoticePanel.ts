@@ -12,7 +12,11 @@ import { ModalBackdrop } from './ModalBackdrop';
  * anything itself - the rewards are already in state by the time the scene
  * shows this (see `GameStateStore.ensureWeeklyQuests`); the panel is pure
  * display, like the chest ceremony. Follows the OfflineSummaryPanel structure
- * (nineslice, backdrop, tap-outside closes, one confirm button).
+ * (nineslice, backdrop, one confirm button) with one deliberate difference:
+ * tapping outside does NOT close it (owner playtest call, 2026-07-14 - too
+ * easy to dismiss without reading). The backdrop only swallows input; the
+ * notice is a read-and-confirm moment (T3.14 convention) dismissed solely by
+ * its "Got it" button.
  */
 
 const PANEL_WIDTH = 900;
@@ -83,7 +87,10 @@ export class WeeklyNoticePanel {
     private readonly audio: AudioManager,
   ) {
     this.scene = scene;
-    this.backdrop = new ModalBackdrop(scene, () => this.hide());
+    // Swallow-only backdrop: a no-op onTap means taps outside the panel are
+    // eaten but never dismiss it - dismiss is the "Got it" button alone
+    // (owner playtest call, 2026-07-14).
+    this.backdrop = new ModalBackdrop(scene, () => undefined);
     this.container = scene.add
       .container(PANEL_CENTER_X, PANEL_CENTER_Y)
       .setDepth(PANEL_DEPTH)

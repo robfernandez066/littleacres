@@ -1,17 +1,18 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (T3.17+T3.19 done; owner user-test -> combined commit)
+**Phase:** PLAYTEST GATE - RUNNING (P0 closed; T3.18 in flight)
 **Schema:** v15 · **Tests:** 325 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
-- **T3.17 + T3.19 DONE in PM review** - both ship as ONE combined commit (T3.17 was never committed separately; they share gameState.ts - see decisions). T3.19 verdict: USER TEST (3-min script: banking notice, chest-after-notice ordering, silent rotation), owner commits directly on pass. The trophy save-wipe P0 closes when the commit lands. Weekly numbers owner-approved 2026-07-14: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot (schema v15) L1-L8 = 240/240/400/600/900/1300/1900/2800.
+- **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed with one modification: the weekly notice is now button-only dismiss (PM-direct WeeklyNoticePanel fix in the tree; owner runs trio + 30s re-check + commits). Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
+- **T3.18 trophy shelf prompt issued** (Sonnet, fresh session) - TROPHY_ITEMS names, Shed 2x8 dynamic grid, gold trophy accent.
 - Gate context: tester playing since 2026-07-13; T3.12-T3.16 committed + pushed; brief answers + retention signal pending. One-tester results are directional evidence, not broad player validation.
 
 ## Queue
 
-1. Owner user-test + combined T3.17+T3.19 commit -> then T3.18 trophy shelf prompt
+1. Owner: trio + re-check + commit the notice-panel fix -> paste T3.18 to the coder
 2. T3.20 / T3.21 / T3.22 / CI gate (T3.20 after T3.19 commits - shares gameState.ts; CI = deploy.yml only, anytime); T3.23 when the owner picks its timing (PM recommends with the P2 batch)
 3. Gate wrap-up: tester brief answers + voluntary-return signal
 4. Wave 3 cut (owner decision at gate wrap): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 before it can be scheduled). Reward-only Mine v1 DROPPED (owner, 2026-07-14).
