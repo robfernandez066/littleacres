@@ -1,5 +1,9 @@
 import Phaser from 'phaser';
 
+import ambientMp3Url from '../../assets/audio/ambient.mp3?url';
+import musicAndriigMp3Url from '../../assets/audio/music_andriig.mp3?url';
+import musicGeoffharveyMp3Url from '../../assets/audio/music_geoffharvey.mp3?url';
+import musicMfccMp3Url from '../../assets/audio/music_mfcc.mp3?url';
 import {
   ATLAS_KEY,
   DESIGN_HEIGHT,
@@ -28,6 +32,7 @@ import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } fr
 import { DECOR_ITEMS, TROPHY_ITEMS } from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
+import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
 import {
@@ -64,6 +69,24 @@ import { WeeklyNoticePanel } from '../ui/WeeklyNoticePanel';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
 const BACKGROUND_COLOR = 0x55913f;
+
+/**
+ * Loader key -> fingerprinted URL for the background-loaded playlist tracks
+ * (T3.21) - kept out of Preload so the ~15.8MB of music/ambient never blocks
+ * first paint; queued on this scene's own loader in `create`. Keys line up
+ * with MUSIC_TRACKS entries.
+ */
+const MUSIC_ASSET_URLS: Record<string, string> = {
+  music_andriig: musicAndriigMp3Url,
+  music_geoffharvey: musicGeoffharveyMp3Url,
+  music_mfcc: musicMfccMp3Url,
+};
+
+/** The four background-loaded audio files: the playlist tracks plus the ambient bed. */
+const BACKGROUND_AUDIO_ASSETS: { key: string; url: string }[] = [
+  ...MUSIC_TRACKS.map((track) => ({ key: track.key, url: MUSIC_ASSET_URLS[track.key]! })),
+  { key: AMBIENT_KEY, url: ambientMp3Url },
+];
 
 /**
  * Tile sprite origin: x centered, y at the diamond top face's center - the
@@ -633,10 +656,21 @@ export class FarmScene extends Phaser.Scene {
     this.createDirtPath();
     this.createSceneDressing();
     this.buildPlotVisuals();
-    // Before any UI that plays sounds; startMusic self-defers until the
-    // sound system unlocks on the first user gesture.
+    // Audio is background-loaded (T3.21): the playlist + ambient bed are
+    // queued on this scene's own loader rather than blocking Preload, so the
+    // farm is playable before the ~15.8MB of music finishes downloading.
+    // startMusic() fires once the load completes and still self-defers on
+    // autoplay lock (Phaser's `unlocked` event) exactly as before; a failed
+    // download is logged and otherwise harmless.
     this.audio = new AudioManager(this);
-    this.audio.startMusic();
+    for (const asset of BACKGROUND_AUDIO_ASSETS) {
+      this.load.audio(asset.key, asset.url);
+    }
+    this.load.once(Phaser.Loader.Events.COMPLETE, () => this.audio.startMusic());
+    this.load.on(Phaser.Loader.Events.FILE_LOAD_ERROR, (file: Phaser.Loader.File) => {
+      console.warn(`Background audio load failed: ${file.key}`);
+    });
+    this.load.start();
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
     this.coinArc = new CoinArc(this);

@@ -362,6 +362,11 @@ export class AudioManager {
    * the setting, so muting before the first gesture still wins.
    */
   startMusic(): void {
+    // Playlist tracks + ambient are background-loaded since T3.21; while any
+    // are still downloading this no-ops, and FarmScene's loader COMPLETE
+    // handler re-invokes startMusic once they're all in the cache.
+    const audioKeys = [...MUSIC_TRACKS.map((track) => track.key), AMBIENT_KEY];
+    if (audioKeys.some((key) => !this.scene.cache.audio.has(key))) return;
     const settings = gameState.getState().settings;
     if (!settings.musicOn) return;
     if (this.scene.sound.locked) {

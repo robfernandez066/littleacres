@@ -4,7 +4,6 @@ import atlasJsonUrl from '../../assets/atlas.json?url';
 import atlasPngUrl from '../../assets/atlas.png';
 import grassTextureAUrl from '../../assets/grass_texture_a.png';
 import grassTextureBUrl from '../../assets/grass_texture_b.png';
-import ambientMp3Url from '../../assets/audio/ambient.mp3?url';
 import bagpopMp3Url from '../../assets/audio/bagpop.mp3?url';
 import coinMp3Url from '../../assets/audio/coin.mp3?url';
 import confirmMp3Url from '../../assets/audio/confirm.mp3?url';
@@ -12,9 +11,6 @@ import expandMp3Url from '../../assets/audio/expand.mp3?url';
 import fanfareOggUrl from '../../assets/audio/fanfare.ogg?url';
 import harvestMp3Url from '../../assets/audio/harvest.mp3?url';
 import levelupOggUrl from '../../assets/audio/levelup.ogg?url';
-import musicAndriigMp3Url from '../../assets/audio/music_andriig.mp3?url';
-import musicGeoffharveyMp3Url from '../../assets/audio/music_geoffharvey.mp3?url';
-import musicMfccMp3Url from '../../assets/audio/music_mfcc.mp3?url';
 import plantMp3Url from '../../assets/audio/plant.mp3?url';
 import radiantMp3Url from '../../assets/audio/radiant.mp3?url';
 import tapOggUrl from '../../assets/audio/tap.ogg?url';
@@ -25,7 +21,7 @@ import {
   GROUND_TEXTURE_A_KEY,
   GROUND_TEXTURE_B_KEY,
 } from '../config';
-import { AMBIENT_KEY, type SfxKey } from '../data/audio';
+import { type SfxKey } from '../data/audio';
 
 /** Loader key -> fingerprinted URL for the ten one-shot effects. */
 const SFX_URLS: Record<SfxKey, string> = {
@@ -48,13 +44,6 @@ const TEXT_COLOR = '#2e4a1f';
 const BAR_WIDTH = 560;
 const BAR_HEIGHT = 28;
 const BAR_PADDING = 4;
-
-/** Loader key + fingerprinted URL for each of the three playlist tracks. */
-const MUSIC_ASSETS: { key: string; url: string }[] = [
-  { key: 'music_andriig', url: musicAndriigMp3Url },
-  { key: 'music_geoffharvey', url: musicGeoffharveyMp3Url },
-  { key: 'music_mfcc', url: musicMfccMp3Url },
-];
 
 /**
  * Loads the texture atlas and shows a centered progress bar driven by the
@@ -102,10 +91,6 @@ export class PreloadScene extends Phaser.Scene {
     for (const [key, url] of Object.entries(SFX_URLS)) {
       this.load.audio(key, url);
     }
-    for (const asset of MUSIC_ASSETS) {
-      this.load.audio(asset.key, asset.url);
-    }
-    this.load.audio(AMBIENT_KEY, ambientMp3Url);
   }
 
   create(): void {
