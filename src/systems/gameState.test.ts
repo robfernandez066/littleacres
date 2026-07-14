@@ -25,8 +25,16 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
-import { LONG_QUESTS, WEEKLY_QUESTS, WEEK_MS } from '../data/quests';
 import {
+  GROWTH_TARGETS_BY_LEVEL,
+  growthTargetForLevel,
+  LONG_QUESTS,
+  WEEKLY_QUESTS,
+  WEEK_MS,
+} from '../data/quests';
+import { TROPHY_FRAMES } from '../data/decor';
+import {
+  BACKUP_KEY,
   createDefaultState,
   type GameStateData,
   GameStateStore,
@@ -35,6 +43,7 @@ import {
   type Migration,
   type PlotState,
   PLOT_COUNT,
+  RECOVERY_KEY,
   SAVE_KEY,
   type SaveStorage,
 } from './gameState';
@@ -283,6 +292,64 @@ describe('corrupt or invalid saves', () => {
   });
 });
 
+describe('backup and recovery slots (T3.17)', () => {
+  it('a successful load writes BACKUP_KEY, and its contents parse and validate at the current version', () => {
+    const storage = makeStorage();
+    const original = new GameStateStore({ storage });
+    completeOnboarding(original);
+    original.addCoins(123);
+    original.save();
+
+    const store = new GameStateStore({ storage });
+    store.load();
+    const backupRaw = storage.data.get(BACKUP_KEY);
+    expect(backupRaw).toBeDefined();
+    const backup = JSON.parse(backupRaw!) as GameStateData;
+    expect(isValidState(backup, store.currentVersion)).toBe(true);
+    expect(backup.coins).toBe(50 + 123);
+  });
+
+  it('recovers from BACKUP_KEY when SAVE_KEY is corrupt: backup state loads, SAVE_KEY is rewritten, RECOVERY_KEY stashes the original', () => {
+    const storage = makeStorage();
+    const original = new GameStateStore({ storage });
+    completeOnboarding(original);
+    original.addCoins(500);
+    original.save();
+    const warmup = new GameStateStore({ storage });
+    warmup.load(); // a good load populates BACKUP_KEY
+    expect(storage.data.has(BACKUP_KEY)).toBe(true);
+
+    storage.data.set(SAVE_KEY, 'not json');
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().coins).toBe(50 + 500);
+    expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
+    const rewritten = JSON.parse(storage.data.get(SAVE_KEY)!) as GameStateData;
+    expect(rewritten.coins).toBe(50 + 500);
+    expect(console.warn).toHaveBeenCalled();
+  });
+
+  it('double failure (corrupt save, invalid backup): fresh default state, RECOVERY_KEY still holds the corrupt string after the reset', () => {
+    const storage = makeStorage({ [SAVE_KEY]: 'not json', [BACKUP_KEY]: 'also broken{{' });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().coins).toBe(50);
+    expect(store.getState().plots).toHaveLength(PLOT_COUNT);
+    // The reset overwrote SAVE_KEY with a fresh save but left the stash alone.
+    expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
+    expect(JSON.parse(storage.data.get(SAVE_KEY)!)).toEqual(JSON.parse(store.exportSave()));
+  });
+
+  it('double failure with NO backup: fresh default state, RECOVERY_KEY still stashed', () => {
+    const storage = makeStorage({ [SAVE_KEY]: 'not json' });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().coins).toBe(50);
+    expect(storage.data.has(BACKUP_KEY)).toBe(false);
+    expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
+  });
+});
+
 describe('migrations', () => {
   const v1toV2: Migration = (raw) => ({ ...raw, coins: (raw.coins as number) + 100 });
 
@@ -323,7 +390,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(13);
+    expect(MIGRATIONS).toHaveLength(14);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -334,7 +401,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(14);
+    expect(state.version).toBe(15);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -357,7 +424,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(14);
+    expect(state.version).toBe(15);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -367,8 +434,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(14);
-    expect(store.getState().version).toBe(14);
+    expect(store.currentVersion).toBe(15);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -404,7 +471,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -448,7 +515,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -488,7 +555,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -576,7 +643,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(14);
+    expect(state.version).toBe(15);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -606,7 +673,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -640,7 +707,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -681,7 +748,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -696,7 +763,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -733,11 +800,14 @@ describe('decorations and warehouse validation and round-trip', () => {
 
     const tooMany = {
       ...base,
+      // flip present so this genuinely trips the cap check, which now runs
+      // after the per-entry shape check (T3.17).
       decorations: Array.from({ length: 31 }, () => ({
         frame: 'decor_bench',
         x: 0,
         y: 0,
         scale: 1,
+        flip: false,
       })),
     };
     expect(isValidState(tooMany, 12)).toBe(false);
@@ -752,7 +822,7 @@ describe('decorations and warehouse validation and round-trip', () => {
     expect(isValidState({ ...base, warehouse: 'nope' }, 12)).toBe(false);
   });
 
-  it('rejects when placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
+  it('rejects when purchasable placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
     const base = createDefaultState(12);
     const combined = {
       ...base,
@@ -768,6 +838,40 @@ describe('decorations and warehouse validation and round-trip', () => {
     expect(isValidState(combined, 12)).toBe(false);
     combined.warehouse = { decor_fence: 10 };
     expect(isValidState(combined, 12)).toBe(true);
+  });
+
+  it('exempts trophies from the cap: 30 purchasable + all 5 trophies (mixed placed/warehoused) validates, 31 purchasable does not', () => {
+    const base = createDefaultState(12);
+    const placement = (frame: string) => ({ frame, x: 0, y: 0, scale: 1, flip: false });
+    const atCapWithTrophies = {
+      ...base,
+      // 20 purchasable placed + 2 trophies placed...
+      decorations: [
+        ...Array.from({ length: 20 }, () => placement('decor_bench')),
+        placement('trophy_goldscarecrow'),
+        placement('trophy_starbanner'),
+      ],
+      // ...10 purchasable warehoused + 3 trophies warehoused = 30 purchasable, 5 trophies.
+      warehouse: {
+        decor_fence: 10,
+        trophy_moonwell: 1,
+        trophy_traderscart: 1,
+        trophy_ancientoak: 1,
+      },
+    };
+    expect(isValidState(atCapWithTrophies, 12)).toBe(true);
+
+    // One purchasable over the cap fails, whichever side it lands on.
+    const extraWarehoused = {
+      ...atCapWithTrophies,
+      warehouse: { ...atCapWithTrophies.warehouse, decor_fence: 11 },
+    };
+    expect(isValidState(extraWarehoused, 12)).toBe(false);
+    const extraPlaced = {
+      ...atCapWithTrophies,
+      decorations: [...atCapWithTrophies.decorations, placement('decor_well')],
+    };
+    expect(isValidState(extraPlaced, 12)).toBe(false);
   });
 });
 
@@ -831,7 +935,7 @@ describe('buyDecoration', () => {
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 
-  it('fails at MAX_DECORATIONS (placed + warehoused combined), without mutation', () => {
+  it('fails at MAX_DECORATIONS purchasable (placed + warehoused combined), without mutation', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     store.addCoins(1_000_000);
@@ -842,6 +946,23 @@ describe('buyDecoration', () => {
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.buyDecoration('decor_fence')).toBe(false);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('ignores trophies for the cap: buys at 29 purchasable + all 5 trophies, fails at 30 purchasable', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1_000_000);
+    for (const frame of TROPHY_FRAMES) {
+      store.getState().warehouse[frame] = 1;
+    }
+    for (let i = 0; i < 29; i++) {
+      expect(store.buyDecoration('decor_fence')).toBe(true);
+    }
+    // 29 purchasable + 5 trophies: the trophies do not consume shop capacity.
+    expect(store.buyDecoration('decor_fence')).toBe(true);
+    // 30 purchasable: at the cap regardless of trophies.
+    expect(store.buyDecoration('decor_fence')).toBe(false);
+    expect(store.getState().warehouse.decor_fence).toBe(30);
   });
 
   it('counts placed decorations toward the same cap as warehoused ones', () => {
@@ -2540,7 +2661,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(14);
+    const saved = createDefaultState(15);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -2848,7 +2969,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(14);
+    expect(state.version).toBe(15);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -2875,7 +2996,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -2904,7 +3025,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -2935,7 +3056,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -2949,8 +3070,39 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(14);
+    expect(store.getState().version).toBe(15);
     expect(store.getState().decorations).toEqual([]);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)', () => {
+  it('a v14 save (no growthTarget field) gains the snapshot matching its level and migrates through to current', () => {
+    const saved = createDefaultState(15) as unknown as Record<string, unknown>;
+    saved.version = 14;
+    saved.level = 5;
+    const weekly = (saved.quests as Record<string, unknown>).weekly as Record<string, unknown>;
+    delete weekly.growthTarget; // a genuine v14 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(15);
+    expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a full-chain migration from v10 (no quests field at all) lands valid at 15 with a level-matched target', () => {
+    const saved = createDefaultState(15) as unknown as Record<string, unknown>;
+    saved.version = 10;
+    saved.level = 3;
+    delete saved.quests; // a genuine v10 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
+    // stamped the target from the save's own level.
+    expect(store.getState().version).toBe(15);
+    expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
 });
@@ -2968,6 +3120,7 @@ describe('fresh quests state', () => {
     });
     expect(quests.weekly.activeIds).toEqual([WEEKLY_QUESTS[0]!.id, WEEKLY_QUESTS[1]!.id]);
     expect(quests.weekly.featuredCrop).toBe('sunwheat');
+    expect(quests.weekly.growthTarget).toBe(growthTargetForLevel(1));
     expect(quests.weekly.growMinutes).toBe(0);
     expect(quests.weekly.featuredHarvests).toBe(0);
     expect(quests.weekly.orders).toBe(0);
@@ -3267,6 +3420,7 @@ describe('ensureWeeklyQuests (weekly rotation)', () => {
       anchor: oldAnchor,
       activeIds: ['weekly_trader', 'weekly_radiance'],
       featuredCrop: 'glowberry',
+      growthTarget: growthTargetForLevel(1),
       growMinutes: 123,
       featuredHarvests: 4,
       orders: 12,
@@ -3474,14 +3628,28 @@ describe('claimQuest', () => {
     expect(reloaded.getState().quests.longClaimed).toEqual(['golden_fields']);
   });
 
-  it('a trophy reward bypasses the warehouse MAX_DECORATIONS cap - claim succeeds even at the cap', () => {
+  it('claiming a trophy at the purchasable cap survives a reload - the farm is intact, not reset (T3.17 regression)', () => {
     const saved = completedLongSave('golden_fields');
-    saved.warehouse = { decor_fence: 30 }; // already at MAX_DECORATIONS
+    saved.warehouse = { decor_fence: 30 }; // already at the purchasable cap
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
+    const coinsBefore = store.getState().coins;
+    const levelBefore = store.getState().level;
     expect(store.claimQuest('golden_fields')).toBe(true);
     expect(store.getState().warehouse.trophy_goldscarecrow).toBe(1);
+
+    // The save-destroying bug: this 30-purchasable + 1-trophy save used to
+    // fail validation on the next launch and reset the farm. It must load
+    // intact now.
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    const state = reloaded.getState();
+    expect(state.warehouse.trophy_goldscarecrow).toBe(1);
+    expect(state.warehouse.decor_fence).toBe(30);
+    expect(state.quests.longClaimed).toEqual(['golden_fields']);
+    expect(state.coins).toBe(coinsBefore);
+    expect(state.level).toBe(levelBefore);
   });
 
   it('claims a chests-reward long quest (village_favorite): grants coins/moondust instantly and queues a matching ChestEvent', () => {
@@ -3606,7 +3774,8 @@ describe('claimQuest', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     // Redraw: first pick floor(0.5*4)=2 -> 'weekly_trader'; second pick from
     // the remaining 3 (growth, specialist, radiance), floor(0*3)=0 ->
-    // 'weekly_growth'; featured crop floor(0*5)=0 -> 'sunwheat'.
+    // 'weekly_growth'; featured crop from the level-1 unlocked pool
+    // ([sunwheat] only), floor(0*1)=0 -> 'sunwheat'.
     const store = new GameStateStore({ storage, rng: stubRng(0.5, 0, 0) });
     store.load();
     const weekly = store.getState().quests.weekly;
@@ -3621,5 +3790,210 @@ describe('claimQuest', () => {
     store.getState().quests.weekly.orders = trader.target!;
     expect(store.claimQuest('weekly_trader')).toBe(true);
     expect(store.getState().quests.weekly.claimed).toEqual(['weekly_trader']);
+  });
+});
+
+describe('featured crop draws from unlocked crops only (T3.19)', () => {
+  /**
+   * Force a rollover at `level` with the featured-crop draw fed `r`. No
+   * weekly is complete in the fixture, so the rng calls inside
+   * ensureWeeklyQuests are exactly: 2 id draws, then the featured-crop draw.
+   */
+  function featuredCropAfterRollover(level: number, r: number): CropId {
+    const saved = createDefaultState(12);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.level = level;
+    saved.quests.weekly.anchor = Date.now() - WEEK_MS - 1000;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: stubRng(0, 0, r) });
+    store.load();
+    return store.getState().quests.weekly.featuredCrop;
+  }
+
+  /** rng sweep dense enough to hit every bucket of a 7-crop uniform pick. */
+  const RNG_SWEEP = Array.from({ length: 20 }, (_, i) => i / 20);
+
+  it('at level 3, only sunwheat/starcorn/glowberry can be featured', () => {
+    const drawn = new Set(RNG_SWEEP.map((r) => featuredCropAfterRollover(3, r)));
+    expect([...drawn].sort()).toEqual(['glowberry', 'starcorn', 'sunwheat']);
+  });
+
+  it('at level 8, all 7 crops are possible', () => {
+    const drawn = new Set(RNG_SWEEP.map((r) => featuredCropAfterRollover(8, r)));
+    expect(drawn.size).toBe(Object.keys(CROPS).length);
+  });
+});
+
+describe('weekly_specialist per-crop targets are exhaustive (T3.19)', () => {
+  it('every crop has a positive target; dewmelon is 5, sagesprig is 3', () => {
+    const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
+    for (const cropId of Object.keys(CROPS) as CropId[]) {
+      expect(specialist.perCropTarget![cropId]).toBeGreaterThan(0);
+    }
+    expect(specialist.perCropTarget!.dewmelon).toBe(5);
+    expect(specialist.perCropTarget!.sagesprig).toBe(3);
+  });
+});
+
+describe('growthTargetForLevel (T3.19)', () => {
+  it('matches the owner-approved table exactly for levels 1..8', () => {
+    expect(GROWTH_TARGETS_BY_LEVEL).toEqual([240, 240, 400, 600, 900, 1300, 1900, 2800]);
+    for (let level = 1; level <= 8; level++) {
+      expect(growthTargetForLevel(level)).toBe(GROWTH_TARGETS_BY_LEVEL[level - 1]);
+    }
+  });
+
+  it('clamps below 1 to the first entry and above 8 to the last', () => {
+    expect(growthTargetForLevel(0)).toBe(240);
+    expect(growthTargetForLevel(-3)).toBe(240);
+    expect(growthTargetForLevel(9)).toBe(2800);
+    expect(growthTargetForLevel(99)).toBe(2800);
+  });
+});
+
+describe('growth target snapshot at rollover (T3.19)', () => {
+  /** A completed-onboarding save at `level` whose week has expired. */
+  function expiredSave(level: number): GameStateData {
+    const saved = createDefaultState(12);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.level = level;
+    saved.quests.weekly.anchor = Date.now() - WEEK_MS - 1000;
+    return saved;
+  }
+
+  it('a rollover at level 8 stamps 2800 as the new week growthTarget', () => {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(expiredSave(8)) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().quests.weekly.growthTarget).toBe(2800);
+  });
+
+  it('gaining a level mid-week does not move the active target, and a quest completed before the level-up stays complete', () => {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(expiredSave(3)) });
+    // rng () => 0 redraws activeIds as [weekly_growth, weekly_specialist].
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().quests.weekly.growthTarget).toBe(400);
+    store.getState().quests.weekly.growMinutes = 400;
+    expect(store.questProgress('weekly_growth')).toEqual({
+      current: 400,
+      target: 400,
+      complete: true,
+      claimed: false,
+    });
+
+    store.setLevel(4); // level 4 would mean 600 if the target were re-derived
+    expect(store.questProgress('weekly_growth')).toEqual({
+      current: 400,
+      target: 400,
+      complete: true,
+      claimed: false,
+    });
+  });
+});
+
+describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', () => {
+  /** A completed-onboarding save whose week expired `weeks` weeks ago. */
+  function expiredSave(weeks = 1): GameStateData {
+    const saved = createDefaultState(12);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.quests.weekly.anchor = Date.now() - WEEK_MS * weeks - 1000;
+    return saved;
+  }
+
+  it('grants a completed-unclaimed weekly_trader exactly once and queues one notice naming it and the new quests', () => {
+    const saved = expiredSave();
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = 12; // complete, unclaimed
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // rng () => 0: no rng in the moondust-only grant; redraw picks
+    // [weekly_growth, weekly_specialist] and sunwheat.
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().moondust).toBe(3);
+    expect(store.consumeWeeklyNotices()).toEqual([
+      {
+        granted: [{ name: 'Weekly Trader', chests: 0, moondust: 3 }],
+        newQuestNames: ['Growing Strong', 'Specialist'],
+      },
+    ]);
+    // Exactly once: the anchor advanced, so another pass is a no-op.
+    store.ensureWeeklyQuests();
+    expect(store.getState().moondust).toBe(3);
+    expect(store.consumeWeeklyNotices()).toEqual([]);
+  });
+
+  it('does not re-grant an already-claimed quest, does not grant an incomplete one, and a bare rotation queues no notice', () => {
+    const saved = expiredSave();
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = 12;
+    saved.quests.weekly.claimed = ['weekly_trader']; // already claimed mid-week
+    // weekly_radiance is incomplete (radiants 0/2).
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().moondust).toBe(0);
+    expect(store.consumeChestEvents()).toEqual([]);
+    expect(store.consumeWeeklyNotices()).toEqual([]);
+  });
+
+  it('banks a completed weekly_growth as chest contents instantly, queuing a ChestEvent plus the notice', () => {
+    const saved = expiredSave();
+    saved.quests.weekly.activeIds = ['weekly_growth', 'weekly_radiance'];
+    // Complete against the expired week's own snapshot target.
+    saved.quests.weekly.growMinutes = saved.quests.weekly.growthTarget;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    // grantChests(1) rolls coins (0 -> MIN) then the moondust chance
+    // (1 -> miss); the redraw then consumes the remaining values.
+    const store = new GameStateStore({ storage, rng: stubRng(0, 1, 0, 0, 0) });
+    store.load();
+    expect(store.getState().coins).toBe(50 + CHEST_COINS_MIN);
+    expect(store.consumeChestEvents()).toEqual([
+      { contents: [{ coins: CHEST_COINS_MIN, moondust: 0 }] },
+    ]);
+    const notices = store.consumeWeeklyNotices();
+    expect(notices).toHaveLength(1);
+    expect(notices[0]!.granted).toEqual([{ name: 'Growing Strong', chests: 1, moondust: 0 }]);
+  });
+
+  it('a multi-week gap runs the grant pass once and the anchor catches up in one jump', () => {
+    const saved = expiredSave(4);
+    const oldAnchor = saved.quests.weekly.anchor;
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = 12;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load();
+    expect(store.getState().quests.weekly.anchor).toBe(oldAnchor + WEEK_MS * 4);
+    expect(store.getState().moondust).toBe(3); // once, not once per missed week
+    expect(store.consumeWeeklyNotices()).toHaveLength(1);
+  });
+
+  it('the notice queue is cleared by load() like the other transient queues', () => {
+    const saved = expiredSave();
+    saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
+    saved.quests.weekly.orders = 12;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage, rng: () => 0 });
+    store.load(); // queues one notice via the load-time rollover
+    // A reload clears the un-drained queue first; the already-advanced
+    // anchor queues nothing new.
+    store.load();
+    expect(store.consumeWeeklyNotices()).toEqual([]);
   });
 });

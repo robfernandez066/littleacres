@@ -60,6 +60,7 @@ import { ParticleBurst } from '../ui/ParticleBurst';
 import { QuestBoard } from '../ui/QuestBoard';
 import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
 import { SeedBar } from '../ui/SeedBar';
+import { WeeklyNoticePanel } from '../ui/WeeklyNoticePanel';
 
 /** Slightly darker than the grass tiles so the field reads as raised ground. */
 const BACKGROUND_COLOR = 0x55913f;
@@ -487,6 +488,7 @@ export class FarmScene extends Phaser.Scene {
   private onboardingGuide!: OnboardingGuide;
   private expandSign!: ExpandSign;
   private offlineSummaryPanel!: OfflineSummaryPanel;
+  private weeklyNoticePanel!: WeeklyNoticePanel;
   private audio!: AudioManager;
   private noticeBoardImage!: Phaser.GameObjects.Image;
   private noticeBoardBadge!: Phaser.GameObjects.Text;
@@ -658,6 +660,9 @@ export class FarmScene extends Phaser.Scene {
     // Checked once per scene start, after every other panel/backdrop exists -
     // it blocks field input like any modal, via the same isModalOpen() gate.
     this.offlineSummaryPanel = new OfflineSummaryPanel(this, this.audio);
+    // Weekly rollover notice (T3.19): drained in update(), where it defers
+    // behind the offline summary (via isModalOpen) and the celebrations.
+    this.weeklyNoticePanel = new WeeklyNoticePanel(this, this.audio);
     const offlineSummary = gameState.consumeOfflineSummary();
     if (offlineSummary !== null) this.offlineSummaryPanel.show(offlineSummary);
 
@@ -681,6 +686,9 @@ export class FarmScene extends Phaser.Scene {
     if (this.refreshAccumulatorMs < CROP_REFRESH_INTERVAL_MS) return;
     this.refreshAccumulatorMs = 0;
     gameState.ensureOrders();
+    // Live weekly rollover (T3.19): idempotent and one Date.now() compare
+    // when the week has not turned - safe at this cadence.
+    gameState.ensureWeeklyQuests();
     this.refreshCrops();
     this.seedBar.refresh();
     this.replantChip.refresh(gameState.getState());
@@ -702,12 +710,23 @@ export class FarmScene extends Phaser.Scene {
     this.onboardingGuide.refresh(gameState.getState());
     this.levelUpCelebration.enqueue(gameState.consumeLevelUpEvents());
     if (gameState.consumeTutorialCompleteEvent()) this.levelUpCelebration.enqueueTutorialComplete();
+    // Weekly rollover notice (T3.19), deferred behind the celebrations and
+    // any open modal (isModalOpen covers the offline summary, so the order
+    // on a rollover load is offline summary -> weekly notice -> chests). If
+    // multiple somehow queued, show the first and drop the rest - they
+    // cannot stack in practice.
+    if (!this.levelUpCelebration.isActive() && !this.chestCeremony.isActive() && !isModalOpen()) {
+      const notices = gameState.consumeWeeklyNotices();
+      if (notices.length > 0) this.weeklyNoticePanel.show(notices[0]!);
+    }
     // Chest events (T2.23a) are deferred behind the level-up celebration: a
     // fulfillment that both levels up and earns a chest must show the level
     // celebration first, chest ceremony after - so while it's active, this
     // simply leaves any earned chests queued in the store (their rewards are
     // already granted; only the show waits) rather than draining them here.
-    if (!this.levelUpCelebration.isActive()) {
+    // Also deferred behind the weekly notice panel (T3.19), so rollover
+    // chests ceremony only after the notice is dismissed.
+    if (!this.levelUpCelebration.isActive() && !this.weeklyNoticePanel.isVisible()) {
       this.chestCeremony.enqueue(gameState.consumeChestEvents());
     }
     this.expandSign.refresh(gameState.getState());

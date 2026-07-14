@@ -17,6 +17,7 @@ import {
   DECOR_Y_MIN,
   DECOR_ITEMS,
   MAX_DECORATIONS,
+  purchasableOwnedCount,
   WAREHOUSE_PLACE_X,
   WAREHOUSE_PLACE_Y,
 } from '../data/decor';
@@ -49,6 +50,7 @@ import {
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
 import {
+  growthTargetForLevel,
   type LongQuestCounter,
   LONG_QUESTS,
   type WeeklyQuestDef,
@@ -66,6 +68,16 @@ import { now } from './time';
 
 /** localStorage key. Stable for the life of the project. */
 export const SAVE_KEY = 'littleacres:save';
+
+/** Last-known-good save, refreshed on every successful `load()` (T3.17). */
+export const BACKUP_KEY = 'littleacres:save:backup';
+
+/**
+ * Stash for a SAVE_KEY string that failed to load (T3.17). Written BEFORE the
+ * save is ever overwritten by recovery or reset, so an "invalid" save is
+ * never destroyed - it stays retrievable for debugging or manual repair.
+ */
+export const RECOVERY_KEY = 'littleacres:save:recovery';
 
 /** Autosave cadence. Wall-clock interval, never frame deltas. */
 export const AUTOSAVE_INTERVAL_MS = 10_000;
@@ -198,6 +210,19 @@ export interface ChestEvent {
 }
 
 /**
+ * One weekly rollover's banked rewards, for the scene's notice panel (T3.19):
+ * completed-but-unclaimed weeklies auto-grant at rotation (owner decision; no
+ * inbox), and this event tells the player what was claimed for them plus
+ * which two quests the new week drew. Queued only when at least one reward
+ * was granted - a bare rotation stays silent. Already granted to state by the
+ * time this is queued - the panel is pure display, like `ChestEvent`.
+ */
+export interface WeeklyNoticeEvent {
+  granted: { name: string; chests: number; moondust: number }[];
+  newQuestNames: [string, string];
+}
+
+/**
  * "While you were away" summary, computed once on `load()` from the gap
  * between `lastSavedAt` and the real clock. Transient - never saved, and
  * cleared by `reset`/`importSave` too, since neither represents a return
@@ -241,6 +266,14 @@ export interface QuestsWeeklyState {
   activeIds: string[];
   /** This week's crop for weekly_specialist's per-crop target. */
   featuredCrop: CropId;
+  /**
+   * weekly_growth's target for the current week, snapshot from
+   * `growthTargetForLevel(level)` when the week is drawn (T3.19). A snapshot
+   * deliberately, never re-derived mid-week: leveling up must not raise the
+   * target under a player's feet (un-completing a finished quest is
+   * punishment).
+   */
+  growthTarget: number;
   growMinutes: number;
   featuredHarvests: number;
   orders: number;
@@ -281,7 +314,7 @@ export interface GameStateData {
   orders: OrderSlot[];
   /** Skip-cooldown escalation streak (see `skipOrder`). */
   orderSkips: OrderSkipsState;
-  /** Placed decorations (T3.9); `decorations.length + warehouse total` <= MAX_DECORATIONS. */
+  /** Placed decorations (T3.9); purchasable placed+warehoused <= MAX_DECORATIONS, trophies exempt (T3.17). */
   decorations: DecorationPlacement[];
   /**
    * Owned-but-unplaced decorations (T3.9b): frame -> count. A purchase always
@@ -449,9 +482,15 @@ function drawWeeklyQuestIds(rng: () => number): [string, string] {
   return [first, second];
 }
 
-/** Draw this week's featured crop, uniform over all 5 crops. */
-function drawFeaturedCrop(rng: () => number): CropId {
-  const ids = Object.keys(CROPS) as CropId[];
+/**
+ * Draw this week's featured crop, uniform over the crops unlocked at
+ * `maxLevel` (T3.19 - a locked crop would make an impossible Specialist
+ * week). The default (no filter) exists only for `createDefaultWeeklyState`'s
+ * v10ToV11 migration branch, which deliberately keeps the historical
+ * unfiltered draw so old migration outputs stay stable.
+ */
+function drawFeaturedCrop(rng: () => number, maxLevel = Number.POSITIVE_INFINITY): CropId {
+  const ids = (Object.keys(CROPS) as CropId[]).filter((id) => CROPS[id].unlockLevel <= maxLevel);
   return ids[Math.min(ids.length - 1, Math.floor(rng() * ids.length))]!;
 }
 
@@ -462,9 +501,17 @@ function drawFeaturedCrop(rng: () => number): CropId {
  * than spending rng calls a new player has no game history to justify -
  * `ensureWeeklyQuests` draws for real the first time the week actually rolls
  * over. A migrated save (via `v10ToV11`) already represents real play, so it
- * draws immediately through the passed `rng`.
+ * draws immediately through the passed `rng` - deliberately UNfiltered by
+ * level (see `drawFeaturedCrop`), so old migration outputs stay stable; a
+ * migrated v10 save may keep a locked featured crop until its first real
+ * rollover (accepted, self-heals). `level` (default 1) seeds the
+ * level-scaled weekly_growth target snapshot (T3.19).
  */
-function createDefaultWeeklyState(anchor: number, rng?: () => number): QuestsWeeklyState {
+function createDefaultWeeklyState(
+  anchor: number,
+  rng?: () => number,
+  level = 1,
+): QuestsWeeklyState {
   const [activeIds, featuredCrop]: [[string, string], CropId] =
     rng === undefined
       ? [[WEEKLY_QUESTS[0]!.id, WEEKLY_QUESTS[1]!.id], (Object.keys(CROPS) as CropId[])[0]!]
@@ -473,6 +520,7 @@ function createDefaultWeeklyState(anchor: number, rng?: () => number): QuestsWee
     anchor,
     activeIds: [...activeIds],
     featuredCrop,
+    growthTarget: growthTargetForLevel(level),
     growMinutes: 0,
     featuredHarvests: 0,
     orders: 0,
@@ -538,6 +586,25 @@ const v13ToV14: Migration = (raw) => ({
     : raw.decorations,
 });
 
+/**
+ * v14 -> v15: stamps the level-scaled weekly_growth target snapshot (T3.19)
+ * onto the existing weekly state, from the save's own level - existing saves
+ * pick up their correct target immediately rather than waiting for the next
+ * rotation. Defensive like other migrations: an unexpected shape passes
+ * through untouched for validation to judge.
+ */
+const v14ToV15: Migration = (raw) => {
+  if (!isRecord(raw.quests) || !isRecord(raw.quests.weekly)) return raw;
+  const level = isFiniteNumber(raw.level) ? raw.level : 1;
+  return {
+    ...raw,
+    quests: {
+      ...raw.quests,
+      weekly: { ...raw.quests.weekly, growthTarget: growthTargetForLevel(level) },
+    },
+  };
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -553,6 +620,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v11ToV12,
   v12ToV13,
   v13ToV14,
+  v14ToV15,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -688,11 +756,6 @@ function isWarehouseRecord(value: unknown): value is Record<string, number> {
   );
 }
 
-/** Sum of every warehoused count, for the combined placed+warehoused MAX_DECORATIONS cap. */
-function warehouseTotal(warehouse: Record<string, number>): number {
-  return Object.values(warehouse).reduce((sum, count) => sum + count, 0);
-}
-
 const LONG_QUEST_IDS: ReadonlySet<string> = new Set(LONG_QUESTS.map((quest) => quest.id));
 const WEEKLY_QUEST_IDS: ReadonlySet<string> = new Set(WEEKLY_QUESTS.map((quest) => quest.id));
 
@@ -716,6 +779,7 @@ function isQuestsWeeklyState(value: unknown): value is QuestsWeeklyState {
     value.activeIds.every((id) => typeof id === 'string' && WEEKLY_QUEST_IDS.has(id)) &&
     typeof value.featuredCrop === 'string' &&
     value.featuredCrop in CROPS &&
+    isFiniteNumber(value.growthTarget) &&
     isFiniteNumber(value.growMinutes) &&
     isFiniteNumber(value.featuredHarvests) &&
     isFiniteNumber(value.orders) &&
@@ -766,8 +830,10 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isOrderSkipsState(raw.orderSkips) &&
     isWarehouseRecord(raw.warehouse) &&
     Array.isArray(raw.decorations) &&
-    raw.decorations.length + warehouseTotal(raw.warehouse) <= MAX_DECORATIONS &&
     raw.decorations.every(isDecorationPlacement) &&
+    // Entries are shape-proven above, so their frames are safe to read here.
+    // Purchasable only - trophy frames are exempt from the cap (T3.17).
+    purchasableOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECORATIONS &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
@@ -818,6 +884,8 @@ export class GameStateStore {
   private radiantQueue: RadiantEvent[] = [];
   /** Pending chest ceremonies for the scene to celebrate. Transient - never saved. */
   private chestQueue: ChestEvent[] = [];
+  /** Pending weekly rollover notices (T3.19) for the scene's panel. Transient - never saved. */
+  private weeklyNoticeQueue: WeeklyNoticeEvent[] = [];
   /**
    * One-shot flag for the tutorial-complete celebration. Transient - never
    * saved, and set ONLY by chain completion in `advanceOnboardingStep`, so
@@ -949,6 +1017,18 @@ export class GameStateStore {
   consumeChestEvents(): ChestEvent[] {
     const events = this.chestQueue;
     this.chestQueue = [];
+    return events;
+  }
+
+  /**
+   * Drain and return queued weekly rollover notices (T3.19); the scene polls
+   * this on its refresh tick, deferred behind the offline summary and
+   * celebrations (see FarmScene) - rewards are already granted by then, only
+   * the show waits, same philosophy as `consumeChestEvents`.
+   */
+  consumeWeeklyNotices(): WeeklyNoticeEvent[] {
+    const events = this.weeklyNoticeQueue;
+    this.weeklyNoticeQueue = [];
     return events;
   }
 
@@ -1105,9 +1185,13 @@ export class GameStateStore {
     return true;
   }
 
-  /** Placed count + warehoused count, the shared MAX_DECORATIONS cap (T3.9b). */
-  private totalOwnedDecorations(): number {
-    return this.state.decorations.length + warehouseTotal(this.state.warehouse);
+  /**
+   * Owned purchasable decorations, placed + warehoused - the shared
+   * MAX_DECORATIONS cap (T3.9b, purchasable-only since T3.17). Trophies do
+   * not count, so they never consume shop capacity.
+   */
+  private purchasableOwnedDecorations(): number {
+    return purchasableOwnedCount(this.state.decorations, this.state.warehouse);
   }
 
   /**
@@ -1115,15 +1199,15 @@ export class GameStateStore {
    * deducts its price from the right currency and increments its warehouse
    * count - nothing is placed on the lawn. Returns false without mutating
    * anything if `itemFrame` is not a known `DECOR_ITEMS` frame, the combined
-   * placed+warehoused count is already at MAX_DECORATIONS, the balance is
-   * insufficient, or onboarding is still active (the tutorial has no shop
-   * step).
+   * PURCHASABLE placed+warehoused count is already at MAX_DECORATIONS
+   * (trophies exempt, T3.17), the balance is insufficient, or onboarding is
+   * still active (the tutorial has no shop step).
    */
   buyDecoration(itemFrame: string): boolean {
     if (!this.railsAllow('decor-shop')) return false;
     const item = DECOR_ITEMS.find((candidate) => candidate.frame === itemFrame);
     if (item === undefined) return false;
-    if (this.totalOwnedDecorations() >= MAX_DECORATIONS) return false;
+    if (this.purchasableOwnedDecorations() >= MAX_DECORATIONS) return false;
     const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
     if (balance < item.price) return false;
     if (item.currency === 'coins') this.state.coins -= item.price;
@@ -1221,29 +1305,61 @@ export class GameStateStore {
   /**
    * Roll the weekly quest rotation forward when the real clock has passed
    * `anchor + WEEK_MS`, catching up multiple missed weeks (e.g. a long
-   * offline gap) in one jump rather than looping week by week. Advances
-   * `anchor` by whole weeks, zeroes every weekly counter and `claimed`, and
-   * redraws `activeIds`/`featuredCrop` via the store's rng (ids may repeat
-   * across weeks - only the 2 ids within one week must be distinct). Uses
-   * `Date.now()` deliberately, not the warpable `now()` - a warped game clock
-   * must not skip a week. Called from `load()` and the (future) scene tick,
-   * like `ensureOrders`; idempotent, a cheap no-op when the week hasn't
+   * offline gap) in one jump rather than looping week by week. Before
+   * anything resets, the expired week's completed-but-unclaimed quests
+   * auto-grant their rewards (T3.19, owner decision; no inbox) - judged
+   * against the expired week's own counters and growth-target snapshot, and
+   * run exactly once even across a multi-week gap, since the counters only
+   * ever describe the one expired week. Then advances `anchor` by whole
+   * weeks, redraws `activeIds`/`featuredCrop` (level-filtered) via the
+   * store's rng (ids may repeat across weeks - only the 2 ids within one
+   * week must be distinct), stamps the new week's `growthTarget`, zeroes
+   * every weekly counter and `claimed`, and queues one `WeeklyNoticeEvent`
+   * if anything was granted (a bare rotation stays silent). Uses
+   * `Date.now()` deliberately, not the warpable `now()` - a warped game
+   * clock must not skip a week. Called from `load()`, the FarmScene periodic
+   * tick, and visibility resume (`onVisibilityChange`), like `ensureOrders`;
+   * idempotent, a cheap no-op (one clock compare) when the week hasn't
    * turned over.
    */
   ensureWeeklyQuests(): void {
     const nowMs = Date.now();
     const weekly = this.state.quests.weekly;
     if (nowMs < weekly.anchor + WEEK_MS) return;
+    // Grant pass: the growth target still holds the EXPIRED week's snapshot
+    // here - that is the correct target to judge completion against.
+    const granted: WeeklyNoticeEvent['granted'] = [];
+    for (const id of weekly.activeIds) {
+      const def = WEEKLY_QUESTS.find((quest) => quest.id === id);
+      if (def === undefined || weekly.claimed.includes(id)) continue;
+      const { current, target } = this.weeklyQuestCurrentAndTarget(def);
+      if (current < target) continue;
+      // Weekly rewards are only chests/moondust today; grantQuestReward
+      // queues chest ceremonies via grantChests, and those surfacing after
+      // the rollover is intended.
+      this.grantQuestReward(def.reward);
+      granted.push({
+        name: def.name,
+        chests: def.reward.chests ?? 0,
+        moondust: def.reward.moondust ?? 0,
+      });
+    }
     const weeksElapsed = Math.floor((nowMs - weekly.anchor) / WEEK_MS);
     weekly.anchor += weeksElapsed * WEEK_MS;
     const [a, b] = drawWeeklyQuestIds(this.rng);
     weekly.activeIds = [a, b];
-    weekly.featuredCrop = drawFeaturedCrop(this.rng);
+    weekly.featuredCrop = drawFeaturedCrop(this.rng, this.state.level);
+    weekly.growthTarget = growthTargetForLevel(this.state.level);
     weekly.growMinutes = 0;
     weekly.featuredHarvests = 0;
     weekly.orders = 0;
     weekly.radiants = 0;
     weekly.claimed = [];
+    if (granted.length > 0) {
+      const nameOf = (id: string): string =>
+        WEEKLY_QUESTS.find((quest) => quest.id === id)?.name ?? id;
+      this.weeklyNoticeQueue.push({ granted, newQuestNames: [nameOf(a), nameOf(b)] });
+    }
     this.save();
   }
 
@@ -1266,14 +1382,15 @@ export class GameStateStore {
 
   /**
    * The weekly counter value and target a weekly quest's `counter` refers to.
-   * weekly_specialist's target comes from `perCropTarget[featuredCrop]`
-   * rather than its (absent) flat `target`.
+   * weekly_specialist's target comes from `perCropTarget[featuredCrop]` and
+   * weekly_growth's from the week's stored `growthTarget` snapshot (T3.19),
+   * rather than their (absent) flat `target`.
    */
   private weeklyQuestCurrentAndTarget(def: WeeklyQuestDef): { current: number; target: number } {
     const weekly = this.state.quests.weekly;
     switch (def.counter.kind) {
       case 'growMinutes':
-        return { current: weekly.growMinutes, target: def.target ?? 0 };
+        return { current: weekly.growMinutes, target: weekly.growthTarget };
       case 'featuredHarvests':
         return {
           current: weekly.featuredHarvests,
@@ -1317,12 +1434,13 @@ export class GameStateStore {
   }
 
   /**
-   * Grant a quest's reward: a trophy lands directly in the warehouse with NO
-   * cap check (unlike `buyDecoration`) - trophies are a reward, not a
-   * purchase, so they always fit regardless of MAX_DECORATIONS; chests go
-   * through the existing chest-grant path (`grantChests`: rolled contents,
-   * instant grant, ceremony event queued); moondust is direct. Any subset may
-   * be present (composable rewards).
+   * Grant a quest's reward: a trophy lands directly in the warehouse with no
+   * cap check needed - trophy frames are exempt from the purchasable
+   * MAX_DECORATIONS cap BY DEFINITION (T3.17), so the grant and save
+   * validation agree and this is not a bypass; chests go through the
+   * existing chest-grant path (`grantChests`: rolled contents, instant
+   * grant, ceremony event queued); moondust is direct. Any subset may be
+   * present (composable rewards).
    */
   private grantQuestReward(reward: { trophy?: string; chests?: number; moondust?: number }): void {
     if (reward.trophy !== undefined) {
@@ -1735,13 +1853,16 @@ export class GameStateStore {
 
   /**
    * Load from storage. A missing save means a fresh install and yields a
-   * default state; a corrupt, invalid, or unmigratable save logs a warning
-   * and resets cleanly. Never throws.
+   * default state. A corrupt, invalid, or unmigratable save is NEVER
+   * destroyed (T3.17): the raw string is stashed to RECOVERY_KEY first, then
+   * the last-known-good BACKUP_KEY (refreshed on every successful load) is
+   * tried; only if that also fails does the game reset. Never throws.
    */
   load(): void {
     this.levelUpQueue = [];
     this.radiantQueue = [];
     this.chestQueue = [];
+    this.weeklyNoticeQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     let raw: string | null;
@@ -1756,17 +1877,66 @@ export class GameStateStore {
       return;
     }
     const restored = this.parseAndMigrate(raw);
-    if (restored === null) {
-      console.warn('littleacres: save was corrupt or invalid, starting fresh');
-      this.reset();
+    if (restored !== null) {
+      this.state = restored;
+      this.writeBackup();
+      this.finishLoad();
       return;
     }
-    this.state = restored;
+    // The save failed to parse/migrate/validate. Stash it BEFORE anything
+    // overwrites SAVE_KEY, so the player's data is never destroyed outright.
+    try {
+      this.storage?.setItem(RECOVERY_KEY, raw);
+    } catch {
+      // Best effort - a full/unavailable storage must not block recovery.
+    }
+    const backup = this.readBackup();
+    if (backup !== null) {
+      console.warn(
+        'littleacres: save was corrupt or invalid; recovered from the last good backup ' +
+          `(original save preserved under ${RECOVERY_KEY})`,
+      );
+      this.state = backup;
+      this.save();
+      this.finishLoad();
+      return;
+    }
+    console.warn('littleacres: save was corrupt or invalid, starting fresh');
+    this.reset();
+  }
+
+  /**
+   * Post-load pipeline shared by the normal and backup-recovery paths, so a
+   * recovered state gets clamping, offline summary, level reconcile, and
+   * weekly rollover identically to a normal load.
+   */
+  private finishLoad(): void {
     this.clampFuturePlantedAt();
     this.offlineSummary = this.computeOfflineSummary();
     this.reconcileLevelSilently();
     this.ensureWeeklyQuests();
     this.stepEnteredAt = now();
+  }
+
+  /** Refresh BACKUP_KEY with the current (just-loaded, migrated) state. Never fatal. */
+  private writeBackup(): void {
+    if (this.storage === null) return;
+    try {
+      this.storage.setItem(BACKUP_KEY, JSON.stringify(this.state));
+    } catch {
+      console.warn('littleacres: backup save write failed (storage unavailable or full)');
+    }
+  }
+
+  /** BACKUP_KEY parsed, migrated, and validated - null if missing or invalid. */
+  private readBackup(): GameStateData | null {
+    let raw: string | null;
+    try {
+      raw = this.storage?.getItem(BACKUP_KEY) ?? null;
+    } catch {
+      return null;
+    }
+    return raw === null ? null : this.parseAndMigrate(raw);
   }
 
   /**
@@ -1793,10 +1963,18 @@ export class GameStateStore {
     }
   }
 
-  /** Persist to storage. A failed save never crashes the game. */
+  /**
+   * Persist to storage. A failed save never crashes the game. An in-memory
+   * state that fails validation is warned about but STILL persisted (T3.17) -
+   * blocking the write would silently lose progress, and the load-time
+   * backup/recovery path is the safety net for an invalid save.
+   */
   save(): boolean {
     if (this.storage === null) return false;
     this.state.lastSavedAt = Date.now();
+    if (!isValidState(this.state, this.currentVersion)) {
+      console.warn('littleacres: persisting a state that fails validation');
+    }
     try {
       this.storage.setItem(SAVE_KEY, JSON.stringify(this.state));
       return true;
@@ -1806,11 +1984,16 @@ export class GameStateStore {
     }
   }
 
-  /** Discard the current state for a fresh default one, and persist it. */
+  /**
+   * Discard the current state for a fresh default one, and persist it. Only
+   * SAVE_KEY is written - BACKUP_KEY and RECOVERY_KEY are deliberately left
+   * untouched (T3.17), so a stashed invalid save survives the reset.
+   */
   reset(): void {
     this.levelUpQueue = [];
     this.radiantQueue = [];
     this.chestQueue = [];
+    this.weeklyNoticeQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
@@ -1836,6 +2019,7 @@ export class GameStateStore {
     this.levelUpQueue = [];
     this.radiantQueue = [];
     this.chestQueue = [];
+    this.weeklyNoticeQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;
@@ -1861,7 +2045,13 @@ export class GameStateStore {
   }
 
   private onVisibilityChange = (): void => {
-    if (document.hidden) this.save();
+    if (document.hidden) {
+      this.save();
+    } else {
+      // A resumed PWA rolls the weekly rotation over immediately (T3.19)
+      // rather than waiting for the scene's next tick.
+      this.ensureWeeklyQuests();
+    }
   };
 }
 

@@ -48,13 +48,41 @@ export const DECOR_FRAMES: ReadonlySet<string> = new Set([
   ...TROPHY_FRAMES,
 ]);
 
+/** The shop-purchasable frames - the domain of the MAX_DECORATIONS cap (T3.17). */
+export const PURCHASABLE_FRAMES: ReadonlySet<string> = new Set(
+  DECOR_ITEMS.map((item) => item.frame),
+);
+
 export function findDecorItem(frame: string): DecorItemDef | undefined {
   return DECOR_ITEMS.find((item) => item.frame === frame);
 }
 
 /**
- * Total owned decorations (any frame), the shared cap for the farm's decor
- * clutter - placed and warehoused (T3.9b) COMBINED, checked at purchase.
+ * Owned PURCHASABLE decorations: placed entries whose frame is in
+ * PURCHASABLE_FRAMES plus warehouse counts under PURCHASABLE_FRAMES keys.
+ * Trophy frames never count. This is the ONE shared placed+warehouse count
+ * (T3.17) - save validation, `buyDecoration`, and the Decor Shop all use it,
+ * so the cap can never disagree with the trophy grant path again.
+ */
+export function purchasableOwnedCount(
+  placed: readonly { frame: string }[],
+  warehouse: Record<string, number>,
+): number {
+  let count = 0;
+  for (const placement of placed) {
+    if (PURCHASABLE_FRAMES.has(placement.frame)) count++;
+  }
+  for (const [frame, owned] of Object.entries(warehouse)) {
+    if (PURCHASABLE_FRAMES.has(frame)) count += owned;
+  }
+  return count;
+}
+
+/**
+ * The cap on owned PURCHASABLE decorations - placed and warehoused (T3.9b)
+ * COMBINED, checked at purchase. Trophy frames are exempt (T3.17): quest
+ * trophies are one-time rewards, not purchases, so they never consume shop
+ * capacity and never count toward this cap.
  */
 export const MAX_DECORATIONS = 30;
 

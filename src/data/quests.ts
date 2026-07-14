@@ -118,10 +118,20 @@ export interface WeeklyQuestDef {
   name: string;
   description: string;
   counter: WeeklyQuestCounter;
-  /** Absent only for weekly_specialist, whose target comes from `perCropTarget`. */
+  /**
+   * Absent for weekly_specialist (whose target comes from `perCropTarget`)
+   * and weekly_growth (whose target is level-scaled - see
+   * `GROWTH_TARGETS_BY_LEVEL` - and snapshot into the weekly state when the
+   * week is drawn).
+   */
   target?: number;
-  /** weekly_specialist only: target keyed by the week's featured crop. */
-  perCropTarget?: Partial<Record<CropId, number>>;
+  /**
+   * weekly_specialist only: target keyed by the week's featured crop. When
+   * present it must be exhaustive over every CropId (T3.19 - a partial map's
+   * "?? 0" fallback made missing crops' weeks complete instantly at 0/0), so
+   * the compiler forces an entry for every future crop.
+   */
+  perCropTarget?: Record<CropId, number>;
   reward: QuestReward;
   /**
    * Short noun phrase for the counted thing (T3.10b, mirrors `LongQuestDef`).
@@ -141,9 +151,9 @@ export const WEEKLY_QUESTS: readonly WeeklyQuestDef[] = [
   {
     id: 'weekly_growth',
     name: 'Growing Strong',
-    description: 'Harvest 400 minutes worth of growing time this week.',
+    description:
+      'Harvest minutes of growing time this week. The target grows with your farm level.',
     counter: { kind: 'growMinutes' },
-    target: 400,
     reward: { chests: 1 },
     progressLabel: 'Minutes of growth harvested',
   },
@@ -158,6 +168,8 @@ export const WEEKLY_QUESTS: readonly WeeklyQuestDef[] = [
       glowberry: 15,
       moonroot: 12,
       emberpepper: 8,
+      dewmelon: 5,
+      sagesprig: 3,
     },
     reward: { chests: 1, moondust: 2 },
     progressLabel: 'Featured crop harvested',
@@ -184,6 +196,23 @@ export const WEEKLY_QUESTS: readonly WeeklyQuestDef[] = [
 
 /** Weekly rotation period. */
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * weekly_growth's target (minutes of growing time) by player level 1..8
+ * (T3.19, owner-approved). Index `level - 1`; `growthTargetForLevel` clamps
+ * out-of-range levels. The value is snapshot into the weekly state when the
+ * week is drawn, never re-read mid-week - leveling up must not raise the
+ * target under a player's feet.
+ */
+export const GROWTH_TARGETS_BY_LEVEL: readonly number[] = [
+  240, 240, 400, 600, 900, 1300, 1900, 2800,
+];
+
+/** The weekly_growth target for a player level, clamped to the table's 1..8 range. */
+export function growthTargetForLevel(level: number): number {
+  const index = Math.min(GROWTH_TARGETS_BY_LEVEL.length - 1, Math.max(0, Math.floor(level) - 1));
+  return GROWTH_TARGETS_BY_LEVEL[index]!;
+}
 
 /**
  * Copy for the quest board's first-open explainer (T3.14), shown once per

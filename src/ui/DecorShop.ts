@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
-import { DECOR_ITEMS, type DecorItemDef, MAX_DECORATIONS } from '../data/decor';
+import {
+  DECOR_ITEMS,
+  type DecorItemDef,
+  MAX_DECORATIONS,
+  purchasableOwnedCount,
+} from '../data/decor';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -284,9 +289,8 @@ export class DecorShop {
 
   /** Re-derive every row's owned count and Buy button enabled state from state. */
   refresh(state: GameStateData): void {
-    const totalOwned =
-      state.decorations.length +
-      Object.values(state.warehouse).reduce((sum, count) => sum + count, 0);
+    // Purchasable only (T3.17) - trophies never consume shop capacity.
+    const totalOwned = purchasableOwnedCount(state.decorations, state.warehouse);
     const atCap = totalOwned >= MAX_DECORATIONS;
     for (const row of this.rows) {
       // Placed + warehoused (T3.9b) - a purchase always lands in the
