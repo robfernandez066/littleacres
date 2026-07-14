@@ -15,6 +15,11 @@ Format:
 
 ---
 
+## 2026-07-13 - T3.14 shipped: all six observed-session playtest items closed
+**Context:** T3.14 (structure-wide tutorial pulse + "!" bounce, quest Claim hidden until claimable, one-time quest-board explainer, schema v13 quests.introSeen) passed PM review. With T3.12/T3.13 this closes all six items from the observed first session.
+**Decision:** Claim-button convention: an unavailable primary action is HIDDEN, not greyed - the progress label carries status. Explainer convention confirmed: read-and-confirm moments use a centered panel with an explicit button (vs anchored popups for glanceable info). Badge attention reuses the existing perpetual tween via visibility toggling - zero new tween lifecycle.
+**Trigger:** T3.14 report review, 2026-07-13.
+
 ## 2026-07-13 - Currency info is an anchored popup, not a modal (T3.13 fix); dead sell-sunwheat pulse id found
 **Context:** Owner tested T3.13: the centered currency card read as a full window; owner wants tooltip-scale UI for glanceable info. Separately, PM's test list cited a tutorial sell step that does not exist (selling was cut from the tutorial in the day-3 notes pass) - the 'sell-sunwheat' pulse-target id survives as dead code.
 **Decision:** CurrencyInfoCard reworked to a 560px popup anchored under the tapped counter (fade/slide 120ms, no dim, edge-clamped). Convention going forward: glanceable info = anchored popup; decisions/ceremonies = centered panel. Dead pulse id logged as a backlog nit (remove both ends). Coder also fixed a latent double-fire on body taps (stopPropagation) - noted as a pattern to reuse for any element sitting over an input-catching backdrop.

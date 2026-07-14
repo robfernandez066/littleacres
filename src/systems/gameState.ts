@@ -251,6 +251,8 @@ export interface QuestsState {
   weekly: QuestsWeeklyState;
   /** LONG_QUESTS ids claimed so far - each claimable at most once, ever. */
   longClaimed: string[];
+  /** Whether the board's first-open explainer (T3.14) has been dismissed. */
+  introSeen: boolean;
 }
 
 /** `GameStateStore.questProgress`'s return shape. */
@@ -488,6 +490,7 @@ function createDefaultQuestsState(anchor: number, rng?: () => number): QuestsSta
     },
     weekly: createDefaultWeeklyState(anchor, rng),
     longClaimed: [],
+    introSeen: false,
   };
 }
 
@@ -509,6 +512,16 @@ const v11ToV12: Migration = (raw) => ({
   settings: isRecord(raw.settings) ? { ...raw.settings, hapticsOn: true } : raw.settings,
 });
 
+/**
+ * v12 -> v13: adds the quest board's first-open explainer flag (T3.14),
+ * defaulted false for existing saves - everyone sees the explainer once,
+ * same as a fresh save.
+ */
+const v12ToV13: Migration = (raw) => ({
+  ...raw,
+  quests: isRecord(raw.quests) ? { ...raw.quests, introSeen: false } : raw.quests,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -522,6 +535,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v9ToV10,
   v10ToV11,
   v11ToV12,
+  v12ToV13,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -699,7 +713,8 @@ function isQuestsState(value: unknown): value is QuestsState {
     isQuestsLifetimeState(value.lifetime) &&
     isQuestsWeeklyState(value.weekly) &&
     Array.isArray(value.longClaimed) &&
-    value.longClaimed.every((id) => typeof id === 'string' && LONG_QUEST_IDS.has(id))
+    value.longClaimed.every((id) => typeof id === 'string' && LONG_QUEST_IDS.has(id)) &&
+    typeof value.introSeen === 'boolean'
   );
 }
 
@@ -1316,6 +1331,16 @@ export class GameStateStore {
     this.state.quests.weekly.claimed.push(id);
     this.save();
     return true;
+  }
+
+  /**
+   * Mark the quest board's first-open explainer (T3.14) dismissed - permanent,
+   * never flips back. A no-op (no save) once already seen.
+   */
+  markQuestsIntroSeen(): void {
+    if (this.state.quests.introSeen) return;
+    this.state.quests.introSeen = true;
+    this.save();
   }
 
   /**

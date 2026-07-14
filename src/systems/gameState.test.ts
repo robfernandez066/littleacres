@@ -323,7 +323,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(11);
+    expect(MIGRATIONS).toHaveLength(12);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -334,7 +334,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(12);
+    expect(state.version).toBe(13);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -357,7 +357,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(12);
+    expect(state.version).toBe(13);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -367,8 +367,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(12);
-    expect(store.getState().version).toBe(12);
+    expect(store.currentVersion).toBe(13);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -404,7 +404,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -448,7 +448,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -488,7 +488,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -576,7 +576,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(12);
+    expect(state.version).toBe(13);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
@@ -606,7 +606,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -640,7 +640,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -681,7 +681,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -696,7 +696,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -2517,7 +2517,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(12);
+    const saved = createDefaultState(13);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -2825,7 +2825,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(12);
+    expect(state.version).toBe(13);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -2852,7 +2852,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(12);
+    expect(store.getState().version).toBe(13);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -2867,6 +2867,35 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
       const store = new GameStateStore({ storage });
       store.load();
       expect(store.getState().settings.hapticsOn).toBe(true);
+      expect(console.warn).toHaveBeenCalled();
+    }
+  });
+});
+
+describe('real migration v12 -> v13 (quest board intro explainer)', () => {
+  it('a v12 save (no introSeen field) gains introSeen false and migrates through to current', () => {
+    const saved = createDefaultState(13) as unknown as Record<string, unknown>;
+    saved.version = 12;
+    const quests = saved.quests as Record<string, unknown>;
+    delete quests.introSeen; // a genuine v12 save never had this field
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(13);
+    expect(store.getState().quests.introSeen).toBe(false);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('resets cleanly on a current-version save whose introSeen is missing or non-boolean', () => {
+    for (const introSeen of [undefined, 'yes', 1]) {
+      const bad = createDefaultState(13) as unknown as Record<string, unknown>;
+      const quests = bad.quests as Record<string, unknown>;
+      if (introSeen === undefined) delete quests.introSeen;
+      else quests.introSeen = introSeen;
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().quests.introSeen).toBe(false);
       expect(console.warn).toHaveBeenCalled();
     }
   });

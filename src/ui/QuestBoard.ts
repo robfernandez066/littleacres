@@ -6,6 +6,7 @@ import { CROPS } from '../data/crops';
 import {
   LONG_QUESTS,
   type LongQuestDef,
+  QUEST_BOARD_INTRO,
   type QuestReward,
   WEEKLY_QUESTS,
   type WeeklyQuestDef,
@@ -118,7 +119,6 @@ const LONG_CLAIM_HEIGHT = 70;
 const CHEST_BADGE_OFFSET = 20;
 
 const CLAIM_ENABLED_ALPHA = 1;
-const CLAIM_DISABLED_ALPHA = 0.4;
 const CLAIM_CLAIMED_ALPHA = 0.6;
 
 /** The "In your Warehouse!" flash: quick scale-in, brief hold, fade - mirrors OrderBoard's "Done!" stamp. */
@@ -128,6 +128,24 @@ const FLASH_FADE_MS = 300;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * First-open explainer (T3.14): a centered read-and-confirm card over the
+ * board, dimming it out - swallows every tap within the board's own bounds
+ * so nothing underneath (close X, claim buttons) is reachable until "Got
+ * it" is tapped. Sits just above PANEL_DEPTH so it always draws over the
+ * board's own content.
+ */
+const INTRO_DEPTH = PANEL_DEPTH + 10;
+const INTRO_DIM_ALPHA = 0.6;
+const INTRO_CARD_WIDTH = 760;
+const INTRO_CARD_HEIGHT = 520;
+const INTRO_TITLE_Y = -INTRO_CARD_HEIGHT / 2 + 80;
+const INTRO_BODY_Y = -20;
+const INTRO_BODY_WIDTH = INTRO_CARD_WIDTH - 100;
+const INTRO_BUTTON_Y = INTRO_CARD_HEIGHT / 2 - 80;
+const INTRO_BUTTON_WIDTH = 260;
+const INTRO_BUTTON_HEIGHT = 90;
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
@@ -227,6 +245,28 @@ const CLAIMED_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#7a5518',
 };
 
+const INTRO_TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '42px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+const INTRO_BODY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '28px',
+  color: '#4a3218',
+  align: 'center',
+  wordWrap: { width: INTRO_BODY_WIDTH },
+};
+
+const INTRO_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 const FLASH_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
   fontSize: '26px',
@@ -283,6 +323,7 @@ export class QuestBoard {
   private readonly countdownText: Phaser.GameObjects.Text;
   private readonly weeklyCards: WeeklyCard[] = [];
   private readonly longRows: LongRow[] = [];
+  private readonly introContainer: Phaser.GameObjects.Container;
   private visible = false;
 
   constructor(
@@ -352,6 +393,79 @@ export class QuestBoard {
     LONG_QUESTS.forEach((def, index) => {
       this.longRows.push(this.buildLongRow(def, LONG_ROW_START_Y + index * LONG_ROW_SPACING));
     });
+
+    this.introContainer = this.buildIntro();
+  }
+
+  private buildIntro(): Phaser.GameObjects.Container {
+    const container = this.scene.add
+      .container(PANEL_CENTER_X, PANEL_CENTER_Y)
+      .setDepth(INTRO_DEPTH)
+      .setVisible(false);
+
+    const dim = this.scene.add
+      .rectangle(0, 0, PANEL_WIDTH, PANEL_HEIGHT, 0x000000, INTRO_DIM_ALPHA)
+      .setOrigin(0.5);
+    // Swallows every tap within the board's bounds - nothing beneath (close
+    // X, claim buttons) is reachable while the explainer is up.
+    dim.setInteractive();
+    dim.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => event.stopPropagation(),
+    );
+
+    const card = this.scene.add.nineslice(
+      0,
+      0,
+      ATLAS_KEY,
+      'panel',
+      INTRO_CARD_WIDTH,
+      INTRO_CARD_HEIGHT,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+    );
+    const title = this.scene.add
+      .text(0, INTRO_TITLE_Y, QUEST_BOARD_INTRO.title, INTRO_TITLE_STYLE)
+      .setOrigin(0.5);
+    const body = this.scene.add
+      .text(0, INTRO_BODY_Y, QUEST_BOARD_INTRO.body, INTRO_BODY_STYLE)
+      .setOrigin(0.5);
+
+    const button = this.scene.add
+      .nineslice(
+        0,
+        INTRO_BUTTON_Y,
+        ATLAS_KEY,
+        'panel',
+        INTRO_BUTTON_WIDTH,
+        INTRO_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const buttonText = this.scene.add
+      .text(0, INTRO_BUTTON_Y, QUEST_BOARD_INTRO.buttonLabel, INTRO_BUTTON_STYLE)
+      .setOrigin(0.5);
+    // Dismiss only via this button - the dim layer above swallows every
+    // other tap, and gameState.markQuestsIntroSeen persists the dismissal
+    // so it never shows again.
+    button.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('confirm');
+      gameState.markQuestsIntroSeen();
+      container.setVisible(false);
+    });
+
+    container.add([dim, card, title, body, button, buttonText]);
+    return container;
   }
 
   private buildRewardIcons(primaryX: number, moondustX: number, y: number): QuestRewardIcons {
@@ -555,25 +669,35 @@ export class QuestBoard {
     return `${def.progressLabel}: ${current}/${target}`;
   }
 
+  /**
+   * A row's Claim button is hidden entirely (T3.14) until the quest is
+   * actually claimable - the existing progress label already communicates
+   * "not there yet", so a permanently-disabled "Claim" a player could tap
+   * for nothing is just confusing (playtest finding). Once claimed, the
+   * button stays visible as a dimmed "✓ Claimed" confirmation.
+   */
   private setClaimState(
     button: Phaser.GameObjects.NineSlice,
     text: Phaser.GameObjects.Text,
     progress: QuestProgress,
   ): void {
     if (progress.claimed) {
-      text.setText('✓ Claimed').setStyle(CLAIMED_STYLE);
+      button.setVisible(true);
+      text.setVisible(true).setText('✓ Claimed').setStyle(CLAIMED_STYLE);
       button.setAlpha(CLAIM_CLAIMED_ALPHA);
       button.disableInteractive();
       return;
     }
-    text.setText('Claim').setStyle(CLAIM_BUTTON_STYLE);
-    if (progress.complete) {
-      button.setAlpha(CLAIM_ENABLED_ALPHA);
-      button.setInteractive({ useHandCursor: true });
-    } else {
-      button.setAlpha(CLAIM_DISABLED_ALPHA);
+    if (!progress.complete) {
+      button.setVisible(false);
+      text.setVisible(false);
       button.disableInteractive();
+      return;
     }
+    button.setVisible(true);
+    text.setVisible(true).setText('Claim').setStyle(CLAIM_BUTTON_STYLE);
+    button.setAlpha(CLAIM_ENABLED_ALPHA);
+    button.setInteractive({ useHandCursor: true });
   }
 
   /**
@@ -680,12 +804,18 @@ export class QuestBoard {
     this.container.setVisible(this.visible);
     this.backdrop.setActive(this.visible);
     setPanelOpen('quests', this.visible);
-    if (this.visible) this.refresh(state);
+    if (this.visible) {
+      this.refresh(state);
+      this.introContainer.setVisible(!state.quests.introSeen);
+    } else {
+      this.introContainer.setVisible(false);
+    }
   }
 
   hide(): void {
     this.visible = false;
     this.container.setVisible(false);
+    this.introContainer.setVisible(false);
     this.backdrop.setActive(false);
     setPanelOpen('quests', false);
   }

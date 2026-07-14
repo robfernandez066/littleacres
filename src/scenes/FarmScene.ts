@@ -27,6 +27,7 @@ import {
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import { DECOR_ITEMS } from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
+import { ONBOARDING_STEPS } from '../data/onboarding';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
 import {
@@ -378,6 +379,15 @@ const DRESSING_FRONT_DEPTH = 1950;
 const NOTICE_BOARD_HIT_PAD_DISPLAY_PX = 20;
 
 /**
+ * The notice board's full displayed structure bounds, padded (T3.14) - the
+ * same size `createNoticeBoard`'s hitArea effectively covers in display
+ * space (STRUCTURE_FRAME_SIZE * STRUCTURE_SCALE + the pad on both sides).
+ * The 'orders-button' pulse target uses this so the tutorial ring wraps the
+ * whole structure, not just its bare STRUCTURE_DISPLAY_HEIGHT footprint.
+ */
+const NOTICE_BOARD_PULSE_SIZE = STRUCTURE_DISPLAY_HEIGHT + NOTICE_BOARD_HIT_PAD_DISPLAY_PX * 2;
+
+/**
  * The "!" badge on the notice board, shown when an open order is fully
  * coverable. MEASURED (Jimp scan of the packed `notice_board` frame, 256x256
  * native): the board's opaque art is narrower than its square frame (native
@@ -609,8 +619,8 @@ export class FarmScene extends Phaser.Scene {
     registerPulseTarget('orders-button', () => ({
       x: NOTICE_BOARD_POSITION.x,
       y: NOTICE_BOARD_POSITION.y,
-      width: STRUCTURE_DISPLAY_HEIGHT,
-      height: STRUCTURE_DISPLAY_HEIGHT,
+      width: NOTICE_BOARD_PULSE_SIZE,
+      height: NOTICE_BOARD_PULSE_SIZE,
       object: this.noticeBoardImage,
     }));
     // Applied once immediately (not just on the periodic tick) so a fresh
@@ -2202,22 +2212,35 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Show the "!" badge iff at least one open order is fully coverable by the
-   * current inventory, and onboarding has completed. The tutorial's own
-   * scripted order (ONBOARDING_ORDER_A) becomes coverable mid-tutorial
-   * (`deliver-sunwheat`) well before the player has been taught the board
-   * exists, and its follow-up (ONBOARDING_ORDER_B) isn't coverable until the
-   * player harvests the `plant-mixed` crops after the tutorial ends anyway -
-   * gating on `onboarding.completed` suppresses the premature badge without
-   * needing to special-case either scripted order.
+   * current inventory, and onboarding has completed - OR the active tutorial
+   * step's `pulseTarget` is 'orders-button' (T3.14: `open-orders` and
+   * `deliver-sunwheat`), which forces it to show and bounce regardless of
+   * coverability so the board reads as "something's waiting" during exactly
+   * the steps that point at it. The two conditions are mutually exclusive
+   * (one requires `onboarding.completed`, the other requires it false), so
+   * there is never a conflict over which one wins. The badge's own bounce
+   * tween (see `createNoticeBoard`) already runs perpetually, harmless while
+   * hidden - forcing visibility here is all a tutorial "attention bounce"
+   * needs, with nothing extra to clean up when the step advances.
+   * The tutorial's own scripted order (ONBOARDING_ORDER_A) becomes coverable
+   * mid-tutorial (`deliver-sunwheat`) well before the player has been taught
+   * the board exists, and its follow-up (ONBOARDING_ORDER_B) isn't coverable
+   * until the player harvests the `plant-mixed` crops after the tutorial
+   * ends anyway - gating the coverable branch on `onboarding.completed`
+   * suppresses the premature badge without needing to special-case either
+   * scripted order.
    */
   private refreshNoticeBoardBadge(): void {
     const state = gameState.getState();
+    const tutorialPointsAtBoard =
+      !state.onboarding.completed &&
+      ONBOARDING_STEPS[state.onboarding.step]?.pulseTarget === 'orders-button';
     const coverable =
       state.onboarding.completed &&
       state.orders.some(
         (slot) => slot.state === 'open' && isOrderCoverable(slot.order, state.inventory),
       );
-    this.noticeBoardBadge.setVisible(coverable);
+    this.noticeBoardBadge.setVisible(tutorialPointsAtBoard || coverable);
   }
 
   /**

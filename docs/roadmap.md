@@ -104,7 +104,7 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 - **PHASE GATE (ACTIVE, rescoped to 1 tester - see decisions):** running since 2026-07-13; first observed session triaged into T3.12-T3.14.
 - **T3.12** Pre-gate polish (DONE 2026-07-13): vibration settings toggle (schema v12), tutorial structures stay opaque, coin sfx phone-audible.
 - **T3.13** Economy clarity (DONE 2026-07-13): plant cost floats, anchored currency info popups, two-tap sell confirm.
-- **T3.14** Tutorial + quest board guidance (NEXT): notice-board step structure pulse + "!" bounce, quest Claim gating, first-open quest explainer.
+- **T3.14** Tutorial + quest board guidance (DONE 2026-07-13): notice-board step structure pulse + "!" bounce, quest Claim hidden until claimable, first-open quest explainer (schema v13).
 
 ---
 

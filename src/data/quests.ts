@@ -3,8 +3,7 @@ import type { CropId } from './crops';
 /**
  * Quest config (T3.10): long-horizon lifetime goals plus a rotating weekly
  * pool. All game data lives here, never in scene/system logic. The board UI
- * (scroll icon + panel) is a follow-up task - this file and the store engine
- * are the whole quest system for now.
+ * (scroll icon + panel) is `src/ui/QuestBoard.ts` (T3.10).
  */
 
 /** A quest's reward, composable: any subset of trophy/chests/moondust. */
@@ -185,3 +184,18 @@ export const WEEKLY_QUESTS: readonly WeeklyQuestDef[] = [
 
 /** Weekly rotation period. */
 export const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Copy for the quest board's first-open explainer (T3.14), shown once per
+ * save (see `GameStateData.quests.introSeen`) and dismissed only via its
+ * "Got it" button.
+ */
+export const QUEST_BOARD_INTRO = {
+  title: 'The Quest Board',
+  body:
+    'Quests are long-term goals that earn rare trophies, chests, and moondust. ' +
+    'Long quests track your farm for its whole life. Weekly quests reset every ' +
+    'week, so finish them before the week rolls over. When a quest is complete, ' +
+    'come back and tap Claim.',
+  buttonLabel: 'Got it',
+} as const;
