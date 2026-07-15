@@ -4,3 +4,5 @@ dist
 .DS_Store
 tools/audio-staging/
 tools/art-staging/
+docs/private/
+_to_delete/

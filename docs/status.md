@@ -8,14 +8,16 @@
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a reviewed PASS - in USER TEST** (dual cameras real; transformed-tap proof in report; mixed-pool seam -> T3.4b scope). Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a SHIPPED 2026-07-15** (dual cameras, zero visible change). **T3.4b gesture model v2 WITH CODER** (one-finger pan, pinch, bounds, recenter, pool split). Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
 - Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
 
 ## Queue
 
-1. T3.4a diff review -> verdict -> user test -> commit -> T3.4b prompt (then T3.3a -> T3.3a2 fence snap -> T3.3b R1 + checkpoint -> T3.3c)
-2. Owner (parallel, anytime): land-era art batch - composite mere parts, overgrowth tiles, region sign, dock stage-0
-3. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
+1. T3.4b report -> PM review via diff -> verdict -> user test -> commit
+2. T3.21a music crossfade/destroy race fix (small; queued behind T3.4b to keep the diff channel clean)
+3. Then T3.3a plots -> T3.3a2 fence snap -> T3.3b R1 + owner checkpoint -> T3.3c
+4. Owner (parallel, anytime): land-era art batch - composite mere parts, overgrowth tiles, region sign, dock stage-0
+5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
 3. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
 4. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
@@ -25,7 +27,7 @@
 
 ## Waiting on user (whenever convenient)
 
-- Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (stale git-lock artifact + the T3.17 review diff)
+- Cleanup on your machine (PM cannot delete files there): the original review copy under your local .codex visualizations folder (dated 2026-07-14), and the repo's _to_delete\ folder (stale git-lock artifact + accumulated review diffs; now gitignored)
 
 ## Staged future assets (tools/art-staging, NOT packed - owner picks 2026-07-13)
 
@@ -56,6 +58,7 @@
 ## Standing notes
 
 - PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md after every report/decision.
+- docs/private/ is gitignored: off-repo material lives there (currently the owner's monetization report, unread by decision - the starting point when that conversation opens).
 - Every task prompt carries a model recommendation (Fable5/Opus vs Sonnet) and a session marking; /clear is the default.
 - Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; each green task commits alone (2026-07-14; combined commits only when an intermediate tree would be broken).
 - Every USER TEST verdict ships with explicit numbered test steps - exact console pastes, what to tap, what to expect (owner rule, 2026-07-14).

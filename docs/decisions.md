@@ -20,6 +20,30 @@ Format:
 
 ---
 
+## 2026-07-15 - Privacy scan of the public repo (owner request): _to_delete/ gitignored, personal path scrubbed, business-talk convention set
+
+**Context:** Owner asked what else should stay off GitHub after parking the monetization report. PM scanned docs/ and the repo conventions.
+
+**Findings + actions:** (1) _to_delete/ was NOT gitignored and two atlas commits used git add -A - review diffs (code-only, not sensitive, but clutter) may be tracked; added _to_delete/ to .gitignore, owner runs git ls-files to check and untracks if needed. (2) status.md carried a full C:\Users\<name> path - scrubbed (living doc). (3) Monetization mentions in roadmap/decisions/design are generic roadmap fare and stay (redacting decisions.md would break no-retro-edit); CONVENTION going forward: anything with numbers, prices, or strategy goes in docs/private/ only. (4) No keys, emails, or personal names found; balance sheet and GDD stay public as standard source-visible-game fare, owner may revisit.
+
+## 2026-07-15 - docs/private/ created (gitignored): owner's monetization report parked there, unread by decision
+
+**Context:** Owner supplied a monetization report to keep with the project but OFF GitHub, as the starting point for the future monetization conversation. Explicit instruction: no reading or analysis yet.
+
+**Decision (PM-direct, config one-liner):** added `docs/private/` to .gitignore and placed the report at docs/private/monetization-report.docx. The ignore line itself ships with the repo (self-documenting); the folder's contents never do - `git add -A` skips ignored paths. Standing rule: docs/private/ is the home for any future off-repo material. The monetization conversation stays unscheduled (roadmap T8.5 remains the placeholder; the rare-material gating note from the land design links here when it opens).
+
+## 2026-07-15 - Friend-tester console error triaged: music crossfade/destroy race confirmed in code -> T3.21a queued after T3.4b
+
+**Context:** Owner relayed a friend's console capture from the live site (pre-latest-push session; game played fine). Triage: "persistent storage false" = our informational log (first-visit persistence denial; known T7.4-era watch item). "Could not establish connection" x9 = the friend's Chrome extension noise, not ours. The TypeError (Cannot set properties of null (setting 'volume') via applyTrackVolume in a tween onUpdate) = REAL, ours, root-caused by code read of src/systems/audio.ts.
+
+**Root cause:** playTrack schedules crossfadeToNext to END exactly at track end (fadeOutDelay = duration - MUSIC_FADE_MS, tween duration MUSIC_FADE_MS) and independently destroys the sound on Phaser's COMPLETE event. Both land on the same frame; when COMPLETE wins, the fade tween's final onUpdate calls handle.sound.setVolume on a destroyed WebAudioSound whose internal node is null. Frame-alignment race, fires ~once per unlucky track transition; cosmetic (silent tail) but an uncaught throw inside the tween step can skip other tweens' updates that frame.
+
+**Decision:** T3.21a cut (small, src/systems/audio.ts only): kill tweens targeting a handle before destroying its sound (COMPLETE handler + music teardown), destroyed-guard in applyTrackVolume, and audit the expand-duck restore tweens for the same destroy-mid-tween class. Runs AFTER T3.4b commits - no file overlap, but two uncommitted tasks would muddy the git-diff review channel.
+
+## 2026-07-15 - T3.4a SHIPPED; T3.4b issued (gesture model v2 + mixed-pool split + recenter)
+
+**Context:** Owner user-tested (identity play + dev.camera proof) and pushed T3.4a. T3.4b issued with the design-v3 gesture model plus PM design decisions made at prompt time: (1) SECOND FINGER ALWAYS CONVERTS to pinch, cancelling an active farm sweep (already-harvested plots stay harvested) - the strongest reading of the owner's "pinch suppresses taps" guardrail; farming stays suppressed until all fingers lift. (2) Pan starts only when the pointer-down lands on NO interactive object (Phaser hands the currentlyOver list to scene POINTER_DOWN) AND not on an actionable plot AND inside the field band (below the HUD banner, above the seed-bar band) - this one rule keeps decor drags, badges, structures, the seed-bar strip, and panels all working unchanged, in and out of arrange mode. (3) Mixed pools split as twin instances: FarmScene builds world + UI FloatingText and ParticleBurst, hands the UI twins to Hud/LevelUpCelebration/ChestCeremony - zero signature changes outside FarmScene. (4) Recenter = FarmScene-owned labeled button under the gear, visible only off-default, exempt in arrange mode, hidden during rails. (5) Pure camera math (fit zoom, scroll clamp, rubber band, pinch zoom) goes in a Phaser-free src/systems/cameraMath.ts with unit tests, seedBarLayout precedent. (6) Release momentum with short damped glide - the owner's SMOOTH emphasis. At today's world size fit-owned = zoom 1, so the task ships zoom-in + pan-while-zoomed, exactly the immediate value the design promised.
+
 ## 2026-07-15 - T3.4a review PASS -> USER TEST; router mechanism verified end to end; T3.4b scope notes locked
 
 **Context:** T3.4a diff reviewed (t34a-review.diff, 799 lines). The coder chose a scene-owned ADDED_TO_SCENE router (worldLayer default, inUiLayer(fn) scope for UI construction) over per-call-site edits - verified: layers register before any object exists (only root objects), re-entrancy guarded by the displayList root check, containers pass through within one synchronous tick, warehouse panel covered via the createArrangeControls wrap, Hud's nested panels covered by its wrapped constructor, lazy creators (PooledArc growth, ChestCeremony slots) pin to construction-time layers with null-guards. Field hit-tests moved to cameras.main.getWorldPoint with a scratch vector - deliberately not pointer.worldX, which two-camera Phaser derives from the top-most (UI) camera and would break in T3.4b. dev.camera + dev.sceneLayers probes added. Live evidence in the report includes the transformed-tap proof (offset camera: tap at transformed position hits plot 0, tap at old position hits plot 1).
