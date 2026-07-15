@@ -36,7 +36,19 @@ import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
 import {
+  clampScroll,
+  clampZoom,
+  fitZoom,
+  pinchZoom,
+  rubberBand,
+  scrollForAnchor,
+  scrollRange,
+  type Viewport,
+  type WorldBounds,
+} from '../systems/cameraMath';
+import {
   registerCameraControl,
+  registerCameraStateProbe,
   registerCoinArcTest,
   registerDressingEditorHooks,
   registerGroundModeCycle,
@@ -48,7 +60,7 @@ import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
 import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
 import { isModalOpen, setPanelOpen } from '../systems/modalPanels';
-import { PlotPointerTracker } from '../systems/plotPointer';
+import { plotIndexAtScreen, PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
 import { ChestCeremony } from '../ui/ChestCeremony';
@@ -491,6 +503,105 @@ interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
 }
 
 /**
+ * Camera gestures (T3.4b): the main (world) camera becomes player-facing -
+ * one-finger pan, pinch zoom, mouse wheel, rubber-banded edges, momentum,
+ * and a recenter button. All the pure math lives in systems/cameraMath.ts;
+ * this scene owns gesture classification and the live camera writes.
+ * `dev.camera(...)` deliberately bypasses all of these clamps.
+ */
+/** Zoom-in ceiling for gestures; the floor is fitZoom (1 for today's world). */
+const CAMERA_MAX_ZOOM_IN = 1.6;
+/**
+ * The world the camera may show and the owned land the fit zoom must cover -
+ * both are the full 1080x1920 design space today, so fitZoom is exactly 1
+ * and NO panning is possible until the player zooms in (correct and
+ * expected). A future expansion task widens these independently.
+ */
+const CAMERA_WORLD_BOUNDS: WorldBounds = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT };
+const CAMERA_OWNED_BOUNDS: WorldBounds = CAMERA_WORLD_BOUNDS;
+/**
+ * The one-finger PAN band, in screen y: between the HUD banner's bottom edge
+ * and the seed bar band's top. Both values are module-local layout constants
+ * of their owning files, pinned here by the task: Hud.ts BANNER_BOTTOM_Y
+ * (14 + 144 = 158) and SeedBar.ts BAR_CENTER_Y - BUTTON_HEIGHT / 2
+ * (1700 - 140 = 1560). Downs above/below the band are the banner's and the
+ * seed bar's own business (the bar runs its own scene-level strip drag).
+ */
+const PAN_BAND_TOP_Y = 158;
+const PAN_BAND_BOTTOM_Y = 1560;
+/** Soft edge overshoot distance (world px) for a live drag - see cameraMath.rubberBand. */
+const PAN_RUBBER_BAND_GIVE = 120;
+/** Release glide: distance = release velocity (world px/ms) x this, eased over the duration. */
+const PAN_MOMENTUM_DISTANCE_MS = 150;
+const PAN_MOMENTUM_DURATION_MS = 300;
+/** Only pointer samples this recent feed the release velocity - older ones are a held finger. */
+const PAN_VELOCITY_WINDOW_MS = 100;
+/** Ring capacity for those samples; at ~60Hz move events, 8 comfortably spans the window. */
+const PAN_SAMPLE_CAPACITY = 8;
+/** Exponential wheel-zoom rate per deltaY unit (~1.13x per 100-unit notch). */
+const WHEEL_ZOOM_STEP = 0.0012;
+/**
+ * Deferred-tap slop (T3.4c), in design px - the same constant/precedent as
+ * SeedBar's TAP_SLOP. Movement beyond this while a structure or plot tap is
+ * armed converts the gesture (structure -> pan, plot -> live farm sweep);
+ * release within it fires the tap.
+ */
+const TAP_SLOP = 12;
+/** Recenter glide duration (task-specified ~250ms, Sine.easeOut). */
+const RECENTER_GLIDE_MS = 250;
+/** Off-default detection thresholds - a finished tween lands exactly, these absorb float noise. */
+const CAMERA_SCROLL_EPSILON = 0.5;
+const CAMERA_ZOOM_EPSILON = 0.001;
+
+/**
+ * Recenter button (T3.4b): panel nineslice + label like the arrange-row
+ * buttons, centered directly below the HUD xp bar (owner feedback moved it
+ * here from under the gear) with a small deliberate gap - a visible sliver
+ * of green field must separate the bar's frame from the button. The xp
+ * bar's bottom edge is derived from Hud.ts module-locals, pinned here:
+ * BANNER_BOTTOM_Y (158) + XP_BAR_FRAME_TOP_GAP (10) + the frame's display
+ * height (138 native x 360/512 scale = 97.03).
+ */
+const RECENTER_WIDTH = 170;
+const RECENTER_HEIGHT = 60;
+const XP_BAR_BOTTOM_Y = 158 + 10 + (138 * 360) / 512;
+const RECENTER_GAP_Y = 12;
+const RECENTER_X = DESIGN_WIDTH / 2;
+const RECENTER_Y = XP_BAR_BOTTOM_Y + RECENTER_GAP_Y + RECENTER_HEIGHT / 2;
+const RECENTER_DEPTH = 2000;
+const RECENTER_TEXT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '24px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
+/**
+ * The UI-layer FloatingText twin (T3.4b pool split): FloatingText's pool
+ * grows on demand inside show() (Pool.acquire creates a fresh Text when the
+ * free list is empty), which happens mid-gameplay OUTSIDE the `inUiLayer`
+ * construction scope - a grown label would route to the world layer by
+ * default and start moving with the camera. PooledArc/ChestCeremony pin
+ * their own lazy objects, but FloatingText's pool is private to the shared
+ * class (untouched by this task - the split is achieved purely by what
+ * FarmScene constructs and passes), so the pinning happens at the call
+ * boundary instead: every show() runs inside the same UI routing scope the
+ * twin was constructed in.
+ */
+class UiLayerFloatingText extends FloatingText {
+  constructor(
+    scene: Phaser.Scene,
+    private readonly routeUi: <T>(build: () => T) => T,
+  ) {
+    super(scene);
+  }
+
+  override show(x: number, y: number, text: string, options?: FloatingTextOptions): void {
+    this.routeUi(() => super.show(x, y, text, options));
+  }
+}
+
+/**
  * One warehouse panel row (T3.9b) - one per `DECOR_ITEMS` frame plus one per
  * `TROPHY_ITEMS` frame (T3.18), built once at a neutral position, shown/hidden
  * per owned count and positioned into its packed slot by
@@ -552,8 +663,19 @@ export class FarmScene extends Phaser.Scene {
   private cropInfoCard!: CropInfoCard;
   private replantChip!: ReplantChip;
   private cropCountdown!: CropCountdown;
-  private floatingText!: FloatingText;
-  private particles!: ParticleBurst;
+  /**
+   * T3.4b pool split: TWIN floating-text/particle pools, one per camera. The
+   * world twins serve plot-anchored effects (harvest xp, plant cost, Radiant,
+   * leaf/sparkle bursts at plots) and pan/zoom with the field; the UI twins
+   * (constructed inside `inUiLayer`) serve screen-anchored effects (the HUD's
+   * sell/fulfill "+N" labels, the level-up and chest-ceremony bursts) and
+   * stay pixel-fixed. The UI classes' signatures are unchanged - FarmScene
+   * just passes different instances.
+   */
+  private worldFloatingText!: FloatingText;
+  private uiFloatingText!: FloatingText;
+  private worldParticles!: ParticleBurst;
+  private uiParticles!: ParticleBurst;
   private coinArc!: CoinArc;
   private moondustArc!: MoondustArc;
   private hud!: Hud;
@@ -618,6 +740,95 @@ export class FarmScene extends Phaser.Scene {
    * yet this gesture); reset on gesture start/end.
    */
   private gestureMode: 'harvest' | 'plant' | null = null;
+  /**
+   * T3.4b gesture classification, locked ONCE at single-finger pointer-down.
+   * The two '-armed'/'-pending' states (T3.4c) are the only ones that
+   * convert on movement - by proving what the gesture is, which is the
+   * point: nothing user-visible fires at pointer-down anymore where a pan
+   * or pinch could still claim the gesture.
+   * - 'farm': a live harvest/plant sweep (also the unconditional
+   *   instant-on-down legacy path whenever camera gestures are inert -
+   *   rails, modals, dressing edit - so the tutorial feel is byte-identical
+   *   to pre-T3.4b behavior).
+   * - 'farm-pending' (T3.4c): a down on an actionable plot, ARMED but not
+   *   processed. Confirms into 'farm' on first movement past TAP_SLOP
+   *   (sweep feel unchanged) or at release (a tap - juice fires then);
+   *   a second finger first converts to pinch and it never processes.
+   * - 'pan': one-finger camera drag from empty field ground.
+   * - 'pinch': two-finger zoom/pan; farming suppressed until every finger lifts.
+   * - 'structure-armed' (T3.4c): a down on the notice board / farmhouse /
+   *   expand sign, ARMED but not opened. Fires its open action on an
+   *   in-slop release; converts to a re-anchored pan past TAP_SLOP; a
+   *   second finger converts to pinch and it never fires.
+   * - 'object': the down landed on any other interactive object - not ours,
+   *   its own per-object input handles everything.
+   * - 'idle': the down landed in the banner or seed-bar band - nothing to do
+   *   (the seed bar's own scene-level drag owns its band).
+   */
+  private fieldGesture:
+    'farm' | 'farm-pending' | 'pan' | 'pinch' | 'structure-armed' | 'object' | 'idle' | null = null;
+  /**
+   * The armed structure tap (T3.4c), set by `handleStructureDown` in the
+   * same event dispatch the scene-level classifier then reads it in - see
+   * `structureArmedThisDown` for how a stale arm (reused pointer id after a
+   * swallowed release) is kept from masquerading as a fresh one.
+   */
+  private armedStructure: {
+    pointerId: number;
+    downX: number;
+    downY: number;
+    fire: () => void;
+  } | null = null;
+  /** True only between a structure's own pointer-down handler arming a tap
+   *  and the scene-level POINTER_DOWN classifier consuming it (same event
+   *  dispatch - per-object handlers run first). */
+  private structureArmedThisDown = false;
+  /** The 'farm-pending' arm (T3.4c): the down's screen position (slop test)
+   *  and world position (what plotTracker.begin processes on confirm). */
+  private armedFarmDownX = 0;
+  private armedFarmDownY = 0;
+  private armedFarmWorldX = 0;
+  private armedFarmWorldY = 0;
+  /** The pointer that owns the current farm/pan gesture (a second pointer must not drive it). */
+  private gesturePointerId = -1;
+  /**
+   * The owner's "pinch suppresses taps" guardrail: set the moment a pinch
+   * starts and cleared only when EVERY finger has lifted, so the survivor of
+   * a pinch (or a stray move between the two ups) can never harvest/plant.
+   */
+  private farmingSuppressed = false;
+  /** Pan gesture start state: camera scroll and pointer position at the down. */
+  private panStartScrollX = 0;
+  private panStartScrollY = 0;
+  private panStartPointerX = 0;
+  private panStartPointerY = 0;
+  /**
+   * Recent pan pointer samples (screen px + scene time) in a preallocated
+   * ring - feeds the release-velocity estimate for the momentum glide with
+   * zero steady-state allocation, per the pooling ethos.
+   */
+  private readonly panSampleX = new Float64Array(PAN_SAMPLE_CAPACITY);
+  private readonly panSampleY = new Float64Array(PAN_SAMPLE_CAPACITY);
+  private readonly panSampleT = new Float64Array(PAN_SAMPLE_CAPACITY);
+  private panSampleCount = 0;
+  /** The two live pinch pointers; null outside a pinch. */
+  private pinchPointerA: Phaser.Input.Pointer | null = null;
+  private pinchPointerB: Phaser.Input.Pointer | null = null;
+  private pinchStartDist = 0;
+  private pinchStartZoom = 1;
+  /** The world point under the pinch midpoint at pinch start - the zoom/pan anchor. */
+  private readonly pinchAnchorWorld = new Phaser.Math.Vector2();
+  /**
+   * The one camera tween at a time (momentum glide, edge snap-back, or the
+   * recenter glide - the first two are the same tween); any new gesture,
+   * wheel tick, or recenter tap kills it first.
+   */
+  private cameraTween: Phaser.Tweens.Tween | null = null;
+  /** Recenter button (T3.4b) - see `createRecenterButton`. */
+  private recenterButton!: Phaser.GameObjects.NineSlice;
+  private recenterText!: Phaser.GameObjects.Text;
+  /** Cached visibility so the per-frame check only touches objects on change. */
+  private recenterVisible = false;
   /**
    * Plots (and their crop) reaped since the chip was last dismissed -
    * accumulates across multiple harvest gestures/sweeps, not just the
@@ -695,9 +906,14 @@ export class FarmScene extends Phaser.Scene {
     // tapped-plot countdown are world objects, so they build under the
     // default world routing; everything screen-anchored builds inside
     // `inUiLayer` so every object its constructor creates - however deep -
-    // routes to the UI camera. See `createCameraLayers`.
-    this.floatingText = new FloatingText(this);
-    this.particles = new ParticleBurst(this);
+    // routes to the UI camera. See `createCameraLayers`. T3.4b splits the
+    // shared pools into per-camera twins - see the twin fields' comment.
+    this.worldFloatingText = new FloatingText(this);
+    this.worldParticles = new ParticleBurst(this);
+    this.uiFloatingText = this.inUiLayer(
+      () => new UiLayerFloatingText(this, (build) => this.inUiLayer(build)),
+    );
+    this.uiParticles = this.inUiLayer(() => new ParticleBurst(this));
     this.coinArc = this.inUiLayer(() => new CoinArc(this));
     this.moondustArc = this.inUiLayer(() => new MoondustArc(this));
     this.cropInfoCard = this.inUiLayer(() => new CropInfoCard(this, this.audio));
@@ -727,7 +943,7 @@ export class FarmScene extends Phaser.Scene {
     gameState.ensureOrders();
     this.hud = this.inUiLayer(
       () =>
-        new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio, () =>
+        new Hud(this, this.coinArc, this.moondustArc, this.uiFloatingText, this.audio, () =>
           this.toggleArrangeMode(),
         ),
     );
@@ -756,16 +972,21 @@ export class FarmScene extends Phaser.Scene {
     this.applyFarmhouseRailsGating();
     this.onboardingGuide = this.inUiLayer(() => new OnboardingGuide(this));
     this.levelUpCelebration = this.inUiLayer(
-      () => new LevelUpCelebration(this, this.particles, this.audio),
+      () => new LevelUpCelebration(this, this.uiParticles, this.audio),
     );
     this.chestCeremony = this.inUiLayer(
-      () => new ChestCeremony(this, this.particles, this.hud, this.audio),
+      () => new ChestCeremony(this, this.uiParticles, this.hud, this.audio),
     );
     // World: the sign is a farm structure (a signpost below the field), not a
     // screen control - it pans with the world camera like the notice board.
-    this.expandSign = new ExpandSign(this, () => this.tryExpand());
+    // Its tap routes through the shared deferred-tap helper (T3.4c) like the
+    // board and farmhouse; ExpandSign just forwards the pointer.
+    this.expandSign = new ExpandSign(this, (pointer) =>
+      this.handleStructureDown(pointer, () => this.tryExpand()),
+    );
     this.expandSign.refresh(gameState.getState());
     this.inUiLayer(() => this.createArrangeControls());
+    this.inUiLayer(() => this.createRecenterButton());
     this.setupFieldInput();
     this.refreshCrops();
     this.refreshDecorations();
@@ -782,11 +1003,23 @@ export class FarmScene extends Phaser.Scene {
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
     registerCoinArcTest((n) => this.coinArc.fly(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, n));
-    // dev.camera(scrollX, scrollY, zoom) moves the MAIN (world) camera only -
-    // the proof the T3.4a layer split works before T3.4b adds real gestures.
+    // dev.camera(scrollX, scrollY, zoom) moves the MAIN (world) camera only.
+    // It deliberately bypasses the T3.4b gesture clamps (raw camera writes
+    // for dev probing); it does kill any in-flight glide first so the tween
+    // does not immediately overwrite the requested view.
     registerCameraControl((scrollX = 0, scrollY = 0, zoom = 1) => {
+      this.killCameraTween();
       this.cameras.main.setScroll(scrollX, scrollY).setZoom(zoom);
     });
+    // T3.4b verification probe: the live camera + gesture state.
+    registerCameraStateProbe(() => ({
+      scrollX: this.cameras.main.scrollX,
+      scrollY: this.cameras.main.scrollY,
+      zoom: this.cameras.main.zoom,
+      gesture: this.fieldGesture,
+      farmingSuppressed: this.farmingSuppressed,
+      recenterVisible: this.recenterVisible,
+    }));
     registerSceneLayersProbe(() => ({
       root: this.children.list.map((child) => child.type),
       worldChildren: this.worldLayer.list.length,
@@ -891,6 +1124,10 @@ export class FarmScene extends Phaser.Scene {
   }
 
   override update(_time: number, delta: number): void {
+    // Every frame, ahead of the 250ms refresh gate: three float compares in
+    // the common case, so the button appears the instant a gesture (or tween
+    // frame) moves the camera off-default rather than up to 250ms late.
+    this.updateRecenterButton();
     this.refreshAccumulatorMs += delta;
     if (this.refreshAccumulatorMs < CROP_REFRESH_INTERVAL_MS) return;
     this.refreshAccumulatorMs = 0;
@@ -955,43 +1192,633 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Unified field gesture: every plot the pointer newly enters (tap or drag,
-   * at most once per gesture courtesy of PlotPointerTracker) is offered to
-   * harvest first, then to plant. Harvesting never requires deselecting a
-   * seed, and the per-gesture dedup guarantees a just-harvested plot cannot
-   * be replanted within the same sweep. A new gesture only resets
+   * Field input (T3.4b): the scene-level pointer listeners now serve TWO
+   * masters, routed by the single classification in `onFieldPointerDown` -
+   * the unified FARM gesture (every plot the pointer newly enters, at most
+   * once per gesture courtesy of PlotPointerTracker, is offered to harvest
+   * first, then to plant - see `beginFarmGesture`/`handlePlotEntered`/
+   * `endFarmGesture`, all byte-identical to the pre-T3.4b handlers) and the
+   * camera gestures (PAN/PINCH/wheel). A new farm gesture only resets
    * `gestureMode` (which action this sweep has locked to) - it deliberately
    * leaves `pendingReplant` and the chip alone, so a stray tap or a second
    * harvest sweep never kills an offer still accumulating from an earlier one.
    */
   private setupFieldInput(): void {
-    this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+    // Phaser defaults to mouse + ONE touch pointer; a second simultaneous
+    // touch must exist for pinch to be observable at all.
+    this.input.addPointer(1);
+    this.input.on(Phaser.Input.Events.POINTER_DOWN, this.onFieldPointerDown, this);
+    this.input.on(Phaser.Input.Events.POINTER_MOVE, this.onFieldPointerMove, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP, this.onFieldPointerUp, this);
+    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, this.onFieldPointerUp, this);
+    this.input.on(Phaser.Input.Events.POINTER_WHEEL, this.onFieldWheel, this);
+  }
+
+  /**
+   * Whether camera gestures (pan/pinch/wheel) may run at all: inert while
+   * any modal panel is open, during the tutorial rails, and during the
+   * dev-only dressing editor (whose decal drags a pan would fight). Arrange
+   * mode is deliberately ACTIVE: decor drags stay per-object input (the
+   * currentlyOver rule), dragging empty ground pans.
+   */
+  private cameraGesturesAllowed(): boolean {
+    return gameState.getState().onboarding.completed && !isModalOpen() && !this.dressingEditActive;
+  }
+
+  /** Live count of pressed pointers (mouse + both touch pointers). */
+  private downPointerCount(): number {
+    let count = 0;
+    for (const pointer of this.input.manager.pointers) {
+      if (pointer.isDown) count++;
+    }
+    return count;
+  }
+
+  /**
+   * Single-finger gesture classification (T3.4b), locked ONCE at the down -
+   * a locked gesture never converts on movement (only a second finger
+   * converts farm/pan to pinch). See `fieldGesture`'s comment for the modes.
+   */
+  private onFieldPointerDown(
+    pointer: Phaser.Input.Pointer,
+    currentlyOver: Phaser.GameObjects.GameObject[],
+  ): void {
+    if (this.downPointerCount() >= 2) {
+      this.maybeStartPinch();
+      return;
+    }
+    // First (only) finger down: a fresh gesture. Every other finger is up,
+    // so a pinch suppression left stale by a swallowed release clears here.
+    this.farmingSuppressed = false;
+    this.gesturePointerId = pointer.id;
+    // A structure arm is only honored when IT happened in this same event
+    // dispatch (per-object handlers run just before this classifier); an
+    // armedStructure surviving from an earlier gesture is a stale leftover
+    // of a swallowed release - pointer ids are reused, so without the flag
+    // it could masquerade as fresh and fire on this gesture's release.
+    const structureArmedNow = this.structureArmedThisDown;
+    this.structureArmedThisDown = false;
+    if (!structureArmedNow) this.armedStructure = null;
+    if (!this.cameraGesturesAllowed()) {
+      // Legacy path, byte-identical to pre-T3.4b behavior: the tutorial's
+      // taps/sweeps, and downs while a modal is open (handlePlotEntered's
+      // own gates make those no-ops exactly as before). Structures fired
+      // instantly on down in handleStructureDown for the same reason.
+      this.fieldGesture = 'farm';
+      this.beginFarmGesture(pointer);
+      return;
+    }
+    if (structureArmedNow && this.armedStructure?.pointerId === pointer.id) {
+      this.fieldGesture = 'structure-armed';
+      return;
+    }
+    if (currentlyOver.length > 0) {
+      // Not ours: decor drags (arrange), badges, panels, and every button
+      // keep their own per-object input unchanged.
+      this.fieldGesture = 'object';
+      return;
+    }
+    const world = this.fieldPointerWorld(pointer);
+    const plotIndex = plotIndexAtScreen(world.x, world.y, this.rowCount());
+    if (!this.arrangeModeActive && plotIndex !== null && this.plotActionable(plotIndex)) {
+      // T3.4c: ARM the plot, do not process it - a pinch's first finger
+      // landing on a ready crop must zoom, never harvest. Confirmation
+      // happens on first movement past TAP_SLOP or at release.
+      this.fieldGesture = 'farm-pending';
       this.gestureMode = null;
-      const world = this.fieldPointerWorld(pointer);
-      const plotIndex = this.plotTracker.begin(world.x, world.y, this.rowCount());
+      this.armedFarmDownX = pointer.x;
+      this.armedFarmDownY = pointer.y;
+      this.armedFarmWorldX = world.x;
+      this.armedFarmWorldY = world.y;
+      return;
+    }
+    if (pointer.y > PAN_BAND_TOP_Y && pointer.y < PAN_BAND_BOTTOM_Y) {
+      // A tap (pan that never moves) on a growing plot must still show the
+      // countdown, exactly as the legacy down did.
       this.maybeShowCountdown(plotIndex);
-      this.handlePlotEntered(plotIndex);
-    });
-    this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
-      if (!pointer.isDown) return;
+      this.fieldGesture = 'pan';
+      this.beginPan(pointer);
+      return;
+    }
+    this.fieldGesture = 'idle';
+  }
+
+  /** The legacy field-gesture down, byte-identical to the pre-T3.4b handler. */
+  private beginFarmGesture(pointer: Phaser.Input.Pointer): void {
+    this.gestureMode = null;
+    const world = this.fieldPointerWorld(pointer);
+    const plotIndex = this.plotTracker.begin(world.x, world.y, this.rowCount());
+    this.maybeShowCountdown(plotIndex);
+    this.handlePlotEntered(plotIndex);
+  }
+
+  /**
+   * Shared deferred-tap-down for the world structures (notice board,
+   * farmhouse, expand sign - and any future building): while camera
+   * gestures are inert the action fires instantly on down, byte-identical
+   * to pre-T3.4c behavior (the tutorial's notice-board step depends on it);
+   * otherwise the down only ARMS the tap - `fire` runs on an in-slop
+   * release, movement past TAP_SLOP converts to a re-anchored pan, and a
+   * second finger converts to pinch (see `maybeStartPinch`), so a gesture
+   * merely STARTING on a building can never open its menu.
+   */
+  private handleStructureDown(pointer: Phaser.Input.Pointer, fire: () => void): void {
+    if (!this.cameraGesturesAllowed()) {
+      fire();
+      return;
+    }
+    // A second finger landing on a structure belongs to the pinch
+    // conversion, never a new arm (which the release could then fire).
+    if (this.downPointerCount() >= 2) return;
+    this.armedStructure = { pointerId: pointer.id, downX: pointer.x, downY: pointer.y, fire };
+    this.structureArmedThisDown = true;
+  }
+
+  /**
+   * Confirm a 'farm-pending' arm into a live sweep (T3.4c): process the
+   * armed plot exactly as the pre-deferral pointer-down did - through
+   * plotTracker.begin at the down's world point, so the per-gesture dedup
+   * and every store-side rule behave identically, just later.
+   */
+  private confirmArmedPlot(): void {
+    const plotIndex = this.plotTracker.begin(
+      this.armedFarmWorldX,
+      this.armedFarmWorldY,
+      this.rowCount(),
+    );
+    this.handlePlotEntered(plotIndex);
+  }
+
+  /**
+   * Whether a down on this plot starts a FARM sweep: harvest-ready, or empty
+   * with a seed selected - mirrors the two success paths of
+   * `handlePlotEntered` (whose store calls stay the sole rule authority; a
+   * mismatch here just classifies a fruitless sweep or a pan).
+   */
+  private plotActionable(plotIndex: number): boolean {
+    const plot = gameState.getState().plots[plotIndex];
+    if (plot === undefined) return false;
+    if (plot.state === 'growing') return isReady(plot, now());
+    return plot.state === 'empty' && this.seedBar.getSelected() !== null;
+  }
+
+  private onFieldPointerMove(pointer: Phaser.Input.Pointer): void {
+    if (this.fieldGesture === 'pinch') {
+      this.updatePinch();
+      return;
+    }
+    if (!pointer.isDown || pointer.id !== this.gesturePointerId) return;
+    if (this.fieldGesture === 'pan') {
+      // A modal opening mid-pan ends the pan (same self-heal convention as
+      // SeedBar's strip drag); no momentum - the finger did not release.
+      if (!this.cameraGesturesAllowed()) {
+        this.finishPan(false);
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        return;
+      }
+      this.updatePan(pointer);
+      return;
+    }
+    if (this.fieldGesture === 'farm-pending') {
+      // A modal popping mid-arm (offline summary on the refresh tick, ...)
+      // quietly discards the arm - nothing has fired yet, nothing should.
+      if (!this.cameraGesturesAllowed()) {
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        return;
+      }
+      if (Math.hypot(pointer.x - this.armedFarmDownX, pointer.y - this.armedFarmDownY) > TAP_SLOP) {
+        // First real movement: confirm into a live sweep - the armed plot
+        // processes now, then this very move continues it, so sweep feel
+        // is identical to the old instant-on-down path.
+        this.fieldGesture = 'farm';
+        this.confirmArmedPlot();
+        const world = this.fieldPointerWorld(pointer);
+        this.handlePlotEntered(this.plotTracker.move(world.x, world.y, this.rowCount()));
+      }
+      return;
+    }
+    if (this.fieldGesture === 'structure-armed') {
+      const armed = this.armedStructure;
+      if (armed === null || !this.cameraGesturesAllowed()) {
+        this.armedStructure = null;
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        return;
+      }
+      if (Math.hypot(pointer.x - armed.downX, pointer.y - armed.downY) > TAP_SLOP) {
+        // The gesture proved itself a drag: the building never opens, and
+        // the pan re-anchors at the pointer's CURRENT position (beginPan
+        // records it), so the camera does not jump by the slop distance.
+        this.armedStructure = null;
+        this.fieldGesture = 'pan';
+        this.beginPan(pointer);
+      }
+      return;
+    }
+    if (this.fieldGesture === 'farm' && !this.farmingSuppressed) {
       const world = this.fieldPointerWorld(pointer);
       this.handlePlotEntered(this.plotTracker.move(world.x, world.y, this.rowCount()));
-    });
-    const endGesture = (): void => {
-      this.plotTracker.end();
-      if (
-        this.gestureMode === 'harvest' &&
-        this.pendingReplant.length > 0 &&
-        gameState.getState().onboarding.completed
-      ) {
-        // Show (or re-show) with the FULL accumulated list - the TTL restarts
-        // from this, the most recent harvest, not from the first one.
-        this.replantChip.show([...this.pendingReplant]);
+    }
+  }
+
+  private onFieldPointerUp(pointer: Phaser.Input.Pointer): void {
+    // Pointers still down AFTER this release (defensive about whether the
+    // manager has flipped this pointer's isDown yet at dispatch time).
+    let remaining = 0;
+    for (const p of this.input.manager.pointers) {
+      if (p.isDown && p !== pointer) remaining++;
+    }
+    if (this.fieldGesture === 'pinch') {
+      this.pinchPointerA = null;
+      this.pinchPointerB = null;
+      const survivor = this.firstDownPointerExcept(pointer);
+      if (survivor !== null) {
+        // One finger of the pinch lifted: continue as a re-anchored pan with
+        // the survivor. Farming stays suppressed until EVERY finger lifts.
+        this.fieldGesture = 'pan';
+        this.gesturePointerId = survivor.id;
+        this.beginPan(survivor);
+      } else {
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        this.farmingSuppressed = false;
+        // Scroll is hard-clamped live during pinch; this only snaps float dust.
+        this.finishPan(false);
       }
-      this.gestureMode = null;
-    };
-    this.input.on(Phaser.Input.Events.POINTER_UP, endGesture);
-    this.input.on(Phaser.Input.Events.POINTER_UP_OUTSIDE, endGesture);
+      return;
+    }
+    if (pointer.id === this.gesturePointerId) {
+      // Gesture state resets BEFORE the branch actions run: none of them
+      // read it, and a user-action callback that throws (seen live on a
+      // half-loaded page with its audio missing) must not leave a phantom
+      // gesture armed.
+      const gesture = this.fieldGesture;
+      this.fieldGesture = null;
+      this.gesturePointerId = -1;
+      if (gesture === 'farm') {
+        this.endFarmGesture();
+      } else if (gesture === 'farm-pending') {
+        // A tap: the armed plot processes at release (full juice fires now,
+        // imperceptibly later than the old on-down timing), then the
+        // gesture ends exactly like a one-plot sweep.
+        this.confirmArmedPlot();
+        this.endFarmGesture();
+      } else if (gesture === 'pan') {
+        this.finishPan(true);
+      } else if (gesture === 'structure-armed') {
+        const armed = this.armedStructure;
+        this.armedStructure = null;
+        // In-slop release with no conversion: the tap fires its structure's
+        // open action (each action plays its own usual sfx). Re-checked
+        // against the gates in case a modal popped while armed.
+        if (
+          armed !== null &&
+          this.cameraGesturesAllowed() &&
+          Math.hypot(pointer.x - armed.downX, pointer.y - armed.downY) <= TAP_SLOP
+        ) {
+          armed.fire();
+        }
+      }
+    }
+    if (remaining === 0) this.farmingSuppressed = false;
+  }
+
+  /** The legacy field-gesture end, byte-identical to the pre-T3.4b handler. */
+  private endFarmGesture(): void {
+    this.plotTracker.end();
+    if (
+      this.gestureMode === 'harvest' &&
+      this.pendingReplant.length > 0 &&
+      gameState.getState().onboarding.completed
+    ) {
+      // Show (or re-show) with the FULL accumulated list - the TTL restarts
+      // from this, the most recent harvest, not from the first one.
+      this.replantChip.show([...this.pendingReplant]);
+    }
+    this.gestureMode = null;
+  }
+
+  /** The first pressed pointer other than `except`, or null - the pinch survivor. */
+  private firstDownPointerExcept(except: Phaser.Input.Pointer): Phaser.Input.Pointer | null {
+    for (const pointer of this.input.manager.pointers) {
+      if (pointer.isDown && pointer !== except) return pointer;
+    }
+    return null;
+  }
+
+  // -- PAN ------------------------------------------------------------------
+
+  private beginPan(pointer: Phaser.Input.Pointer): void {
+    this.killCameraTween();
+    const camera = this.cameras.main;
+    this.panStartScrollX = camera.scrollX;
+    this.panStartScrollY = camera.scrollY;
+    this.panStartPointerX = pointer.x;
+    this.panStartPointerY = pointer.y;
+    this.panSampleCount = 0;
+    this.pushPanSample(pointer);
+  }
+
+  /**
+   * Live pan: 1:1 in design px divided by zoom - the world point under the
+   * finger stays under the finger - rubber-banded softly past the scroll
+   * range (snap-back on release, see `finishPan`).
+   */
+  private updatePan(pointer: Phaser.Input.Pointer): void {
+    const camera = this.cameras.main;
+    const viewport = this.cameraViewport();
+    const zoom = camera.zoom;
+    const desiredX = this.panStartScrollX + (this.panStartPointerX - pointer.x) / zoom;
+    const desiredY = this.panStartScrollY + (this.panStartPointerY - pointer.y) / zoom;
+    const range = scrollRange(zoom, CAMERA_WORLD_BOUNDS, viewport);
+    camera.setScroll(
+      rubberBand(desiredX, range.minX, range.maxX, PAN_RUBBER_BAND_GIVE),
+      rubberBand(desiredY, range.minY, range.maxY, PAN_RUBBER_BAND_GIVE),
+    );
+    this.pushPanSample(pointer);
+  }
+
+  private pushPanSample(pointer: Phaser.Input.Pointer): void {
+    const slot = this.panSampleCount % PAN_SAMPLE_CAPACITY;
+    this.panSampleX[slot] = pointer.x;
+    this.panSampleY[slot] = pointer.y;
+    this.panSampleT[slot] = this.time.now;
+    this.panSampleCount++;
+  }
+
+  /**
+   * End a pan: one Sine.easeOut tween to the hard-clamped momentum target
+   * covers both the edge snap-back (rubber-band overshoot returns to the
+   * clamped range) and the short damped glide (`withMomentum` - false when
+   * the pan was cut short rather than released).
+   */
+  private finishPan(withMomentum: boolean): void {
+    const camera = this.cameras.main;
+    const viewport = this.cameraViewport();
+    let targetX = camera.scrollX;
+    let targetY = camera.scrollY;
+    if (withMomentum && this.panSampleCount >= 2) {
+      const newest = (this.panSampleCount - 1) % PAN_SAMPLE_CAPACITY;
+      const newestT = this.panSampleT[newest]!;
+      // Oldest retained sample still inside the velocity window.
+      const available = Math.min(this.panSampleCount, PAN_SAMPLE_CAPACITY);
+      let oldest = newest;
+      for (let back = 1; back < available; back++) {
+        const slot = (this.panSampleCount - 1 - back + PAN_SAMPLE_CAPACITY) % PAN_SAMPLE_CAPACITY;
+        if (newestT - this.panSampleT[slot]! > PAN_VELOCITY_WINDOW_MS) break;
+        oldest = slot;
+      }
+      const dt = newestT - this.panSampleT[oldest]!;
+      if (dt > 1) {
+        // Screen-space velocity (px/ms) -> world px via zoom; the camera
+        // moves opposite the finger, hence the subtraction.
+        const vx = (this.panSampleX[newest]! - this.panSampleX[oldest]!) / dt;
+        const vy = (this.panSampleY[newest]! - this.panSampleY[oldest]!) / dt;
+        targetX -= (vx / camera.zoom) * PAN_MOMENTUM_DISTANCE_MS;
+        targetY -= (vy / camera.zoom) * PAN_MOMENTUM_DISTANCE_MS;
+      }
+    }
+    const clamped = clampScroll(targetX, targetY, camera.zoom, CAMERA_WORLD_BOUNDS, viewport);
+    this.glideCameraTo(camera.zoom, clamped.scrollX, clamped.scrollY, PAN_MOMENTUM_DURATION_MS);
+  }
+
+  // -- PINCH ----------------------------------------------------------------
+
+  /**
+   * A second finger down ALWAYS converts the current field gesture to PINCH
+   * (the owner's "pinch suppresses taps" guardrail): an ARMED plot or
+   * structure tap is discarded before it ever processes (T3.4c - a pinch
+   * whose first finger lands on a ready crop zooms and harvests NOTHING;
+   * on a building, zooms and opens nothing), an already-live farm sweep
+   * cancels (plots harvested by earlier movement stay harvested), and ALL
+   * farming input stays suppressed until every finger lifts. Only OUR
+   * gestures convert - a down whose first finger landed on any other
+   * interactive object ('object': a decor drag, a pressed button) keeps
+   * that object's own input, and 'idle' downs (seed-bar band, where the
+   * bar's own strip drag may be live) stay idle.
+   */
+  private maybeStartPinch(): void {
+    if (
+      this.fieldGesture !== 'farm' &&
+      this.fieldGesture !== 'farm-pending' &&
+      this.fieldGesture !== 'pan' &&
+      this.fieldGesture !== 'structure-armed'
+    )
+      return;
+    if (!this.cameraGesturesAllowed()) return;
+    let a: Phaser.Input.Pointer | null = null;
+    let b: Phaser.Input.Pointer | null = null;
+    for (const pointer of this.input.manager.pointers) {
+      if (!pointer.isDown) continue;
+      if (a === null) a = pointer;
+      else if (b === null) b = pointer;
+    }
+    if (a === null || b === null) return;
+    // Cancel a live farm sweep cleanly (a mid-sweep replant offer keeps
+    // accumulating and shows on the NEXT harvest gesture's end, as always)
+    // and discard any T3.4c arm - the deferred tap never fires, the armed
+    // plot never processes.
+    this.plotTracker.end();
+    this.gestureMode = null;
+    this.armedStructure = null;
+    this.killCameraTween();
+    this.fieldGesture = 'pinch';
+    this.farmingSuppressed = true;
+    this.pinchPointerA = a;
+    this.pinchPointerB = b;
+    this.pinchStartDist = Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y);
+    this.pinchStartZoom = this.cameras.main.zoom;
+    this.cameras.main.getWorldPoint((a.x + b.x) / 2, (a.y + b.y) / 2, this.pinchAnchorWorld);
+  }
+
+  /**
+   * Live pinch: zoom from the finger-distance ratio (clamped to
+   * [fitZoom, CAMERA_MAX_ZOOM_IN]), then re-solve the scroll so the world
+   * point captured under the pinch-start midpoint stays under the CURRENT
+   * midpoint - which makes midpoint movement pan simultaneously, for free.
+   * Scroll is hard-clamped (no rubber band): zoom-out stops exactly at the
+   * full view.
+   */
+  private updatePinch(): void {
+    const a = this.pinchPointerA;
+    const b = this.pinchPointerB;
+    if (a === null || b === null || !a.isDown || !b.isDown) return;
+    const camera = this.cameras.main;
+    const viewport = this.cameraViewport();
+    const zoom = pinchZoom(
+      this.pinchStartZoom,
+      this.pinchStartDist,
+      Phaser.Math.Distance.Between(a.x, a.y, b.x, b.y),
+      this.cameraFitZoom(viewport),
+      CAMERA_MAX_ZOOM_IN,
+    );
+    const midX = (a.x + b.x) / 2;
+    const midY = (a.y + b.y) / 2;
+    const anchored = scrollForAnchor(
+      this.pinchAnchorWorld.x,
+      this.pinchAnchorWorld.y,
+      midX,
+      midY,
+      zoom,
+      viewport,
+    );
+    const clamped = clampScroll(
+      anchored.scrollX,
+      anchored.scrollY,
+      zoom,
+      CAMERA_WORLD_BOUNDS,
+      viewport,
+    );
+    camera.setZoom(zoom).setScroll(clamped.scrollX, clamped.scrollY);
+  }
+
+  // -- WHEEL / RECENTER / SHARED CAMERA HELPERS ------------------------------
+
+  /** Mouse wheel zoom around the cursor (desktop/dev convenience), same clamps and gates. */
+  private onFieldWheel(
+    pointer: Phaser.Input.Pointer,
+    _over: Phaser.GameObjects.GameObject[],
+    _deltaX: number,
+    deltaY: number,
+  ): void {
+    if (!this.cameraGesturesAllowed()) return;
+    this.killCameraTween();
+    const camera = this.cameras.main;
+    const viewport = this.cameraViewport();
+    const zoom = clampZoom(
+      camera.zoom * Math.exp(-deltaY * WHEEL_ZOOM_STEP),
+      this.cameraFitZoom(viewport),
+      CAMERA_MAX_ZOOM_IN,
+    );
+    // Anchor BEFORE the zoom write: the world point under the cursor now
+    // must still be under the cursor at the new zoom.
+    const anchor = camera.getWorldPoint(pointer.x, pointer.y, this.pointerWorldPoint);
+    const anchored = scrollForAnchor(anchor.x, anchor.y, pointer.x, pointer.y, zoom, viewport);
+    const clamped = clampScroll(
+      anchored.scrollX,
+      anchored.scrollY,
+      zoom,
+      CAMERA_WORLD_BOUNDS,
+      viewport,
+    );
+    camera.setZoom(zoom).setScroll(clamped.scrollX, clamped.scrollY);
+  }
+
+  private cameraViewport(): Viewport {
+    return { width: this.cameras.main.width, height: this.cameras.main.height };
+  }
+
+  private cameraFitZoom(viewport: Viewport): number {
+    return fitZoom(CAMERA_OWNED_BOUNDS, viewport);
+  }
+
+  /** The default (home) view: fit zoom, centered - today exactly zoom 1, scroll (0, 0). */
+  private cameraHome(viewport: Viewport): { zoom: number; scrollX: number; scrollY: number } {
+    const zoom = this.cameraFitZoom(viewport);
+    const scroll = clampScroll(0, 0, zoom, CAMERA_WORLD_BOUNDS, viewport);
+    return { zoom, scrollX: scroll.scrollX, scrollY: scroll.scrollY };
+  }
+
+  private killCameraTween(): void {
+    this.cameraTween?.remove();
+    this.cameraTween = null;
+  }
+
+  /** One shared camera tween (momentum, snap-back, recenter); no-ops when already at the target. */
+  private glideCameraTo(zoom: number, scrollX: number, scrollY: number, duration: number): void {
+    this.killCameraTween();
+    const camera = this.cameras.main;
+    if (
+      Math.abs(camera.zoom - zoom) < CAMERA_ZOOM_EPSILON &&
+      Math.abs(camera.scrollX - scrollX) < CAMERA_SCROLL_EPSILON &&
+      Math.abs(camera.scrollY - scrollY) < CAMERA_SCROLL_EPSILON
+    ) {
+      camera.setZoom(zoom).setScroll(scrollX, scrollY);
+      return;
+    }
+    this.cameraTween = this.tweens.add({
+      targets: camera,
+      zoom,
+      scrollX,
+      scrollY,
+      duration,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        this.cameraTween = null;
+      },
+    });
+  }
+
+  /**
+   * Recenter button (T3.4b): panel nineslice + label like the arrange-row
+   * buttons, under the HUD gear. Hidden (and inert) whenever the camera is
+   * at its default view or the tutorial rails are up; `enterArrangeMode`
+   * exempts it, so it stays usable while arranging.
+   */
+  private createRecenterButton(): void {
+    this.recenterButton = this.add
+      .nineslice(
+        RECENTER_X,
+        RECENTER_Y,
+        ATLAS_KEY,
+        'panel',
+        RECENTER_WIDTH,
+        RECENTER_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setDepth(RECENTER_DEPTH)
+      .setVisible(false);
+    this.recenterText = this.add
+      .text(RECENTER_X, RECENTER_Y, 'Recenter', RECENTER_TEXT_STYLE)
+      .setOrigin(0.5)
+      .setDepth(RECENTER_DEPTH + 1)
+      .setVisible(false);
+    this.recenterButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.recenterCamera();
+    });
+  }
+
+  /** Glide the camera home over ~250ms (Sine.easeOut). */
+  private recenterCamera(): void {
+    const home = this.cameraHome(this.cameraViewport());
+    this.glideCameraTo(home.zoom, home.scrollX, home.scrollY, RECENTER_GLIDE_MS);
+  }
+
+  /**
+   * Show the recenter button ONLY while the camera has SETTLED off-default
+   * (and never during the tutorial rails). Settled matters (owner feedback):
+   * mid-gesture and mid-tween positions are transient - a rubber-band drag
+   * that will just bounce back home must never flash the button - so while a
+   * pan/pinch is in progress or a glide/snap-back tween is running, the
+   * button simply keeps its current state and the decision waits for the
+   * camera to come to rest. Interactivity toggles with visibility so a
+   * hidden button is never still tappable - the arrange-controls convention.
+   */
+  private updateRecenterButton(): void {
+    if (this.fieldGesture === 'pan' || this.fieldGesture === 'pinch' || this.cameraTween !== null)
+      return;
+    const camera = this.cameras.main;
+    const home = this.cameraHome(this.cameraViewport());
+    const offDefault =
+      Math.abs(camera.zoom - home.zoom) > CAMERA_ZOOM_EPSILON ||
+      Math.abs(camera.scrollX - home.scrollX) > CAMERA_SCROLL_EPSILON ||
+      Math.abs(camera.scrollY - home.scrollY) > CAMERA_SCROLL_EPSILON;
+    const visible = offDefault && gameState.getState().onboarding.completed;
+    if (visible === this.recenterVisible) return;
+    this.recenterVisible = visible;
+    this.recenterButton.setVisible(visible);
+    this.recenterText.setVisible(visible);
+    if (visible) {
+      this.recenterButton.setInteractive({ useHandCursor: true });
+    } else {
+      this.recenterButton.disableInteractive();
+    }
   }
 
   /** Current row count (3 base, 4 once expanded), derived from saved plot count. */
@@ -1119,8 +1946,13 @@ export class FarmScene extends Phaser.Scene {
   private playHarvestJuice(plotIndex: number, cropId: CropId): void {
     const pos = this.plotPositions[plotIndex];
     if (pos === undefined) return;
-    this.particles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
-    this.floatingText.show(pos.x, pos.y + XP_LABEL_OFFSET_Y, XP_LABELS[cropId], XP_TEXT_OPTIONS);
+    this.worldParticles.burst('leaf', pos.x, pos.y + BURST_OFFSET_Y);
+    this.worldFloatingText.show(
+      pos.x,
+      pos.y + XP_LABEL_OFFSET_Y,
+      XP_LABELS[cropId],
+      XP_TEXT_OPTIONS,
+    );
     buzz(HAPTIC_LIGHT_MS);
     this.hud.flyCropToBag(pos.x, pos.y + BURST_OFFSET_Y, cropId);
   }
@@ -1135,15 +1967,15 @@ export class FarmScene extends Phaser.Scene {
   private playRadiantJuice(plotIndex: number): void {
     const pos = this.plotPositions[plotIndex];
     if (pos === undefined) return;
-    this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
-    this.floatingText.show(
+    this.worldParticles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+    this.worldFloatingText.show(
       pos.x,
       pos.y + RADIANT_LABEL_OFFSET_Y,
       RADIANT_LABEL,
       RADIANT_TEXT_OPTIONS,
     );
     this.time.delayedCall(RADIANT_SECOND_BURST_DELAY_MS, () => {
-      this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+      this.worldParticles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
     });
   }
 
@@ -1165,8 +1997,8 @@ export class FarmScene extends Phaser.Scene {
       this.playPlantPop(plotIndex);
       const pos = this.plotPositions[plotIndex];
       if (pos !== undefined) {
-        this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
-        this.floatingText.show(
+        this.worldParticles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+        this.worldFloatingText.show(
           pos.x,
           pos.y + XP_LABEL_OFFSET_Y,
           `-${CROPS[cropId].seedCost}`,
@@ -1191,7 +2023,7 @@ export class FarmScene extends Phaser.Scene {
     for (const { plotIndex } of plantedEntries) {
       this.playPlantPop(plotIndex);
       const pos = this.plotPositions[plotIndex];
-      if (pos !== undefined) this.particles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
+      if (pos !== undefined) this.worldParticles.burst('sparkle', pos.x, pos.y + BURST_OFFSET_Y);
     }
   }
 
@@ -1518,9 +2350,13 @@ export class FarmScene extends Phaser.Scene {
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
       });
-    this.farmhouseImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.openDecorShop();
-    });
+    this.farmhouseImage.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (pointer: Phaser.Input.Pointer) => {
+        // Deferred tap (T3.4c): opens on an in-slop release, never on down.
+        this.handleStructureDown(pointer, () => this.openDecorShop());
+      },
+    );
     this.createGroundShadow(this.farmhouseImage);
   }
 
@@ -2088,6 +2924,9 @@ export class FarmScene extends Phaser.Scene {
       this.arrangeShopButton,
       this.arrangeStoreButton,
       this.hud.getArrangeToggleButton(),
+      // T3.4b: camera gestures stay active while arranging, so recentering
+      // must too (its own visibility logic still hides it at the default view).
+      this.recenterButton,
     ];
   }
 
@@ -2575,9 +3414,13 @@ export class FarmScene extends Phaser.Scene {
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
       });
-    this.noticeBoardImage.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.hud.toggleOrderBoard();
-    });
+    this.noticeBoardImage.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (pointer: Phaser.Input.Pointer) => {
+        // Deferred tap (T3.4c): opens on an in-slop release, never on down.
+        this.handleStructureDown(pointer, () => this.hud.toggleOrderBoard());
+      },
+    );
     this.createGroundShadow(this.noticeBoardImage);
 
     const badgeX =

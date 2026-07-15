@@ -108,7 +108,10 @@ export class ExpandSign {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    onTap: () => void,
+    // Receives the pressing pointer (Phaser passes it to the pointer-down
+    // listener this is wired to below) so the scene can defer the tap
+    // through its shared structure-tap helper (T3.4c).
+    onTap: (pointer: Phaser.Input.Pointer) => void,
   ) {
     this.container = scene.add.container(SIGN_X, SIGN_Y).setDepth(SIGN_DEPTH).setVisible(false);
     const signImage = scene.add

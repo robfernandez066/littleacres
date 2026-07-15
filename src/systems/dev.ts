@@ -59,6 +59,19 @@ export interface DevTools {
    * Registered by FarmScene.
    */
   sceneLayers?(): { root: string[]; worldChildren: number; uiChildren: number };
+  /**
+   * T3.4b verification probe: the live world-camera view plus the current
+   * gesture classification and the pinch farming-suppression/recenter
+   * visibility flags. Registered by FarmScene.
+   */
+  cameraState?(): {
+    scrollX: number;
+    scrollY: number;
+    zoom: number;
+    gesture: string | null;
+    farmingSuppressed: boolean;
+    recenterVisible: boolean;
+  };
 }
 
 declare global {
@@ -125,6 +138,23 @@ export function registerCameraControl(
   set: (scrollX?: number, scrollY?: number, zoom?: number) => void,
 ): void {
   if (window.dev !== undefined) window.dev.camera = set;
+}
+
+/**
+ * Late-bind `dev.cameraState` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerCameraStateProbe(
+  probe: () => {
+    scrollX: number;
+    scrollY: number;
+    zoom: number;
+    gesture: string | null;
+    farmingSuppressed: boolean;
+    recenterVisible: boolean;
+  },
+): void {
+  if (window.dev !== undefined) window.dev.cameraState = probe;
 }
 
 /**
