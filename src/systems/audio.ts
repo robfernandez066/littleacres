@@ -39,12 +39,17 @@ const MARKER_NAME = 'clip';
  * the applied sound volume is always `effectiveMusicVolume() * fadeFactor`.
  * `generation` pins this handle to the playlist "epoch" it was started in,
  * so a stale delayed-call from a stopped/restarted playlist is a no-op
- * instead of starting an unwanted track.
+ * instead of starting an unwanted track. `destroyed` is set true at every
+ * site that destroys this handle's sound, so a same-frame tween onUpdate
+ * racing the destroy (crossfade-out vs COMPLETE, or unduck-restore vs
+ * COMPLETE) finds applyTrackVolume a harmless no-op instead of touching a
+ * destroyed WebAudioSound's null internal node.
  */
 interface TrackHandle {
   sound: ManagedSound;
   fadeFactor: number;
   generation: number;
+  destroyed: boolean;
 }
 
 /**
@@ -268,7 +273,7 @@ export class AudioManager {
 
   /** Apply the current effective volume x this handle's fadeFactor to its sound. */
   private applyTrackVolume(handle: TrackHandle): void {
-    if (this.ducked) return;
+    if (this.ducked || handle.destroyed) return;
     handle.sound.setVolume(this.effectiveMusicVolume() * handle.fadeFactor);
   }
 
@@ -292,7 +297,7 @@ export class AudioManager {
     const track = MUSIC_TRACKS[index];
     if (track === undefined) return;
     const sound = this.scene.sound.add(track.key, { loop: false, volume: 0 });
-    const handle: TrackHandle = { sound, fadeFactor: 0, generation };
+    const handle: TrackHandle = { sound, fadeFactor: 0, generation, destroyed: false };
     this.musicHandles.push(handle);
     this.lastPlayedTrackIndex = index;
     this.applyTrackVolume(handle);
@@ -313,6 +318,9 @@ export class AudioManager {
 
     sound.once(Phaser.Sound.Events.COMPLETE, () => {
       this.musicHandles = this.musicHandles.filter((live) => live !== handle);
+      this.scene.tweens.killTweensOf(handle);
+      this.scene.tweens.killTweensOf(handle.sound);
+      handle.destroyed = true;
       sound.destroy();
     });
   }
@@ -347,6 +355,8 @@ export class AudioManager {
     this.playlistGeneration++;
     for (const handle of this.musicHandles) {
       this.scene.tweens.killTweensOf(handle);
+      this.scene.tweens.killTweensOf(handle.sound);
+      handle.destroyed = true;
       handle.sound.stop();
       handle.sound.destroy();
     }

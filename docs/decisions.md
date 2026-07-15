@@ -32,6 +32,42 @@ Format:
 
 **Decision (PM-direct, config one-liner):** added `docs/private/` to .gitignore and placed the report at docs/private/monetization-report.docx. The ignore line itself ships with the repo (self-documenting); the folder's contents never do - `git add -A` skips ignored paths. Standing rule: docs/private/ is the home for any future off-repo material. The monetization conversation stays unscheduled (roadmap T8.5 remains the placeholder; the rare-material gating note from the land design links here when it opens).
 
+## 2026-07-15 - Owner art touch-up: trophy_goldscarecrow; atlas regen sequenced after the T3.21a commit
+
+**Context:** Owner reported a manual edit to the Golden Scarecrow trophy master (standing report rule). Nothing in flight with the coder. Sequence: T3.21a's scoped commit first (keeps the fix commit clean), then pack:atlas + visual check + its own commit. git add -A is now safe for atlas commits (_to_delete/ and docs/private/ gitignored since the privacy scan).
+
+## 2026-07-15 - T3.21a review PASS -> COMMIT (soak-verified race fix, no behavior change)
+
+**Context:** T3.21a report DONE. Diff reviewed: exactly the specified fix - TrackHandle.destroyed flag, applyTrackVolume guard, killTweensOf(handle) + killTweensOf(handle.sound) + flag at BOTH destroy sites (playTrack COMPLETE handler, stopPlaylist). Coder verification was exemplary: 15-minute soak, 6 natural crossfades timestamped via a runtime monkey-patch (no source changes), timings matching the fadeOutDelay math; music-toggle mid-fade and background/foreground pokes clean. Expand-duck path not exercised live (would have required resetting the owner's real save - correct restraint); the fix defends it by the same verified mechanism.
+
+**Verdict: COMMIT directly** - second direct-COMMIT of the wave; same bar as T3.26 (surface fully verified by the coder, zero behavior change by design). The friend-tester's console TypeError class is closed.
+
+## 2026-07-15 - Owner feedback batch (decor/pets/paths/player-character) analyzed and slotted; fence width locked at 1 plot
+
+**Context:** Owner delivered a feedback batch mid-T3.21a. PM triage and slotting, by size and dependency:
+
+**(1) Decor cap - tester HIT the 30-purchasable limit** (owner recalled 35; code says MAX_DECORATIONS 30, trophies excluded since T3.17). Demand signal, cheap fix. Decision: bundle a cap rework into T3.3a2 (same domain, already touches decor migration). Owner picks at prompt time: raise flat (PM suggests 60) vs move fences to their OWN budget and keep/raise the rest - interacts with (3).
+**(2) Layout presets + arrange-session undo:** medium feature (named layout slots = schema; undo = arrange transaction log). Slotted as a wave 4 candidate beside the full-farm rearrangement conversation - they interact (a layout preset should capture everything movable).
+**(3) Player-placeable stone/dirt paths, free or near-free, generous soft cap, maybe fences join that budget:** this is terrain-decal painting, a different system from decor objects. Needs design; slotted as a wave 4 candidate; pairs naturally with the restoration era's beautification pull. Soft-cap options logged (flat generous per-type cap is the PM default).
+**(4) Player character NPC roaming the farm** (collision-aware, animated) **+ way-future clothing/accessory customization:** hangs on a real sprite-animation pipeline the roadmap deliberately defers (Phase 4A's tween-juice-only rule). Parked concept next to Phase 4A; the customization sub-item logged as a future research task (AI-generating customizable animated sprites).
+**(5) Buyable pets (dogs/cats) roaming + dog house/cat tree decor + gold achievement variants:** same animation/roaming dependency; parked WITH (4) and annotated on Phase 4A (companion creatures vs producing animals). Gold-variant idea links to the trophy precedent.
+**(6) Decor max-scale sanity:** per-item scale clamps should respect relative real-world size (mushrooms must not out-scale the scarecrow). Small config-ish task; added to the T3.9c nit list; candidate rider for T3.3a2.
+**(7) Fence width LOCKED at exactly 1 plot width** (owner decision, completing the T3.3a2 normalization spec): fence lines match the plot grid, which is what makes chain snapping useful for farm customization. Owner's trailing rationale sentence was cut off in transmission; decision content is complete, rationale tail invited.
+
+**Addendum (owner, same day):** the rationale tail - at current fence sizes, outlining your farm leaves a small gap between pieces. Plot-width normalization exists precisely so outlines close flush with the grid; the T3.3a2 snap geometry should treat gap-free outlining of plot rows as its primary acceptance case.
+
+## 2026-07-15 - T3.4b+T3.4c SHIPPED (combined commit): the camera package is live - pan, pinch, bounds, recenter, deferred taps
+
+**Context:** Owner passed the phone-first user test and pushed the combined commit. The wave 3 camera package (T3.4a foundation + T3.4b gestures + T3.4c deferred taps) is fully shipped. Tests 379. Remaining feel check: one pass on the LIVE site from the owner's phone (dev-server LAN testing covered the mechanics; the deployed PWA is the real environment).
+
+**Queue:** T3.21a music crossfade/destroy race fix is next (small, audio.ts only), then T3.3a placeable plots opens the land half of the wave.
+
+## 2026-07-15 - Sweep-vs-pan: external advice reviewed and merged; checkpoint protocol PARKED at docs/design/sweep-vs-pan-checkpoint.md
+
+**Context:** Owner brought ChatGPT design advice on the sweep-vs-pan issue for PM review. Verdict: sound. Its "invisible mode switch / hidden modality" critique of the zoom-threshold rule is the sharpest framing yet and DEMOTES the PM's softened-threshold lean to merely-a-candidate. Adopted: (1) ship R1 on the current model as an honest baseline; (2) a one-time hint at expansion unlock ("Drag with two fingers to move across crops") + the same line in settings/help - ADDED TO T3.3b SCOPE, so two-finger panning is taught, not hoped-for; (3) the structured hardware test protocol and decision rule. NOT adopted: the all-three-candidates dev toggle (building the scythe to test the scythe is the premature work the advice itself warns against) and the advisor's closing prior that the scythe likely wins (mode-system cost + Phase 5 Harvest Golem overlap keep it a candidate, not a favorite - the baseline test decides).
+
+**Parked at:** docs/design/sweep-vs-pan-checkpoint.md - the file IS the R1 checkpoint agenda item (setup, tasks, metrics, decision rule). status.md queue item links there.
+
 ## 2026-07-15 - Sweep-vs-pan at expansion scale: DECISION DEFERRED to the R1 checkpoint; three candidates on record
 
 **Context:** Owner flagged the forward-looking tension: once the farm expands, zoomed-in players surrounded by ready crops cannot one-finger pan (a swipe from a crop is a harvest sweep). Owner proposed (A) all swipes pan when zoomed past default, tap-only harvest there - and explicitly invited push-back - or (B) a scythe tool mode.

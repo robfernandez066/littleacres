@@ -2,29 +2,29 @@
 
 **Updated:** 2026-07-14
 **Phase:** WAVE 3 (blessed 2026-07-15): T3.3+T3.4 lead; T3.24 in flight
-**Schema:** v15 · **Tests:** 355 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v15 · **Tests:** 379 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a SHIPPED 2026-07-15.** **T3.4b PASSED phone test except two gesture quirks -> T3.4c WITH CODER** (deferred structure taps + deferred crop confirm; combined T3.4b+c commit when green). Real-phone LAN testing (npm run dev -- --host) is the standing pre-commit path for touch work. Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a SHIPPED 2026-07-15.** **T3.21a audio race fix SHIPPED pending push** (crossfade/destroy teardown ordering; friend-tester console error closed). **CAMERA PACKAGE SHIPPED 2026-07-15 (T3.4a+b+c):** pan/pinch/bounds/recenter live with deferred structure+crop taps; Tests 379. Real-phone LAN testing (npm run dev -- --host) is the standing pre-commit path for touch work. Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
 - Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
 
 ## Queue
 
-1. T3.4b report -> PM review via diff -> verdict -> user test -> commit
-2. T3.21a music crossfade/destroy race fix (small; queued behind T3.4b to keep the diff channel clean)
-3. Then T3.3a plots -> T3.3a2 fence snap -> T3.3b R1 + owner checkpoint -> T3.3c
+1. T3.3a placeable plots - PM writing the prompt (schema bump, plots as shed items, place/move flow, 5C popup)
+2. Then T3.3a plots -> T3.3a2 fence snap (spec grown: fence width = 1 plot; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; candidate rider: per-item max-scale sanity) -> T3.3b R1 + owner checkpoint -> T3.3c
 4. Owner (parallel, anytime): land-era art batch - composite mere parts, overgrowth tiles, region sign, dock stage-0
 5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
-6. R1 checkpoint agenda item: sweep-vs-pan at scale (candidates: zoom-threshold pan / scythe tool / keep model + two-finger pan; decided on real hardware with a real big farm)
+6. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)
 3. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
 4. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
 ## Open validations (real-player / device evidence still required, not findings that passed)
 
 - WYWA foreground-summary threshold feel (after T3.20)
+- Camera feel pass on the LIVE site from a real phone (post T3.4 deploy; LAN dev testing covered mechanics)
 
 ## Waiting on user (whenever convenient)
 
@@ -43,6 +43,7 @@
 - T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center; 2026-07-14 review adds a ghost-drag-confirm option), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
 - Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
 - FarmScene comment re-attachment: enterArrangeMode's doc comment now floats above toggleArrangeMode (T3.25 insertion nit) - fix when T3.3 touches FarmScene
+- Decor per-item max-scale sanity (owner, 2026-07-15): scale clamps should respect relative size - mushrooms must not out-scale the scarecrow; candidate T3.3a2 rider
 - Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice
 - MAX-level polish: order cards still advertise xp at the cap - de-emphasize or annotate (review nit, 2026-07-14)
 - Reduced-motion toggle: explicit earlier candidate (owner, 2026-07-14) - ride a convenient settings task; the T7.5 full accessibility pass must not absorb present-day usability defects (readability/touch targets land with T3.23)

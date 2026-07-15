@@ -111,7 +111,7 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 - **Lead: T3.3 + T3.4 as one package** (land expansion + camera; see their entries above for the owner's guardrails). Whichever task moves first pulls the other, per the standing note.
 - **Second: Restoration chapter v1** (decorative buildings / farmhouse upgrade territory; direct tester demand). CONTINGENT on a PM boundary doc vs T3.3 - what is "new land" (T3.3) vs "restoring what is already there" (this chapter) - which the owner reviews BEFORE any coder prompt exists.
 - **Small rider: direct arrange-mode entry** (tester wish: edit the layout without going through the shop) - runs between features like T3.24 did.
-- Deferred to wave 4: T3.5 crop mastery, T3.2 storage caps (+ partial-sell pairing) - see their entries.
+- Deferred to wave 4: T3.5 crop mastery, T3.2 storage caps (+ partial-sell pairing) - see their entries. Wave 4 candidates from the 2026-07-15 owner batch: layout presets + arrange-session undo (interacts with the parked full-farm rearrangement); player-placeable stone/dirt paths (terrain decals, free-ish, generous soft caps, maybe a shared fence budget - needs design).
 - In flight at cut time: T3.24 inventory column labels (tester usability find).
 
 ---
@@ -131,6 +131,7 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 
 - **T4A.1** Animal building framework: each animal TYPE has its own building placed on the farm layout, purchased with gold (v1; "rebuild with materials" variant becomes available once the Mine supplies materials). Inside: 1 open animal slot + additional locked slots purchasable with gold (max per building TBD at prompt time - owner decision).
 - **T4A.2** Harvest loop: each occupied slot produces that animal's material on a LONG timer (timestamp-derived, offline-friendly); harvesting collects and resets the timer; the animal persists (never re-acquired).
+- **T4A.pets** (owner, 2026-07-15, unscheduled annotation): buyable companion pets (dogs/cats) that roam the farm + dog house / cat tree decor (gold variants gated on achievements, trophy precedent). Same roaming/animation dependency as T4A.3's future polish - schedule only when a real sprite-animation pipeline exists.
 - **T4A.3** Ambient life: an animal sprite idles NEAR its building (separate sprite from the building; e.g. eating in front of it), animated in v1 with TWEEN JUICE ONLY (bob/hop/peck loops - the established pattern). True sprite-sheet animation is a future polish item by owner decision (2026-07-12) - no spike, no thought spent until then.
 - **T4A.4** v1 scope: at least 2 animal types = 2 building sprites + 2 static animal sprites; materials enter the economy (orders/quests/recipes per Phase 4 patterns).
 
@@ -178,6 +179,7 @@ Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game to
 ## Parked concepts (not scheduled; revisit at phase gates)
 
 - **Mine scene** (user pitch, 2026-07-10) - **reward-only Mine v1 variant DROPPED by owner 2026-07-14 (audit reconciliation); the full parked concept below is unaffected:** a second scene with a daily rapid-mine mini-game (simple, satisfying, deliberately UNFAILABLE - GDD forbids skill/timing requirements; rewards scale with participation, not performance). Grants mine XP + random materials; mine levels raise AFK material yields and rare-material odds. Materials become the supply for building/tool upgrade gates already reserved in the GDD economy. Daily cadence must be bonus-framed: no streaks, no loss for missed days. Earliest sensible slot: Phase 6+ (wants buildings, storage caps, and the offline-production framework to exist first).
+- **Player character** (owner, 2026-07-15): an NPC avatar that walks the farm, never entering/overlapping structures or decor - needs walk-cycle animation + light pathing, so it waits on the same sprite-animation pipeline as Phase 4A's future polish. Way-future sub-item: clothing/accessory customization, preceded by a research task on AI-generating customizable animated sprites.
 - **Full-farm rearrangement** (owner direction, 2026-07-15, from the restoration boundary review): eventually EVERYTHING on the farm should be movable, structures included. Its own design conversation after the T3.3+T3.4 land/camera package ships - interacts with arrange mode (T3.9a), region geometry (T3.3), and camera bounds (T3.4). Restoration v1 stays fixed-landmark and must build nothing that blocks this (in-place art swaps carry over to movable structures unchanged).
 - **Major Shipments** - see T4.4 note. Known code dependency (found in T2.11): gameState.ts's isOrder save-validator hard-caps order items at <= 2 - must be raised when orders ever carry 3+ item types. The order-card UI already renders up to 3 (CLUSTER_TIERS).
 

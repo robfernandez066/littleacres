@@ -56,6 +56,8 @@ freedom wins over region identity.
 - **Fences (decor_fence):** end-to-end CHAIN SNAP - dragging a fence near an
   existing fence's endpoint snaps it flush to continue the line, flip-aware
   (the snap works out the joining geometry from both pieces' flip states).
+  Normalized width = EXACTLY 1 PLOT WIDTH (owner, 2026-07-15): fence lines
+  match the plot grid, which is what makes chains useful for framing farms.
   Fences LOSE Scale +/- (size locked) - uniform size is what makes chain
   snapping clean. Existing placed fences migrate to the locked scale.
   **PM rule (veto-able):** fences of different current scales snap after
