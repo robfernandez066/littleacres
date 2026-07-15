@@ -20,6 +20,30 @@ Format:
 
 ---
 
+## 2026-07-15 - T3.4a review PASS -> USER TEST; router mechanism verified end to end; T3.4b scope notes locked
+
+**Context:** T3.4a diff reviewed (t34a-review.diff, 799 lines). The coder chose a scene-owned ADDED_TO_SCENE router (worldLayer default, inUiLayer(fn) scope for UI construction) over per-call-site edits - verified: layers register before any object exists (only root objects), re-entrancy guarded by the displayList root check, containers pass through within one synchronous tick, warehouse panel covered via the createArrangeControls wrap, Hud's nested panels covered by its wrapped constructor, lazy creators (PooledArc growth, ChestCeremony slots) pin to construction-time layers with null-guards. Field hit-tests moved to cameras.main.getWorldPoint with a scratch vector - deliberately not pointer.worldX, which two-camera Phaser derives from the top-most (UI) camera and would break in T3.4b. dev.camera + dev.sceneLayers probes added. Live evidence in the report includes the transformed-tap proof (offset camera: tap at transformed position hits plot 0, tap at old position hits plot 1).
+
+**PM rulings on coder questions:** ReplantChip = UI CONFIRMED (fixed screen chip; anchoring rule). dev.sceneLayers KEPT. Mixed pools (FloatingText also serves Hud sell/fulfill labels; ParticleBurst also serves celebrations) = explicit T3.4b scope: UI twin pool or emit-time conversion, decided in that prompt. Onboarding halo targeting world positions is moot while rails pin the camera; noted in the T3.4b prompt.
+
+**Verdict: USER TEST** (light - identity play + dev.camera proof), then single commit.
+
+## 2026-07-15 - Land+camera design FINAL (v3): all decision points resolved; plots-in-shed model, snapping rules, fence task added; T3.4a report received
+
+**Context:** Owner answered all five v2 decision points: (1A) gesture model as written incl. plant-sweep + arrange-mode pan; (2A with end-state) new-plots-first for clean sequencing, but ALL plots movable is the wave requirement - PM folded movable-existing-plots into T3.3a with a flagged veto-able rule: plots move only while EMPTY (no growing crop; harvest-then-move); (3A refined) Shore grants 0 plots, placing allowed there, and ALL granted plots spawn in the SHED as placeable warehouse items - no floating counters; (4) task order PM's call; (5C) purchase popup gets two buttons - Confirm (close + Edit Layout flashes until all placed) or Place Now (straight into Edit Layout with a plot selected, pre-positioned near the farm, snapped) - flash resumes if they leave with plots unplaced.
+
+**New owner feedback expanded into snapping rules:** plots always grid-snap (adjacency free); fences get flip-aware end-to-end chain snapping and LOSE Scale +/- (uniform size makes chains clean; veto-able migration rule: existing scaled fences normalize to standard size); all other decor stays free-form. Fence snapping becomes its own small task T3.3a2 right after T3.3a to reuse the fresh snap infrastructure.
+
+**Task cut FINAL:** T3.4a (in flight) -> T3.4b gestures -> T3.3a plots system -> T3.3a2 fence snap -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite + Shore; art batch parallel. docs/design/land-camera-design.md/.docx replaced with v3 FINAL. T3.4a report arrived same hour (DONE, ADDED_TO_SCENE router approach, 355 green) - PM review next via the standing diff channel.
+
+## 2026-07-15 - Land+camera design v2 delivered after owner feedback; T3.4a issued (unblocked by remaining decisions)
+
+**Context:** Owner reviewed design round 1 with substantial feedback: (1) GESTURES - "one-hand default" was over-rigid; portrait is the one-hand accommodation. New model: a drag does the most specific thing under the finger at its start (ready crop = harvest sweep; empty plot + seed = plant sweep, PM extension pending owner confirm), otherwise ONE-FINGER PAN; gesture locks at finger-down; pinch anywhere anytime including day-one farm; locked areas render slightly visible but dimmed. (2) PLOTS - regions become LAND + PLOT GRANTS: players place granted plots wherever they wish via Edit Layout (snap to grid); reveal ceremony replaced by a button-only popup ("You've unlocked X more plots!") + flashing Edit Layout until placed. Technical consequence: plots need explicit save coordinates (schema bump) + a placement flow - new T3.3a scope. (3) ART - landmark features become composites the owner generates in parts and the coder assembles (mere = water band + shore strips + separate glow overlay + shimmer + decals; glow steps tint the overlay). (4) PRICING - approved for now; future rare-material time gating on beauty regions logged as a monetization direction; cost model built extensible. (5) World pick A confirmed tentatively (checkpoint after first region).
+
+**Task cut v2:** T3.4a camera foundation -> T3.4b gesture model v2 -> T3.3a placeable plots -> T3.3b regions (R1 first, owner checkpoint) -> T3.3c mere composite + Shore; art batch runs parallel from now (world size fixed).
+
+**Docs:** docs/design/land-camera-design.md/.docx replaced with v2 (settled items compressed; 5 remaining decision points: gesture model confirm, placeable-plots scope, Shore grant, task order, popup behavior). **T3.4a issued immediately** per owner instruction - it is identical in both rounds and blocked by none of the open decisions.
+
 ## 2026-07-15 - Owner art touch-up: trophy_ancientoak.png; immediate atlas regen (nothing in flight)
 
 **Context:** Owner reported a manual touch-up to the trophy_ancientoak.png master (standing rule: report even unchanged filenames - gitignored masters feed pack:atlas silently). Unlike the decor_well case, no coder task is in flight, so no diff-contamination risk.

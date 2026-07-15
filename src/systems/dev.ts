@@ -47,6 +47,18 @@ export interface DevTools {
   toggleDressingSelectedFront?(): void;
   deleteDressingSelected?(): void;
   copyDressingLayoutJson?(): string;
+  /**
+   * Set the MAIN (world) camera's scroll/zoom (T3.4a camera split): the whole
+   * world layer shifts/scales while the UI camera's layer stays pixel-fixed.
+   * No args resets to the default (0, 0, zoom 1). Registered by FarmScene.
+   */
+  camera?(scrollX?: number, scrollY?: number, zoom?: number): void;
+  /**
+   * T3.4a verification probe: the Farm scene's ROOT display list (must be
+   * exactly the two camera-split layers) plus each layer's child count.
+   * Registered by FarmScene.
+   */
+  sceneLayers?(): { root: string[]; worldChildren: number; uiChildren: number };
 }
 
 declare global {
@@ -103,6 +115,26 @@ export function registerHitboxToggle(toggle: (enabled: boolean) => void): void {
  */
 export function registerGroundModeCycle(cycle: () => GroundMode): void {
   if (window.dev !== undefined) window.dev.cycleGroundMode = cycle;
+}
+
+/**
+ * Late-bind `dev.camera` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerCameraControl(
+  set: (scrollX?: number, scrollY?: number, zoom?: number) => void,
+): void {
+  if (window.dev !== undefined) window.dev.camera = set;
+}
+
+/**
+ * Late-bind `dev.sceneLayers` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerSceneLayersProbe(
+  probe: () => { root: string[]; worldChildren: number; uiChildren: number },
+): void {
+  if (window.dev !== undefined) window.dev.sceneLayers = probe;
 }
 
 /**

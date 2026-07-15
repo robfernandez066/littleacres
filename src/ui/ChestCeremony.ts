@@ -116,6 +116,16 @@ export class ChestCeremony {
   /** Grown lazily to the widest `contents` seen so far (see `ensureSlots`) -
    * supports any chest count without rework, though only 1-2 are generated today. */
   private readonly slots: ChestSlot[] = [];
+  /**
+   * The Layer the scene's routing placed the ceremony's objects in at
+   * construction time (T3.4a camera split: FarmScene constructs this inside
+   * its UI-layer routing scope), recorded from the backdrop. Slots are
+   * created lazily (`ensureSlots`) mid-gameplay, OUTSIDE that scope - when
+   * new objects route to the world layer by default - so `createSlot` pins
+   * each one here. Null when the backdrop landed on the scene root (no
+   * layer routing), in which case slots are left where they land too.
+   */
+  private readonly slotLayer: Phaser.GameObjects.Layer | null;
 
   private readonly queue: ChestEvent[] = [];
   private active: ChestEvent | null = null;
@@ -134,6 +144,10 @@ export class ChestCeremony {
       .setDepth(CEREMONY_DEPTH)
       .setVisible(false)
       .setInteractive();
+    this.slotLayer =
+      this.backdrop.displayList instanceof Phaser.GameObjects.Layer
+        ? this.backdrop.displayList
+        : null;
     this.backdrop.on(
       Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
       (
@@ -203,6 +217,8 @@ export class ChestCeremony {
       .setOrigin(0, 0.5)
       .setDepth(CEREMONY_DEPTH + 1)
       .setVisible(false);
+    // Layer assignment (T3.4a) - see `slotLayer`'s comment.
+    this.slotLayer?.add([chestImage, coinIcon, coinText, moondustIcon, moondustText]);
     return { chestImage, coinIcon, coinText, moondustIcon, moondustText };
   }
 

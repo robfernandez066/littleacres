@@ -58,6 +58,18 @@ interface Flight {
 export class PooledArc implements PoolStatsProvider {
   private readonly pool: Pool<Flight>;
 
+  /**
+   * The Layer the scene's routing placed this arc's sprites in at
+   * construction time (T3.4a camera split: every arc is constructed inside
+   * FarmScene's UI-layer routing scope). Sprites the pool grows on demand
+   * later are created mid-gameplay, OUTSIDE that scope - when new objects
+   * route to the world layer by default - so the create callback pins each
+   * one to the layer recorded from the first preallocated sprite. Null when
+   * that sprite landed on the scene root (no layer routing, e.g. a bare
+   * test scene), in which case later sprites are left where they land too.
+   */
+  private spriteLayer: Phaser.GameObjects.Layer | null = null;
+
   private readonly onFlightStart = (_tween: Phaser.Tweens.Tween, targets: Flight[]): void => {
     const flight = targets[0];
     if (flight === undefined) return;
@@ -91,20 +103,30 @@ export class PooledArc implements PoolStatsProvider {
     private readonly options: PooledArcOptions,
   ) {
     this.pool = new Pool(
-      (): Flight => ({
-        sprite: this.scene.add
+      (): Flight => {
+        const sprite = this.scene.add
           .image(0, 0, ATLAS_KEY, options.defaultFrame)
           .setDepth(options.depth)
-          .setVisible(false),
-        t: 0,
-        fromX: 0,
-        fromY: 0,
-        ctrlX: 0,
-        ctrlY: 0,
-        startScale: options.startScale,
-        endScale: options.endScale,
-        onArrive: null,
-      }),
+          .setVisible(false);
+        // Layer assignment (T3.4a) - see `spriteLayer`'s comment.
+        if (this.spriteLayer === null) {
+          this.spriteLayer =
+            sprite.displayList instanceof Phaser.GameObjects.Layer ? sprite.displayList : null;
+        } else if (sprite.displayList !== this.spriteLayer) {
+          this.spriteLayer.add(sprite);
+        }
+        return {
+          sprite,
+          t: 0,
+          fromX: 0,
+          fromY: 0,
+          ctrlX: 0,
+          ctrlY: 0,
+          startScale: options.startScale,
+          endScale: options.endScale,
+          onArrive: null,
+        };
+      },
       (flight) => {
         flight.sprite.setVisible(false);
         flight.onArrive = null;

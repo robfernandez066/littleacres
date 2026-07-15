@@ -36,10 +36,12 @@ import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
 import { AudioManager } from '../systems/audio';
 import {
+  registerCameraControl,
   registerCoinArcTest,
   registerDressingEditorHooks,
   registerGroundModeCycle,
   registerHitboxToggle,
+  registerSceneLayersProbe,
 } from '../systems/dev';
 import { gameState, type DecorationPlacement } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
@@ -514,6 +516,22 @@ interface WarehouseRow {
  * formula (see `indexToGrid` below).
  */
 export class FarmScene extends Phaser.Scene {
+  /**
+   * T3.4a camera split: every display object lives in exactly one of these
+   * two Layers - `worldLayer` for anything anchored to a farm position,
+   * `uiLayer` for anything anchored to the screen. The main camera renders
+   * only the world layer (and is the one a later task will pan/zoom);
+   * `uiCamera` renders only the UI layer and never moves. See
+   * `createCameraLayers` for the routing mechanism.
+   */
+  private worldLayer!: Phaser.GameObjects.Layer;
+  private uiLayer!: Phaser.GameObjects.Layer;
+  private uiCamera!: Phaser.Cameras.Scene2D.Camera;
+  /** Where `routeAddedObject` sends newly created display objects - the world
+   *  layer except inside an `inUiLayer(...)` scope. */
+  private routeLayer!: Phaser.GameObjects.Layer;
+  /** Scratch vector for `fieldPointerWorld` - no per-pointer-move allocation. */
+  private readonly pointerWorldPoint = new Phaser.Math.Vector2();
   /** One reusable crop sprite per plot, indexed like `gameState.plots`. */
   private cropSprites: Phaser.GameObjects.Image[] = [];
   /**
@@ -643,6 +661,8 @@ export class FarmScene extends Phaser.Scene {
   }
 
   create(): void {
+    this.createCameraLayers();
+
     // Depth -2: below the whole ground layer (GROUND_LAYER_DEPTH, -1),
     // which must render above this rect but below every depth-0 gameplay
     // object. Without this, texture mode drew beneath the opaque background
@@ -671,31 +691,50 @@ export class FarmScene extends Phaser.Scene {
       console.warn(`Background audio load failed: ${file.key}`);
     });
     this.load.start();
+    // Plot-anchored effect pools (floating text, particle bursts) and the
+    // tapped-plot countdown are world objects, so they build under the
+    // default world routing; everything screen-anchored builds inside
+    // `inUiLayer` so every object its constructor creates - however deep -
+    // routes to the UI camera. See `createCameraLayers`.
     this.floatingText = new FloatingText(this);
     this.particles = new ParticleBurst(this);
-    this.coinArc = new CoinArc(this);
-    this.moondustArc = new MoondustArc(this);
-    this.cropInfoCard = new CropInfoCard(this, this.audio);
-    this.decorShop = new DecorShop(this, this.audio, () => this.enterArrangeMode());
-    this.seedBar = new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop));
+    this.coinArc = this.inUiLayer(() => new CoinArc(this));
+    this.moondustArc = this.inUiLayer(() => new MoondustArc(this));
+    this.cropInfoCard = this.inUiLayer(() => new CropInfoCard(this, this.audio));
+    this.decorShop = this.inUiLayer(
+      () => new DecorShop(this, this.audio, () => this.enterArrangeMode()),
+    );
+    this.seedBar = this.inUiLayer(
+      () => new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop)),
+    );
     this.cropCountdown = new CropCountdown(this);
-    this.replantChip = new ReplantChip(
-      this,
-      this.audio,
-      (plantedEntries) => this.handleReplanted(plantedEntries),
-      () => {
-        this.pendingReplant = [];
-      },
+    // UI, not world: the chip is a fixed screen-position control (centered
+    // over the seed bar band, depth 2000) - it lists plots in its COPY but is
+    // not anchored to any of them, and it must stay put when the world
+    // camera moves (anchoring rule; see the T3.4a task report).
+    this.replantChip = this.inUiLayer(
+      () =>
+        new ReplantChip(
+          this,
+          this.audio,
+          (plantedEntries) => this.handleReplanted(plantedEntries),
+          () => {
+            this.pendingReplant = [];
+          },
+        ),
     );
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
-    this.hud = new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio, () =>
-      this.toggleArrangeMode(),
+    this.hud = this.inUiLayer(
+      () =>
+        new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio, () =>
+          this.toggleArrangeMode(),
+        ),
     );
     // Constructed after Hud (needs it for claim-reward juice - see
     // QuestBoard's own comment) and handed back in via setQuestBoard so the
     // HUD's scroll icon can own toggling it, mirroring the bag.
-    this.questBoard = new QuestBoard(this, this.hud, this.audio);
+    this.questBoard = this.inUiLayer(() => new QuestBoard(this, this.hud, this.audio));
     this.hud.setQuestBoard(this.questBoard);
     this.createFarmhouse();
     this.createNoticeBoard();
@@ -715,12 +754,18 @@ export class FarmScene extends Phaser.Scene {
     this.refreshNoticeBoardBadge();
     // Same "no flash of interactive before the rails disable it" reasoning as the notice board above.
     this.applyFarmhouseRailsGating();
-    this.onboardingGuide = new OnboardingGuide(this);
-    this.levelUpCelebration = new LevelUpCelebration(this, this.particles, this.audio);
-    this.chestCeremony = new ChestCeremony(this, this.particles, this.hud, this.audio);
+    this.onboardingGuide = this.inUiLayer(() => new OnboardingGuide(this));
+    this.levelUpCelebration = this.inUiLayer(
+      () => new LevelUpCelebration(this, this.particles, this.audio),
+    );
+    this.chestCeremony = this.inUiLayer(
+      () => new ChestCeremony(this, this.particles, this.hud, this.audio),
+    );
+    // World: the sign is a farm structure (a signpost below the field), not a
+    // screen control - it pans with the world camera like the notice board.
     this.expandSign = new ExpandSign(this, () => this.tryExpand());
     this.expandSign.refresh(gameState.getState());
-    this.createArrangeControls();
+    this.inUiLayer(() => this.createArrangeControls());
     this.setupFieldInput();
     this.refreshCrops();
     this.refreshDecorations();
@@ -729,14 +774,24 @@ export class FarmScene extends Phaser.Scene {
     // Drained in update() (T3.20), where it can also fire mid-session on a
     // foreground resume, not just at scene start. It blocks field input like
     // any modal, via the same isModalOpen() gate.
-    this.offlineSummaryPanel = new OfflineSummaryPanel(this, this.audio);
+    this.offlineSummaryPanel = this.inUiLayer(() => new OfflineSummaryPanel(this, this.audio));
     // Weekly rollover notice (T3.19): drained in update(), where it defers
     // behind the offline summary (via isModalOpen) and the celebrations.
-    this.weeklyNoticePanel = new WeeklyNoticePanel(this, this.audio);
+    this.weeklyNoticePanel = this.inUiLayer(() => new WeeklyNoticePanel(this, this.audio));
 
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
     registerCoinArcTest((n) => this.coinArc.fly(DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2, n));
+    // dev.camera(scrollX, scrollY, zoom) moves the MAIN (world) camera only -
+    // the proof the T3.4a layer split works before T3.4b adds real gestures.
+    registerCameraControl((scrollX = 0, scrollY = 0, zoom = 1) => {
+      this.cameras.main.setScroll(scrollX, scrollY).setZoom(zoom);
+    });
+    registerSceneLayersProbe(() => ({
+      root: this.children.list.map((child) => child.type),
+      worldChildren: this.worldLayer.list.length,
+      uiChildren: this.uiLayer.list.length,
+    }));
     registerHitboxToggle((enabled) => this.toggleHitboxDebug(enabled));
     registerGroundModeCycle(() => this.cycleGroundMode());
     registerDressingEditorHooks({
@@ -747,6 +802,92 @@ export class FarmScene extends Phaser.Scene {
       deleteSelected: () => this.deleteSelectedDressing(),
       copyLayoutJson: () => JSON.stringify(this.dressingState, null, 2),
     });
+  }
+
+  /**
+   * T3.4a camera foundation: build the two Layers, the second camera, and
+   * the automatic layer routing - MUST run before anything else in
+   * `create()` adds a display object.
+   *
+   * Routing: a scene-events ADDED_TO_SCENE hook moves every object added to
+   * the scene's ROOT display list into `routeLayer` - the world layer by
+   * default (which also covers all runtime world creation: plot visuals on
+   * expand, decoration/shadow rebuilds, ground-mode rebuilds, dressing
+   * spawns, and growth of the plot-anchored effect pools), the UI layer
+   * inside an `inUiLayer(...)` scope (each UI class's whole construction,
+   * containers and pools included). An object that immediately joins a
+   * Container merely passes through a layer within the same synchronous
+   * tick - no render can happen in between. The two UI classes that create
+   * root-level objects lazily at runtime (PooledArc growth, ChestCeremony
+   * slots) pin those to the layer recorded at their construction - see
+   * their own comments.
+   *
+   * Layers (unlike Containers) depth-sort their children, so the iso
+   * y-depth convention keeps working unchanged inside worldLayer; and since
+   * every world depth is < 2000 <= every UI depth, world-then-UI camera
+   * order preserves today's global draw order pixel for pixel.
+   */
+  private createCameraLayers(): void {
+    this.worldLayer = this.add.layer();
+    this.uiLayer = this.add.layer();
+    this.routeLayer = this.worldLayer;
+    // Registered only after both layers exist, so the layers themselves are
+    // the only two objects that remain on the root display list.
+    this.events.on(Phaser.Scenes.Events.ADDED_TO_SCENE, this.routeAddedObject, this);
+    // Identical geometry to the main camera (both default to the game's
+    // 1080x1920 scale size); transparent, renders after (over) main.
+    this.uiCamera = this.cameras.add(0, 0, undefined, undefined, false, 'ui');
+    this.cameras.main.ignore(this.uiLayer);
+    this.uiCamera.ignore(this.worldLayer);
+  }
+
+  /**
+   * ADDED_TO_SCENE hook (see `createCameraLayers`): route every root
+   * display-list add into the current target layer. Adding an object INTO a
+   * layer re-emits this same scene event, but with `displayList` already set
+   * to that layer - the root check drops those re-fires.
+   */
+  private routeAddedObject(gameObject: Phaser.GameObjects.GameObject): void {
+    // Layer is not a GameObject subclass in Phaser's type definitions (it is
+    // at runtime), hence the unknown-cast for this defensive identity check.
+    const asUnknown = gameObject as unknown;
+    if (asUnknown === this.worldLayer || asUnknown === this.uiLayer) return;
+    if (gameObject.displayList !== this.children) return;
+    this.routeLayer.add(gameObject);
+  }
+
+  /** Run `build` with new display objects routing to the UI layer (see `createCameraLayers`). */
+  private inUiLayer<T>(build: () => T): T {
+    const previous = this.routeLayer;
+    this.routeLayer = this.uiLayer;
+    try {
+      return build();
+    } finally {
+      this.routeLayer = previous;
+    }
+  }
+
+  /**
+   * The layer an object ultimately renders in (through its top-most
+   * container, if any), or null for an object on the root display list.
+   */
+  private layerOf(object: Phaser.GameObjects.GameObject): Phaser.GameObjects.Layer | null {
+    let root: Phaser.GameObjects.GameObject = object;
+    while (root.parentContainer) root = root.parentContainer;
+    return root.displayList instanceof Phaser.GameObjects.Layer ? root.displayList : null;
+  }
+
+  /**
+   * The MAIN camera's world point for a pointer - the field hit-test seam
+   * (T3.4a). Deliberately not `pointer.worldX/worldY`: with two cameras
+   * Phaser derives those from whichever camera it last hit-tested (the
+   * top-most, i.e. the fixed UI camera), which stops matching the field the
+   * moment the world camera moves (T3.4b). Equal to pointer.x/y at today's
+   * default camera, so behavior cannot change now. Reuses one scratch
+   * Vector2 - no allocation on pointer-move.
+   */
+  private fieldPointerWorld(pointer: Phaser.Input.Pointer): Phaser.Math.Vector2 {
+    return this.cameras.main.getWorldPoint(pointer.x, pointer.y, this.pointerWorldPoint);
   }
 
   override update(_time: number, delta: number): void {
@@ -826,15 +967,15 @@ export class FarmScene extends Phaser.Scene {
   private setupFieldInput(): void {
     this.input.on(Phaser.Input.Events.POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
       this.gestureMode = null;
-      const plotIndex = this.plotTracker.begin(pointer.worldX, pointer.worldY, this.rowCount());
+      const world = this.fieldPointerWorld(pointer);
+      const plotIndex = this.plotTracker.begin(world.x, world.y, this.rowCount());
       this.maybeShowCountdown(plotIndex);
       this.handlePlotEntered(plotIndex);
     });
     this.input.on(Phaser.Input.Events.POINTER_MOVE, (pointer: Phaser.Input.Pointer) => {
       if (!pointer.isDown) return;
-      this.handlePlotEntered(
-        this.plotTracker.move(pointer.worldX, pointer.worldY, this.rowCount()),
-      );
+      const world = this.fieldPointerWorld(pointer);
+      this.handlePlotEntered(this.plotTracker.move(world.x, world.y, this.rowCount()));
     });
     const endGesture = (): void => {
       this.plotTracker.end();
@@ -2547,7 +2688,14 @@ export class FarmScene extends Phaser.Scene {
     const interactiveObjects = (this.input as any)._list as HitboxDebuggable[]; // `any` cast: InputPlugin's interactive-object list (`_list`) is internal/private with no public accessor
     for (const object of interactiveObjects) {
       if (enabled) {
-        this.input.enableDebug(object);
+        // enableDebug creates its outline shape as a fresh root display
+        // object - route it into its target's own layer, so a UI button's
+        // outline stays screen-fixed with the button under dev.camera.
+        if (this.layerOf(object) === this.uiLayer) {
+          this.inUiLayer(() => this.input.enableDebug(object));
+        } else {
+          this.input.enableDebug(object);
+        }
         if (object.parentContainer) {
           this.hitboxOriginalDepths.set(object, object.depth);
           object.setDepth(HITBOX_DEBUG_DEPTH);
