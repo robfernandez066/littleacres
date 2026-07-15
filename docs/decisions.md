@@ -15,6 +15,28 @@ Format:
 
 ---
 
+## 2026-07-15 - T3.24 review PASS (with two owner-directed live deviations) -> USER TEST
+
+**Context:** T3.24 report DONE; diff reviewed via the standing channel (t324-review.diff). Two deviations, both owner-directed live during the coder session, both improvements: (1) header wording "Value" instead of the prompt's "Each" - clearer; (2) T3.24a swap - the value column now reads number-then-coin instead of coin-then-number.
+
+**Review result:** the swap was implemented the right way - only the three constants changed (ROW_UNIT_TEXT_RIGHT_X 170->128, ROW_UNIT_COIN_X 78->165, new ROW_UNIT_HEADER_X 185 = the coin's right edge, so the header right-aligns over the whole number+coin group exactly as "Owned" does over the count); buildRow reads the names, so no logic moved. Geometry hand-checked: Sagesprig's 4-digit 1200 gets 21px clearance from the count column (old layout had 13px); header right edge sits 35px clear of the sell button. COUNT_STYLE gains bold only; headers are static, built once in the constructor, in the container. Sell flow byte-identical.
+
+**Verdict: USER TEST**, then commit (T3.24 alone; single-file task). Lesson reinforced: owner live-directing small visual calls mid-coder-session works well and beats a PM round-trip for pure taste decisions - PM logs them from the report + diff afterward.
+
+## 2026-07-15 - WAVE 3 CUT DECIDED (owner picks 1A/2A/3A/4A/5A - all PM recommendations accepted)
+
+**Context:** Decision menu presented at the gate wrap (P2 batch closed same day). Owner picked every recommended option.
+
+**The cut:** (1A) T3.3 land expansion + T3.4 camera lead wave 3 as one package, pinch-zoom under the owner's 2026-07-14 guardrails (HUD fixed, tight bounds, pinch suppresses taps, one-hand default, reset/recenter). (2A) Restoration chapter v1 takes the second slot, CONTINGENT on a PM boundary doc vs T3.3 (new land vs restoring what is there) which the owner reviews before any coder prompt exists. (3A) Crop mastery holds for wave 4 - no demand signal. (4A) Storage caps hold for wave 4, to be paired with the owner's partial-sell idea as one inventory-economy package. (5A) Direct arrange-mode entry rides wave 3 as a small task.
+
+**Docs updated:** roadmap.md gets the WAVE 3 block + per-task annotations (T3.2/T3.3/T3.4/T3.5) + the Mine v1 DROPPED annotation on the parked concept (verified missing during this update - the staged roadmap was complete and coherent, so the annotation had never landed there, only in decisions). Next PM deliverables: the restoration boundary doc (while T3.24 runs), then the T3.3+T3.4 design decisions + first coder prompt after T3.24 ships.
+
+## 2026-07-15 - P2 BATCH CLOSED: CI gate green on GitHub (Test + Lint before Build), decor_well atlas regen committed
+
+**Context:** Owner confirmed the deploy.yml push ran all green on GitHub Actions with Test and Lint passing before Build, and the decor_well atlas regen went in as its own commit. That completes every item in the blessed P2 batch: T3.20+a (foreground WYWA), T3.21 (staged audio), T3.22+a (value-tiered chests + premium tag fit), T3.23+a (seed-bar scroll + readability + stuck-drag fix), CI gate.
+
+**State:** The integrity cut and the P2 batch are both fully shipped. The playtest gate's evidence is in and positive (2026-07-14 entry). Remaining in flight: T3.24 (inventory column labels, small). Next decision: the wave 3 cut, presented to the owner as an Item + Options menu per the standing format.
+
 ## 2026-07-15 - Tester usability find: inventory qty-owned vs sell-price ambiguity -> T3.24 cut (small, InventoryPanel only)
 
 **Context:** Tester could not tell how much of a crop they owned and suggested adding owned counts to the inventory - which already shows them ("x12" right-aligned next to the coin+unit-value). The real defect is that two unlabeled numbers sit side by side: the count is smaller and plainer than the crop name, and the muted coin+number can read as a sale total. A feature we already have is invisible - that is a readability defect, same class as T3.23's baseline.

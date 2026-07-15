@@ -36,17 +36,23 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
  */
 /** 160px below the panel top, same title clearance as before the 7-row refit. */
 const ROW_START_Y = -PANEL_HEIGHT / 2 + 160;
+/** Column header labels ("Owned"/"Value") sit just above the first row (T3.24). */
+const HEADER_Y = ROW_START_Y - 55;
 /** 10px between 100px-tall sell buttons; 115 was too tall for 7 rows (T3.11). */
 const ROW_SPACING = 110;
 const ROW_ICON_X = -405;
 const ROW_ICON_SCALE = 0.5;
 const ROW_NAME_X = -352;
 const ROW_COUNT_RIGHT_X = 40;
-/** Far enough left of the unit value's band that a 4-digit value (Sagesprig's
- * 1200, T3.11) right-aligned at ROW_UNIT_TEXT_RIGHT_X clears the coin. */
-const ROW_UNIT_COIN_X = 78;
+/** Value column reads number-then-coin (T3.24a): the number is right-aligned
+ * at ROW_UNIT_TEXT_RIGHT_X, the coin sits to its right at ROW_UNIT_COIN_X, and
+ * ROW_UNIT_HEADER_X - the coin's right edge - is where the "Value" header
+ * right-aligns, so the header sits over the whole number+coin group the same
+ * way "Owned" right-aligns over the count. */
+const ROW_UNIT_TEXT_RIGHT_X = 128;
+const ROW_UNIT_COIN_X = 165;
 const ROW_UNIT_COIN_SCALE = 0.4;
-const ROW_UNIT_TEXT_RIGHT_X = 170;
+const ROW_UNIT_HEADER_X = 185;
 const ROW_SELL_BUTTON_X = 325;
 const SELL_BUTTON_WIDTH = 210;
 const SELL_BUTTON_HEIGHT = 100;
@@ -100,6 +106,7 @@ const NAME_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 const COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '34px',
+  fontStyle: 'bold',
   color: '#4a3218',
 };
 
@@ -107,6 +114,13 @@ const UNIT_VALUE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '30px',
   color: '#7a5518',
+};
+
+/** Column headers labeling the count/unit-value bands (T3.24) - static, plain weight. */
+const HEADER_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '24px',
+  color: '#8a6b3a',
 };
 
 const SELL_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -196,7 +210,13 @@ export class InventoryPanel {
       this.audio.sfx('tap');
       this.hide();
     });
-    this.container.add([bg, title, closeButton]);
+    const ownedHeader = scene.add
+      .text(ROW_COUNT_RIGHT_X, HEADER_Y, 'Owned', HEADER_STYLE)
+      .setOrigin(1, 0.5);
+    const eachHeader = scene.add
+      .text(ROW_UNIT_HEADER_X, HEADER_Y, 'Value', HEADER_STYLE)
+      .setOrigin(1, 0.5);
+    this.container.add([bg, title, closeButton, ownedHeader, eachHeader]);
 
     Object.values(CROPS).forEach((crop, index) => {
       this.rows.push(this.buildRow(crop, index));

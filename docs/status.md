@@ -1,23 +1,22 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-14
-**Phase:** PLAYTEST GATE - RUNNING (integrity cut SHIPPED; P2 batch running)
+**Phase:** WAVE 3 (blessed 2026-07-15): T3.3+T3.4 lead; T3.24 in flight
 **Schema:** v15 · **Tests:** 345 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **T3.22+a SHIPPED. T3.23+T3.23a SHIPPED 2026-07-15** (scroll strip, readability bump, stuck-drag fix; user test passed, combined commit pushed). **CI gate applied PM-direct** (deploy.yml: test + lint before build) - awaiting one green Actions run to close the P2 batch.
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 reviewed PASS - in USER TEST** (Owned/Value headers, bold counts, value column number-then-coin; two owner-directed live deviations logged).
 - Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
 
 ## Queue
 
-1. Commit + push the PM-direct deploy.yml change -> verify the Actions run shows Test and Lint green before Build -> P2 batch CLOSED -> wave 3 decision menu (Item + Options)
-2. T3.24 inventory column labels (tester find, 2026-07-15): WITH CODER - Owned/Each headers + bold count in InventoryPanel.ts; runs parallel to the CI gate, no file overlap
-3. P2 batch: T3.20 / T3.21 / T3.22 / T3.23 / CI gate (T3.20 unblocked - T3.19 is committed; CI = deploy.yml only, anytime; T3.23 joins the batch - owner, 2026-07-14)
-4. Gate wrap-up: answers received + voluntary return confirmed (2026-07-14); remaining step is the wave 3 cut decision
-5. Wave 3 cut (owner decision at gate wrap, Item + Options menu): candidates crop mastery, storage caps, restoration chapter v1 (approved candidate; PM defines its boundary vs T3.3 first), land + camera T3.3+T3.4 (promoted - tester AND review both asked), small-task candidate direct arrange-mode entry. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
+1. T3.24 user test -> commit
+2. PM: restoration-chapter-v1 boundary doc vs T3.3 (owner reviews before any coder prompt)
+3. PM: T3.3+T3.4 design decisions -> first wave 3 coder prompt (after T3.24 ships)
+4. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
 ## Open validations (real-player / device evidence still required, not findings that passed)
 
@@ -27,7 +26,6 @@
 
 ## Waiting on user (whenever convenient)
 
-- Confirm the decor_well atlas regen commit went in with your push (pack:atlas + own commit); if not, it is still pending
 - Cleanup on your machine (PM cannot delete files there): the original review copy at C:\Users\robbi\.codex\visualizations\2026\07\14\019f6097-23c6-7490-b19d-e8ea2c92d404\little-acres-mobile-game-review-2026-07-14.md, and the repo's _to_delete\ folder (stale git-lock artifact + the T3.17 review diff)
 
 ## Staged future assets (tools/art-staging, NOT packed - owner picks 2026-07-13)
