@@ -689,7 +689,9 @@ export class FarmScene extends Phaser.Scene {
     );
     // Fill pending/expired order slots before the HUD's first render.
     gameState.ensureOrders();
-    this.hud = new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio);
+    this.hud = new Hud(this, this.coinArc, this.moondustArc, this.floatingText, this.audio, () =>
+      this.toggleArrangeMode(),
+    );
     // Constructed after Hud (needs it for claim-reward juice - see
     // QuestBoard's own comment) and handed back in via setQuestBoard so the
     // HUD's scroll icon can own toggling it, mirroring the bag.
@@ -1888,6 +1890,19 @@ export class FarmScene extends Phaser.Scene {
    * `handlePlotEntered`/`maybeShowCountdown` - mirrors `setDressingEditActive`
    * exactly, just player-facing.
    */
+  /**
+   * The HUD's "Edit Layout" button (T3.25): a single control that opens
+   * arrange mode from the farm and closes it while arranging (the button is
+   * on the arrange-mode exempt list, so it stays tappable throughout).
+   */
+  private toggleArrangeMode(): void {
+    if (this.arrangeModeActive) {
+      this.exitArrangeMode();
+    } else {
+      this.enterArrangeMode();
+    }
+  }
+
   private enterArrangeMode(): void {
     this.arrangeModeActive = true;
     this.selectedDecorationIndex = null;
@@ -1931,6 +1946,7 @@ export class FarmScene extends Phaser.Scene {
       this.arrangeWarehouseButton,
       this.arrangeShopButton,
       this.arrangeStoreButton,
+      this.hud.getArrangeToggleButton(),
     ];
   }
 

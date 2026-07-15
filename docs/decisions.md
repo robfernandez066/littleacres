@@ -15,6 +15,26 @@ Format:
 
 ---
 
+## 2026-07-15 - T3.25 review PASS -> USER TEST; owner live-redesigned the entry control mid-task (labeled toggle button, not the gnome icon)
+
+**Context:** T3.25 report DONE with owner-directed live deviations replacing the prompt's design: a labeled "Edit Layout" panel-nineslice button (190x60, centered between the xp bar's right edge and the gear, ~27px to each neighbor) instead of the gnome icon, and TOGGLE semantics - the same button closes arrange mode while arranging (exempted from the hitbox sweep via Hud.getArrangeToggleButton() + FarmScene.toggleArrangeMode()), with a 350ms double-tap grace window (UI-only Date.now(), per the time rule). The prompt's FarmScene one-line criterion is superseded by the toggle requirement (18-line arrange-toggle diff).
+
+**Review result:** hit area is a correct frame-local 96px-tall rectangle; no-arg setInteractive() re-enable preserves it (bag precedent); rails gating on railsAllow('decor-shop') follows the cached-flag pattern exactly. PM depth-checked the untested edge cases: HUD_DEPTH 2000 < ModalBackdrop 2090 < arrange UI 2200 < warehouse backdrop 2250, and the project keeps Phaser topOnly hit-testing - so the button is unreachable behind any open panel/shed/elevated shop, and reachable-while-arranging is exactly the intended toggle state. Exit-with-shed-open is safe (exitArrangeMode closes the warehouse first).
+
+**Verdict: USER TEST.** Nit logged (not blocking): toggleArrangeMode was inserted between enterArrangeMode and its doc comment, orphaning that comment - fold the comment re-attachment into the next task that touches FarmScene (T3.3 will).
+
+## 2026-07-15 - T3.25 issued: direct arrange-mode entry (wave 3 small rider); partial-sell scheduling DEFERRED by owner
+
+**Context:** Owner deferred the partial-sell scheduling question ("ask me later when we get to it") and asked for the next prompt. The wave 3 lead (T3.3+T3.4) needs PM design work first (plus the restoration boundary doc), so the coder gets the cut's small rider now: direct arrange-mode entry (tester wish - edit the layout without going through the shop).
+
+**Design (PM, from fresh code reads of Hud.ts/FarmScene.ts/DecorShop.ts/atlas):** a new bare HUD icon (decor_gnome frame) hanging below the banner beside the settings gear (x = GEAR_X - 100 = 900, same y), display height matched to the gear's 72px, min 96px hit area per the hit-area rule. Tap: sfx, close Hud-owned panels, enter arrange mode via a new onEnterArrange constructor callback (FarmScene passes () => this.enterArrangeMode() - same callback pattern DecorShop already uses). Rails-gated with the existing railsAllow('decor-shop') action mirroring applyRailsGating's bag/quest cached-flag pattern - no gameState changes. Arrange mode's existing setOtherHitboxesEnabled sweep suppresses the icon while arranging; the shop flow is untouched. Manifest: src/ui/Hud.ts + the one FarmScene construction line.
+
+## 2026-07-15 - T3.24 SHIPPED; partial-sell attribution corrected to TESTER DEMAND - rescheduling question put to owner
+
+**Context:** Owner user-tested and pushed T3.24 (commit also carried the wave 3 docs snapshot). Separately, owner clarified that the partial-sell idea (sell X of a crop at a time instead of all-or-nothing) originated from the TESTER, not the owner - the 2026-07-15 backlog entry and the wave 3 cut's item 4 rationale recorded it as an owner idea. Per the no-retro-edit rule this entry is the correction; the earlier entries stand as written.
+
+**Why it matters:** tester demand is a scheduling signal, owner polish ideas are backlog. The wave 4 pairing logic also only runs one direction - storage caps need partial sell, but partial sell does not need caps - so it can ship standalone. Question put to owner: pull partial sell forward as a wave 3 small rider (PM recommendation) or keep it in wave 4 with caps. Awaiting the pick; nothing rescheduled yet.
+
 ## 2026-07-15 - T3.24 review PASS (with two owner-directed live deviations) -> USER TEST
 
 **Context:** T3.24 report DONE; diff reviewed via the standing channel (t324-review.diff). Two deviations, both owner-directed live during the coder session, both improvements: (1) header wording "Value" instead of the prompt's "Each" - clearer; (2) T3.24a swap - the value column now reads number-then-coin instead of coin-then-number.

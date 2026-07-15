@@ -6,6 +6,7 @@ import {
   DESIGN_WIDTH,
   HUD_COIN_POSITION,
   HUD_MOONDUST_POSITION,
+  PANEL_SLICE,
   QUEST_ICON_POSITION,
 } from '../config';
 import { CROPS, type CropId } from '../data/crops';
@@ -208,6 +209,43 @@ const GEAR_X = 1000;
 const GEAR_SIZE = 72;
 const GEAR_Y = BANNER_BOTTOM_Y + 8 + GEAR_SIZE / 2;
 
+/**
+ * "Edit Layout" button (T3.25): one-tap toggle for arrange mode - opens it
+ * from the farm, closes it while arranging (it is exempt from FarmScene's
+ * arrange-mode hitbox sweep for exactly that reason) - hanging below the
+ * banner left of the gear, at the gear's own y (both are
+ * GEAR_SIZE display px tall). Same construction convention as the arrange
+ * control rows (FarmScene.createArrangeControls): a `panel` nineslice sized
+ * directly to its display bounds - so its default interactive hit area
+ * already covers the full visible rectangle, satisfying the hit-area rule -
+ * with a centered Arial-bold label. A custom hit area only pads the 72px
+ * height out to a 96px-tall touch target (width is already well past 96).
+ */
+const EDIT_LAYOUT_TEXT = 'Edit Layout';
+const EDIT_LAYOUT_WIDTH = 190;
+const EDIT_LAYOUT_HEIGHT = 60;
+/** Optical centering: the label reads a touch high in the panel without it. */
+const EDIT_LAYOUT_LABEL_OFFSET_Y = 3;
+/**
+ * Centered between the xp bar frame's right edge and the gear's left edge,
+ * so the gap to each neighbor is the same (~27px).
+ */
+const EDIT_LAYOUT_X = (XP_BAR_X + XP_BAR_FRAME_DISPLAY_WIDTH / 2 + GEAR_X - GEAR_SIZE / 2) / 2;
+const EDIT_LAYOUT_HIT_HEIGHT = 96;
+/**
+ * A second tap inside this window is swallowed rather than toggling arrange
+ * mode straight back: a phone tap can register as an accidental double
+ * click, which would open-and-instantly-close the mode.
+ */
+const EDIT_LAYOUT_TOGGLE_GRACE_MS = 350;
+/** Arrange-row button lettering (ARRANGE_BUTTON_STYLE), sized down for the smaller button. */
+const EDIT_LAYOUT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '26px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
@@ -297,6 +335,12 @@ export class Hud {
   private readonly questBadge: Phaser.GameObjects.Text;
   /** Cached rails gating, mirrors `bagEnabled`. */
   private questIconEnabled = true;
+  private readonly arrangeContainer: Phaser.GameObjects.Container;
+  private readonly arrangeButton: Phaser.GameObjects.NineSlice;
+  /** Cached rails gating, mirrors `bagEnabled`. */
+  private arrangeEnabled = true;
+  /** Timestamp of the last accepted "Edit Layout" tap - see EDIT_LAYOUT_TOGGLE_GRACE_MS. */
+  private lastArrangeToggleAt = 0;
   /**
    * The Quest Board panel (T3.10a): constructed by `FarmScene` (it needs a
    * `Hud` reference for its own claim-reward juice - see `flyQuestReward`)
@@ -361,6 +405,7 @@ export class Hud {
     private readonly moondustArc: MoondustArc,
     private readonly floatingText: FloatingText,
     private readonly audio: AudioManager,
+    private readonly onToggleArrange: () => void,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
     this.moondustDisplay.value = gameState.getState().moondust;
@@ -456,6 +501,52 @@ export class Hud {
       this.questBoard?.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
+    });
+
+    // "Edit Layout" button (T3.25): toggles arrange mode - opens it directly
+    // (skipping the farmhouse -> Decor Shop -> "Arrange Farm" path, which
+    // stays), and closes it again while arranging (FarmScene exempts it from
+    // the arrange-mode hitbox sweep so it stays tappable there).
+    // Rails-gated on 'decor-shop' like the shop itself (see applyRailsGating).
+    // Container so rails dimming fades the panel and its label together.
+    this.arrangeContainer = this.scene.add.container(EDIT_LAYOUT_X, GEAR_Y).setDepth(HUD_DEPTH);
+    this.arrangeButton = this.scene.add.nineslice(
+      0,
+      0,
+      ATLAS_KEY,
+      'panel',
+      EDIT_LAYOUT_WIDTH,
+      EDIT_LAYOUT_HEIGHT,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+    );
+    // Local-space hit area (0,0 at the nineslice's own top-left): full width,
+    // padded symmetrically past the 72px art to a 96px-tall touch target.
+    this.arrangeButton.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(
+        0,
+        -(EDIT_LAYOUT_HIT_HEIGHT - EDIT_LAYOUT_HEIGHT) / 2,
+        EDIT_LAYOUT_WIDTH,
+        EDIT_LAYOUT_HIT_HEIGHT,
+      ),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
+    const arrangeLabel = this.scene.add
+      .text(0, EDIT_LAYOUT_LABEL_OFFSET_Y, EDIT_LAYOUT_TEXT, EDIT_LAYOUT_STYLE)
+      .setOrigin(0.5);
+    this.arrangeContainer.add([this.arrangeButton, arrangeLabel]);
+    this.arrangeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      // Swallow the second half of an accidental double tap (real timestamp,
+      // per the time-from-timestamps rule) instead of instantly re-toggling.
+      const now = Date.now();
+      if (now - this.lastArrangeToggleAt < EDIT_LAYOUT_TOGGLE_GRACE_MS) return;
+      this.lastArrangeToggleAt = now;
+      this.audio.sfx('tap');
+      this.closePanels();
+      this.onToggleArrange();
     });
 
     // Bag/orders: bare icons (no button_slot backing), each the container's
@@ -602,6 +693,15 @@ export class Hud {
   }
 
   /**
+   * The "Edit Layout" toggle's interactive object, for FarmScene's
+   * arrange-mode exempt list: unlike every other HUD control, this one must
+   * stay tappable WHILE arranging - it is the close control too.
+   */
+  getArrangeToggleButton(): Phaser.GameObjects.GameObject {
+    return this.arrangeButton;
+  }
+
+  /**
    * Fly a quest reward's moondust from the claiming row's world position to
    * the HUD counter (T3.10a) - `gameState.claimQuest` grants it to state
    * instantly with no animation of its own (a chest reward rides the
@@ -744,6 +844,18 @@ export class Hud {
         this.questIcon.setInteractive();
       } else {
         this.questIcon.disableInteractive();
+      }
+    }
+    const arrangeAllowed = gameState.railsAllow('decor-shop');
+    if (arrangeAllowed !== this.arrangeEnabled) {
+      this.arrangeEnabled = arrangeAllowed;
+      this.arrangeContainer.setAlpha(arrangeAllowed ? 1 : BUTTON_INERT_ALPHA);
+      if (arrangeAllowed) {
+        // No-arg re-enable so the padded 96px-tall hit area survives - same
+        // rationale as the bag above.
+        this.arrangeButton.setInteractive();
+      } else {
+        this.arrangeButton.disableInteractive();
       }
     }
   }

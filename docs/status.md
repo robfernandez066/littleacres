@@ -8,14 +8,14 @@
 
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 reviewed PASS - in USER TEST** (Owned/Value headers, bold counts, value column number-then-coin; two owner-directed live deviations logged).
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 reviewed PASS - in USER TEST** (owner redesign live: 'Edit Layout' toggle button below the banner; opens AND closes arrange mode; 350ms double-tap grace).
 - Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
 
 ## Queue
 
-1. T3.24 user test -> commit
-2. PM: restoration-chapter-v1 boundary doc vs T3.3 (owner reviews before any coder prompt)
-3. PM: T3.3+T3.4 design decisions -> first wave 3 coder prompt (after T3.24 ships)
+1. T3.25 user test -> commit
+2. PM: restoration-chapter-v1 boundary doc vs T3.3 (owner reviews before any coder prompt) + T3.3/T3.4 design decisions
+3. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
 4. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
 ## Open validations (real-player / device evidence still required, not findings that passed)
@@ -40,7 +40,8 @@
 - Dead pulse-target id 'sell-sunwheat' (onboarding.ts + InventoryPanel registration): no tutorial step references it since the sell step was cut - remove both ends in a convenient inventory/onboarding task
 - formatCurrency unit tests (pure function in Hud.ts)
 - Move formatAwayDuration to src/data/ so it's unit-testable (currently untestable: imports Phaser)
-- Partial crop selling: sell X of a crop instead of all-or-nothing (owner idea, 2026-07-15); quantity control in the sell flow - fold into a future inventory polish task
+- Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
+- FarmScene comment re-attachment: enterArrangeMode's doc comment now floats above toggleArrangeMode (T3.25 insertion nit) - fix when T3.3 touches FarmScene
 - Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice
 - MAX-level polish: order cards still advertise xp at the cap - de-emphasize or annotate (review nit, 2026-07-14)
 - Reduced-motion toggle: explicit earlier candidate (owner, 2026-07-14) - ride a convenient settings task; the T7.5 full accessibility pass must not absorb present-day usability defects (readability/touch targets land with T3.23)
