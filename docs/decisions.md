@@ -15,6 +15,36 @@ Format:
 
 ---
 
+## 2026-07-15 - Phone validations PASSED (seed-bar scroll feel + staged-audio feel); T3.26 housekeeping bundle cut for the idle coder
+
+**Context:** Owner tested both open validations on a real phone against the live site and reports both feel fine: the T3.23 seed-bar scroll strip + readability bump, and the T3.21 staged audio loading on real network. Both validation lines close. (The T3.20 WYWA foreground-threshold feel remains open - it needs a natural long-absence return, not a bench test.)
+
+**T3.26 cut (owner asked for a coder task while PM designs T3.3+T3.4):** the backlog-nits housekeeping bundle, verified against fresh code reads: (1) extract formatCurrency (+ its two private helpers) from src/ui/Hud.ts and formatAwayDuration from src/ui/OfflineSummaryPanel.ts into a new Phaser-free src/data/format.ts, updating all importers; (2) pin CURRENT behavior with unit tests in src/data/format.test.ts (no behavior changes); (3) remove the dead 'sell-sunwheat' pulse target end to end - it exists only in onboarding.ts's PulseTargetId union and InventoryPanel's registerPulseTarget provider; no tutorial step references it since the sell step was cut. Zero overlap with future T3.3 files.
+
+## 2026-07-15 - Mere sprite REJECTED by owner (too small, doesn't fit); regeneration sequenced AFTER T3.3 fixes world dimensions
+
+**Context:** Owner: "We can't use the mere sprite we had - it's too small and doesn't fit at all." The mere is the game's signature backdrop (Pillar 5) and T3.3's per-region glow brightening plus the restoration dock both depend on it reading properly.
+
+**Correction (owner, same day):** the mere was already REMOVED from screen long ago - the docs' "Pillar 5 on screen now" claim was stale and is now fixed in the roadmap. The rejection applies to the packed-but-unused sprite.
+
+**Decision (PM sequencing):** do NOT regenerate the mere now. The T3.3+T3.4 design doc will fix the expanded world dimensions first; the mere gets regenerated to fit THAT world, in one Sprixen batch with the other land-era art (overgrowth tiles, region art, the dock's ruined stage-0). Generating a lake sized to today's screen would be outgrown one wave later. The atlas 'mere' frame stays packed but unused-for-new-work; T2.13's mere-backdrop line inherits this note. If the current on-screen mere bothers the owner before then, pulling it is a one-line PM-direct candidate - owner's call, not assumed.
+
+## 2026-07-15 - Restoration boundary APPROVED with amendments; structure movability logged as a future design conversation
+
+**Context:** Owner reviewed the boundary doc and answered all three decision points. (1) Boundary + non-goals approved as written, with a note on interaction rule 4. (2) Second v1 structure: the MERE-EDGE DOCK - owner's reasoning: it touches the water and can carry future content (fishing/boats/mere events); the farmhouse only gets prettier. v1 set = farmhouse + dock. (3) Perks: not zero - LIGHT from the start, per-building and thematic (owner example: farmhouse raises the chance of X per stage); PM to research and propose a perk menu per structure at restoration design time, owner picks; GDD rules bind (passive, bonus-framed, no chores/FOMO).
+
+**New future direction (owner, rule-4 note):** structures should eventually be MOVABLE - "ability to eventually rearrange everything on the farm." Queued as its own design conversation AFTER the land/camera package ships (it interacts with arrange mode, T3.3 regions, T3.4 camera bounds). v1 restoration stays fixed-landmark and builds nothing that blocks movability (in-place art swaps carry over). Added to roadmap parked concepts.
+
+**Docs:** boundary doc updated to APPROVED form (md + docx). Next PM deliverable unchanged: T3.3+T3.4 design decisions.
+
+## 2026-07-15 - T3.25 SHIPPED; restoration boundary doc DRAFTED for owner review (docs/design/restoration-boundary.md)
+
+**Context:** Owner user-tested and pushed T3.25 - the wave 3 small rider is done. Per the wave 3 cut (2A), the restoration chapter needs an owner-approved boundary doc before any coder prompt exists. PM drafted it: docs/design/restoration-boundary.md.
+
+**The proposed boundary in one line:** T3.3 makes the farm BIGGER; Restoration makes what you already own NICER. T3.3 owns grid/regions/plots/reveal/camera-size/mere-glow; Restoration owns multi-stage visual upgrades to named already-visible structures (farmhouse first, +1-2 shortlist), coins+moondust only, checklist UI, no production, no new land, no ruins-in-new-regions until v2. Costing rule of thumb: a restoration stage < cheapest unopened region. Art flagged for one batched Sprixen session before the code task.
+
+**Awaiting:** owner approval/edits of the boundary. Approval order stays: T3.3+T3.4 design + prompts first (wave lead); restoration prompts only after land/camera ships.
+
 ## 2026-07-15 - T3.25 review PASS -> USER TEST; owner live-redesigned the entry control mid-task (labeled toggle button, not the gnome icon)
 
 **Context:** T3.25 report DONE with owner-directed live deviations replacing the prompt's design: a labeled "Edit Layout" panel-nineslice button (190x60, centered between the xp bar's right edge and the gear, ~27px to each neighbor) instead of the gnome icon, and TOGGLE semantics - the same button closes arrange mode while arranging (exempted from the hitbox sweep via Hud.getArrangeToggleButton() + FarmScene.toggleArrangeMode()), with a 350ms double-tap grace window (UI-only Date.now(), per the time rule). The prompt's FarmScene one-line criterion is superseded by the toggle requirement (18-line arrange-toggle diff).
