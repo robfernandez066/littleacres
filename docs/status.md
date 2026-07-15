@@ -13,7 +13,7 @@
 
 ## Queue
 
-1. T3.3a placeable plots - PM writing the prompt (schema bump, plots as shed items, place/move flow, 5C popup)
+1. T3.3a placeable plots WITH CODER (v16 schema; legacy expansion converts to the grant flow - owner veto window open until pasted)
 2. Then T3.3a plots -> T3.3a2 fence snap (spec grown: fence width = 1 plot; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; candidate rider: per-item max-scale sanity) -> T3.3b R1 + owner checkpoint -> T3.3c
 4. Owner (parallel, anytime): land-era art batch - composite mere parts, overgrowth tiles, region sign, dock stage-0
 5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
@@ -42,8 +42,9 @@
 
 - T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center; 2026-07-14 review adds a ghost-drag-confirm option), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
 - Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
-- FarmScene comment re-attachment: enterArrangeMode's doc comment now floats above toggleArrangeMode (T3.25 insertion nit) - fix when T3.3 touches FarmScene
-- Decor per-item max-scale sanity (owner, 2026-07-15): scale clamps should respect relative size - mushrooms must not out-scale the scarecrow; candidate T3.3a2 rider
+- Comment re-attachment x2: enterArrangeMode's doc comment floats above toggleArrangeMode (T3.25 nit, FarmScene), and registerDressingEditorHooks's doc comment floats above registerDecorSizingToggle (T3.27 nit, dev.ts) - fix when a task touches those files (T3.3a touches both)
+- DevOverlay 'Edit dressing' toggle renders full-width (block vs inline styling slip; dev-only cosmetic, owner 2026-07-15) - ride the next task touching dev files
+- Decor per-item sizing table DELIVERED (owner, 2026-07-15, via dev.decorSizing): per-item default = max scale, full table in decisions.md - ships as decor.ts config in T3.3a2 (with clamp-down migration for over-max placements)
 - Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice
 - MAX-level polish: order cards still advertise xp at the cap - de-emphasize or annotate (review nit, 2026-07-14)
 - Reduced-motion toggle: explicit earlier candidate (owner, 2026-07-14) - ride a convenient settings task; the T7.5 full accessibility pass must not absorb present-day usability defects (readability/touch targets land with T3.23)

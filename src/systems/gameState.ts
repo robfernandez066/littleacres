@@ -1280,8 +1280,12 @@ export class GameStateStore {
    * flip added T3.15). Returns false without mutating anything if `index` is
    * out of range, any of x/y/scale is non-finite, or `flip` is not a
    * boolean; otherwise clamps x/y/scale to their legal ranges
-   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..MAX), applies
-   * `flip` unclamped (a plain boolean), one save.
+   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..scaleCeiling),
+   * applies `flip` unclamped (a plain boolean), one save. `scaleCeiling`
+   * defaults to DECOR_SCALE_MAX (normal play); T3.27's dev-only decor sizing
+   * probe passes a higher dev ceiling while its flag is on so the selected
+   * item's arrange-mode Scale +/- buttons can bypass the normal cap - this
+   * store method stays the sole clamp authority either way.
    */
   setDecorationTransform(
     index: number,
@@ -1289,6 +1293,7 @@ export class GameStateStore {
     y: number,
     scale: number,
     flip: boolean,
+    scaleCeiling: number = DECOR_SCALE_MAX,
   ): boolean {
     const decoration = this.state.decorations[index];
     if (decoration === undefined) return false;
@@ -1296,7 +1301,7 @@ export class GameStateStore {
     if (typeof flip !== 'boolean') return false;
     decoration.x = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
     decoration.y = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
-    decoration.scale = Math.min(DECOR_SCALE_MAX, Math.max(DECOR_SCALE_MIN, scale));
+    decoration.scale = Math.min(scaleCeiling, Math.max(DECOR_SCALE_MIN, scale));
     decoration.flip = flip;
     this.save();
     return true;

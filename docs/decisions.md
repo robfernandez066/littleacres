@@ -32,6 +32,30 @@ Format:
 
 **Decision (PM-direct, config one-liner):** added `docs/private/` to .gitignore and placed the report at docs/private/monetization-report.docx. The ignore line itself ships with the repo (self-documenting); the folder's contents never do - `git add -A` skips ignored paths. Standing rule: docs/private/ is the home for any future off-repo material. The monetization conversation stays unscheduled (roadmap T8.5 remains the placeholder; the rare-material gating note from the land design links here when it opens).
 
+## 2026-07-15 - T3.27 review PASS -> COMMIT (owner's sizing session was the live verification)
+
+**Context:** T3.27 diff reviewed: minimal and correct - optional scaleCeiling parameter on setDecorationTransform (defaults to DECOR_SCALE_MAX; store stays sole clamp authority), dev flag + 3.0 ceiling + frame/scale/px logging in FarmScene, over-cap warnings at boot and flag-off. The owner produced the full per-item sizing table with the tool before the formal review closed - that IS the live verification the report skipped (report dinged for claiming inspection satisfied a live criterion; outcome unaffected).
+
+**Verdict: COMMIT.** Nit logged: registerDecorSizingToggle inserted between registerDressingEditorHooks and its doc comment (dev.ts), orphaning it - same class as the T3.25 FarmScene comment-orphan; both marked for the next task touching those files (T3.3a touches both).
+
+## 2026-07-15 - Owner's empirical decor sizing table (via dev.decorSizing): per-item default = max scale; feeds T3.3a2 config
+
+**Context:** Owner used the T3.27 probe to size every decor/trophy item by eye and delivered the table below, ruling that each listed scale is BOTH the default placement size and the per-item maximum (items place at showcase size, players shrink to taste; min stays the global DECOR_SCALE_MIN). This becomes per-item {defaultScale, maxScale} config in decor.ts, shipped with T3.3a2.
+
+**The table (frame -> scale -> px):** trophy_traderscart 1.65 (211), trophy_goldscarecrow 1.15 (147), trophy_ancientoak 2.00 (512), trophy_moonwell 1.15 (147), decor_well 1.15 (147), decor_flowerbed 1.00 (128), decor_barrels 0.95 (122), decor_birdbath 0.90 (115), decor_scarecrow 1.00 (128), decor_mushrooms 0.85 (109), trophy_starbanner 0.95 (182), decor_gnome 0.85 (109), decor_lantern 1.00 (128).
+
+**Fence note:** the owner's decor_fence 1.20 (154px) line is SUPERSEDED by the earlier fence decision - T3.3a2 derives fence size from the 1-plot-width rule so outlines close flush; 154px would reintroduce the gap. Owner invited to override if 154px was intentional. Migration note for T3.3a2: existing placements above their new per-item max clamp down on migration (the same normalization pass fences get).
+
+**Addendum (owner, same day): OVERRIDE ACCEPTED - fence fixed scale = 1.20.** The owner eyeballed 1.20 as matching one plot edge visually (the 128-native frame carries padding, so display-frame px and visible art width differ). T3.3a2 therefore normalizes fences TO scale 1.20 and derives the chain-snap pitch from the fence art's actual opaque width at that scale; the gap-free-outline acceptance case remains the truth test - if outlines cannot close flush at 1.20, the coder flags back for an owner re-eyeball instead of silently resizing.
+
+## 2026-07-15 - T3.3a issued (placeable plots): four PM prompt-time calls, one flagged for owner veto
+
+**Context:** T3.21a + atlas regen pushed; T3.3a placeable-plots prompt issued per the FINAL land/camera design. PM design calls made at prompt time:
+
+**(1) FLAGGED for owner veto - the legacy 500-coin expansion converts to the grant flow:** the expand sign purchase now grants 4 unplaced plots to the Shed with the 5C popup (Confirm/Place Now + Edit Layout flash) instead of auto-appearing in a fixed row. Rationale: one flow everywhere, and the grant pipeline goes LIVE today for new/unexpanded players instead of shipping dormant until R1 - real exercise before regions depend on it. (2) The iso grid origin FREEZES at the 4-row frame (schema v16 migration maps existing plots into it via the current formula; unexpanded saves see row 3 as visible-but-unowned land, previewing the purchase; their plots shift ~a tile-height once, called out in the prompt). (3) Plot grants are ONE-WAY: no put-away for plots; rearranging is moving. (4) With a plot selected in arrange mode, Scale/Flip/Put-Away disable (plots snap to grid, never scale/flip).
+
+**Other prompt specifics:** plots gain explicit col/row in the save (v16), unplacedPlots counter, ownedPlotTiles() as the single owned-land authority (4x3 vs 4x4 today; T3.3b swaps in region geometry); empty-only move rule; placement validation = owned tile + no other plot; plotPointer.ts becomes coordinate-lookup based (pure, tested); shed gets a Farm Plot row; Hud exposes the Edit Layout flash; dev.grantPlots(n) for verification; cap validator plots.length + unplacedPlots <= 16 until regions raise it.
+
 ## 2026-07-15 - Owner art touch-up: trophy_goldscarecrow; atlas regen sequenced after the T3.21a commit
 
 **Context:** Owner reported a manual edit to the Golden Scarecrow trophy master (standing report rule). Nothing in flight with the coder. Sequence: T3.21a's scoped commit first (keeps the fix commit clean), then pack:atlas + visual check + its own commit. git add -A is now safe for atlas commits (_to_delete/ and docs/private/ gitignored since the privacy scan).

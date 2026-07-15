@@ -29,7 +29,7 @@ import {
   TILE_FRAME_HEIGHT,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
-import { DECOR_ITEMS, TROPHY_ITEMS } from '../data/decor';
+import { DECOR_ITEMS, DECOR_SCALE_MAX, TROPHY_ITEMS } from '../data/decor';
 import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
@@ -50,6 +50,7 @@ import {
   registerCameraControl,
   registerCameraStateProbe,
   registerCoinArcTest,
+  registerDecorSizingToggle,
   registerDressingEditorHooks,
   registerGroundModeCycle,
   registerHitboxToggle,
@@ -435,6 +436,14 @@ const DRESSING_SCALE_MAX = 1.5;
 const DRESSING_SPAWN_SCALE = 0.55;
 const DRESSING_SELECTED_TINT = 0x66ccff;
 /**
+ * T3.27 dev-only decor sizing probe: the ceiling `scaleSelectedDecoration`
+ * passes to `setDecorationTransform` in place of the normal DECOR_SCALE_MAX
+ * while `dev.decorSizing(true)` is on, so the owner can grow the selected
+ * item past its normal cap to compare items side by side. Down-clamp
+ * (DECOR_SCALE_MIN) is untouched - only the ceiling moves.
+ */
+const DEV_DECOR_SCALE_CEILING = 3.0;
+/**
  * "Move to front" (T2.28a follow-up): a decal's depth when `front` is set -
  * above every y-depth-sorted FIELD object (crops/structures top out around
  * DESIGN_HEIGHT, 1920) but strictly below the UI tier (seed bar 2000, panels
@@ -704,6 +713,8 @@ export class FarmScene extends Phaser.Scene {
   private arrangeModeActive = false;
   /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
   private selectedDecorationIndex: number | null = null;
+  /** T3.27 dev-only decor sizing probe flag - see `setDecorSizingEnabled`. Off by default. */
+  private decorSizingEnabled = false;
   private arrangeDoneButton!: Phaser.GameObjects.NineSlice;
   private arrangeDoneText!: Phaser.GameObjects.Text;
   private arrangeScaleDownButton!: Phaser.GameObjects.NineSlice;
@@ -990,6 +1001,7 @@ export class FarmScene extends Phaser.Scene {
     this.setupFieldInput();
     this.refreshCrops();
     this.refreshDecorations();
+    this.logOverCapDecorations();
     this.onboardingGuide.refresh(gameState.getState());
 
     // Drained in update() (T3.20), where it can also fire mid-session on a
@@ -1035,6 +1047,7 @@ export class FarmScene extends Phaser.Scene {
       deleteSelected: () => this.deleteSelectedDressing(),
       copyLayoutJson: () => JSON.stringify(this.dressingState, null, 2),
     });
+    registerDecorSizingToggle((enabled) => this.setDecorSizingEnabled(enabled));
   }
 
   /**
@@ -2550,7 +2563,9 @@ export class FarmScene extends Phaser.Scene {
    * DRESSING_SCALE_STEP-sized steps within the store's own clamps - no-op
    * with nothing selected. Mirrors `scaleSelectedDressing`, but commits
    * through `setDecorationTransform` (the store owns the clamp) instead of
-   * clamping locally.
+   * clamping locally. T3.27: while the decor sizing probe is on, passes
+   * DEV_DECOR_SCALE_CEILING so the selected item can scale past the normal
+   * cap, and logs the resulting frame/scale/px size.
    */
   private scaleSelectedDecoration(delta: number): void {
     if (this.selectedDecorationIndex === null) return;
@@ -2566,6 +2581,7 @@ export class FarmScene extends Phaser.Scene {
         decoration.y,
         nextScale,
         decoration.flip,
+        this.decorSizingEnabled ? DEV_DECOR_SCALE_CEILING : undefined,
       )
     )
       return;
@@ -2574,6 +2590,56 @@ export class FarmScene extends Phaser.Scene {
     sprite.setScale(updated.scale);
     const shadow = this.decorationShadowSprites[index];
     if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    if (this.decorSizingEnabled) this.logDecorSizing(index);
+  }
+
+  /**
+   * T3.27 dev probe toggle (`dev.decorSizing`): while OFF (default) the
+   * arrange-mode Scale +/- buttons behave exactly as before - the store's
+   * normal DECOR_SCALE_MAX stays the sole ceiling. While ON, the selected
+   * decoration may scale up to DEV_DECOR_SCALE_CEILING and every scale
+   * change/selection logs. Turning the flag off (and scene boot, see
+   * `create`) logs any decoration still holding an over-cap scale so it is
+   * never silently carried into normal play.
+   */
+  private setDecorSizingEnabled(enabled: boolean): void {
+    this.decorSizingEnabled = enabled;
+    if (!enabled) this.logOverCapDecorations();
+    else if (this.selectedDecorationIndex !== null)
+      this.logDecorSizing(this.selectedDecorationIndex);
+  }
+
+  /**
+   * T3.27: one console line per scale change/selection while the decor
+   * sizing probe is on - frame, scale factor, and the sprite's actual
+   * rendered px size (its live `displayWidth`/`displayHeight`).
+   */
+  private logDecorSizing(index: number): void {
+    const decoration = gameState.getState().decorations[index];
+    const sprite = this.decorationSprites[index];
+    if (decoration === undefined || sprite === undefined) return;
+    const width = Math.round(sprite.displayWidth);
+    const height = Math.round(sprite.displayHeight);
+    console.log(
+      `[decorSizing] ${decoration.frame} scale ${decoration.scale.toFixed(2)} -> ${width} x ${height} px`,
+    );
+  }
+
+  /**
+   * T3.27: warns about any decoration currently holding a scale above the
+   * normal DECOR_SCALE_MAX cap (only reachable via the dev ceiling while the
+   * probe was on) - called at scene boot and whenever the probe flag turns
+   * off, so the owner is never surprised by an over-cap scale left over from
+   * a probing session.
+   */
+  private logOverCapDecorations(): void {
+    for (const decoration of gameState.getState().decorations) {
+      if (decoration.scale > DECOR_SCALE_MAX) {
+        console.log(
+          `[decorSizing] ${decoration.frame} is over the normal cap: scale ${decoration.scale.toFixed(2)} > ${DECOR_SCALE_MAX} - will be clamped the next time it is touched.`,
+        );
+      }
+    }
   }
 
   /**
@@ -2617,6 +2683,7 @@ export class FarmScene extends Phaser.Scene {
     this.selectedDecorationIndex = index;
     if (index !== null) {
       this.decorationSprites[index]?.setTint(DRESSING_SELECTED_TINT);
+      if (this.decorSizingEnabled) this.logDecorSizing(index);
     }
     this.updateArrangeStoreButtonState();
   }

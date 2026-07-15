@@ -72,6 +72,15 @@ export interface DevTools {
     farmingSuppressed: boolean;
     recenterVisible: boolean;
   };
+  /**
+   * T3.27 dev-only decor sizing probe: while ON, the arrange-mode Scale +/-
+   * buttons may take the SELECTED decoration past the normal cap up to a dev
+   * ceiling, and every scale change/selection logs the frame, scale factor,
+   * and rendered px size to the console. Off by default; no behavior change
+   * while off. Turning it off (or scene boot) logs any decoration currently
+   * left above the normal cap. Registered by FarmScene.
+   */
+  decorSizing?(enabled: boolean): void;
 }
 
 declare global {
@@ -172,6 +181,14 @@ export function registerSceneLayersProbe(
  * pattern as `registerCoinArcTest` - bundled into one call since the overlay
  * always wires all five together for the "Edit dressing" feature.
  */
+/**
+ * Late-bind `dev.decorSizing` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerDecorSizingToggle(toggle: (enabled: boolean) => void): void {
+  if (window.dev !== undefined) window.dev.decorSizing = toggle;
+}
+
 export function registerDressingEditorHooks(hooks: {
   toggle: (enabled: boolean) => void;
   spawn: (frame: string) => void;
