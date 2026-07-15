@@ -15,6 +15,39 @@ Format:
 
 ---
 
+## 2026-07-15 - T3.23a review PASS: stuck-drag fix verified in diff; T3.23+T3.23a go to USER TEST as one combined commit
+
+**Context:** T3.23a report DONE (345 tests; live re-verification of the exact release-over-badge scenario, including a disciplined retest after a backgrounded-tab relayout polluted the first attempt). Diff reviewed via the standing channel (t323a-review.diff, SeedBar.ts only - the other two files are unchanged since the reviewed T3.23 diff; verified by diffing the two review diffs programmatically).
+
+**Review result:** the delta is exactly the two decided edits and nothing else: (1) badge GAMEOBJECT_POINTER_UP handler no longer calls stopPropagation (down-phase stop intact), (2) onScenePointerMove self-heal guard - a tracked drag whose pointer is no longer down clears itself before the modal check - plus the comment blocks updated to explain the down-only rule and the processUpEvents abort mechanism.
+
+**Verdict: USER TEST**, then one combined commit for T3.23+T3.23a (both touch SeedBar.ts; an intermediate T3.23-only commit would ship the stuck-drag bug). Post-push follow-ups queued: decor_well atlas regen (own commit), phone feel check of the scroll strip + font bump on the live site.
+
+**Also logged this turn (owner idea, 2026-07-15):** partial crop selling - sell X of a crop instead of all-or-nothing. Added to backlog nits for a future inventory polish task; no scheduling decision made.
+
+## 2026-07-14 - T3.23 review: scroll math and design PASS, but a Phaser input-abort bug forces CODER FIX (T3.23a)
+
+**Context:** T3.23 report DONE (345 tests; live level-8 verification). Diff reviewed via the standing channel (_to_delete\t323-review.diff, UTF-16). The architecture is what the prompt asked for and better-argued than expected: shared scroll offset in world-space positioning (no parent container, so onboarding scale-breathing, per-button wiggle, pulse targets, and hit-testing all stay untouched), pure clamp/center math in seedBarLayout.ts parameterized by SeedStripMetrics, static mode literally the old formula with scrollX pinned to 0, wiggle refactored onto a composable per-button offset with a single position writer. Clamp geometry hand-verified: seven cards span 1444px, usable width 1040px, symmetric limit 202px, and the tests pin both extremes to the exact margin.
+
+**The defect (found in review, not by tests):** the info badge's GAMEOBJECT_POINTER_UP handler calls event.stopPropagation() unconditionally. In Phaser's InputPlugin the cancelled flag set by stopPropagation also aborts the plugin-level POINTER_UP emit for that release, so when a drag release lands on any badge, the scene-level onScenePointerUp never runs and dragPointerId + armedTap stay stale. Mouse: the strip then follows hover moves with no button held. Touch: the next finger reuses the pointer slot id and inherits stale drag-start values, jumping the strip. The 96px badge hit squares (7 per strip) make this release location likely. Unit tests cannot catch it (Phaser plumbing); the coder's live checks released over cards, not badges.
+
+**Verdict: CODER FIX (T3.23a).** Decisions made for the coder: (1) remove stopPropagation from the badge UP handler only (down keeps it - it is what stops the panel underneath from arming/firing); safe because the panel's up handler fires only via tapWithinSlop(kind 'seed') which a badge-armed press can never satisfy, and static mode fires on down. (2) Belt-and-braces guard in onScenePointerMove: a tracked drag whose pointer is no longer down clears itself. No new unit tests required; acceptance is live verification of the release-over-badge scenario.
+
+**Nit logged to backlog (not this fix):** badge down's stopPropagation means a drag cannot START on a badge (report claimed it could); small top-edge dead zones only. Candidate for a later polish task.
+
+## 2026-07-14 - Playtest gate brief answers received: voluntary return CONFIRMED; demand signals logged
+
+**Context:** The tester brief answers arrived (owner relayed, 2026-07-14) while T3.23 runs. Answers: never felt stuck or lost after initial feedback; favorite activity is buying things in the shop (owner: don't over-read); came back voluntarily for a second session - YES; reached farm level 8; was buying a bird bath when they stopped; nothing looked wrong, froze, or lagged; one wish: "make farm bigger, pinch to zoom"; also wished for direct layout-edit entry without going through the shop, decorative buildings, and upgrading the main farm building.
+
+**Reading (PM):** The gate's core question - day-1/day-3 voluntary return - is answered YES. One tester is directional, not validation (standing caveat from the reconciliation), but every directional signal is positive: no stuck points, no perceived defects, retention through level 8. Demand signals map cleanly onto already-approved candidates: "make farm bigger, pinch to zoom" = T3.3 (land) + T3.4 (pinch-zoom with owner's guardrails); "decorative buildings / upgrade the farm building" = restoration chapter v1 territory; "edit layout without the shop" = a new small-task candidate (direct arrange-mode entry point) added to backlog nits consideration for the wave 3 menu.
+
+**Decision:** Gate evidence logged as POSITIVE. The wave 3 cut goes to the owner as a decision menu (Item + Options format) after T3.23 and the CI gate close the P2 batch. No scope is scheduled off these answers alone.
+
+## 2026-07-14 - T3.22 batch SHIPPED; T3.23 seed-bar scroll issued (design decisions)
+**Context:** Clarity batch committed + pushed. T3.23 (the readability fix: 7 buttons currently shrink to ~0.73) is the last real coder task in the P2 batch.
+**Decision:** T3.23 design (Fable5/Opus - first scroll container in the codebase, gesture disambiguation, tutorial interplay): five-or-fewer buttons keep the historical static layout PIXEL-FOR-PIXEL (tutorial and guide untouched); past five, all buttons render at FULL size in a horizontally draggable strip - no mask needed, the camera clips; drag is 1:1 and clamped, no momentum, no snap (v1); tap-vs-drag disambiguated by a 12px slop with selection moving to pointer-up; tapping a seed centers it (tweened, clamped at the ends); the overflowing row naturally leaves a partial card peeking as the scroll affordance. Scroll input gated off while a modal is open, the bar is hidden, or count <= 5. Pure math (strip width, clamps, center-offset) joins seedBarLayout.ts with unit tests. READABILITY BASELINE, partial by design: killing the 0.73 shrink is the big win; fonts bump name 24->30 / cost 22->28 with shrink-to-fit for long names, and the info badge hit area doubles 48->96 (visual unchanged). The review's full 14-16 CSS px body-text target needs a taller card redesign - out of scope, logged honestly as remaining a11y headroom for the T7.5 era.
+**Trigger:** T3.22 shipped, 2026-07-14.
+
 ## 2026-07-14 - T3.22a verified (USER TEST re-check): button column cleared; measured, not eyeballed
 **Context:** T3.22a report DONE. The coder measured the live Phaser objects (not screenshots): 9px overlap before, exactly 16px clearance after, across all six PREMIUM_FLAVORS lines (every line fits at scale 1, so the tag height is a fixed 35px); FULFILL_BUTTON_Y -60 -> -35, SKIP_BUTTON_Y 54 -> 79 (gap preserved, 61px bottom margin, no gap-shrink needed); positions identical across premium/non-premium by construction (set once in buildCard). Verification used the existing window.dev.fillBoardPremium() helper - no source tweaks; the temporary measurement hook was provably removed.
 **Decision:** USER TEST (30-second premium-card glance), then ONE commit ships T3.22+T3.22a and closes the clarity batch. Remaining P2 items: T3.23 seed bar (last coder task), CI test+lint gate (tiny, anytime).
