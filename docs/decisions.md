@@ -15,6 +15,20 @@ Format:
 
 ---
 
+## 2026-07-15 - Tester usability find: inventory qty-owned vs sell-price ambiguity -> T3.24 cut (small, InventoryPanel only)
+
+**Context:** Tester could not tell how much of a crop they owned and suggested adding owned counts to the inventory - which already shows them ("x12" right-aligned next to the coin+unit-value). The real defect is that two unlabeled numbers sit side by side: the count is smaller and plainer than the crop name, and the muted coin+number can read as a sale total. A feature we already have is invisible - that is a readability defect, same class as T3.23's baseline.
+
+**Decision:** Cut T3.24 now rather than backlog it: tester-found, cheap, single-file (src/ui/InventoryPanel.ts), zero overlap with the in-flight CI gate. Design decided by PM: header labels "Owned" and "Each" above the two number columns, right-aligned to the columns' existing right edges (x=40 and x=170); count text becomes bold to pair with the crop name; unit value keeps its muted gold. No reflow, no new UI.
+
+## 2026-07-15 - T3.23+T3.23a SHIPPED (user test passed, combined commit pushed); CI gate applied PM-direct - P2 batch closes when the Actions run is green
+
+**Context:** Owner ran the 10-step user test and pushed the combined T3.23+T3.23a commit. The seed-bar scroll refit is live pending deploy. That leaves the CI gate as the P2 batch's last item.
+
+**Decision (PM-direct, config-only):** .github/workflows/deploy.yml now runs `npm test` and `npm run lint` between `npm ci` and `npm run build` in the build job. The deploy job already `needs: build`, so any red test/lint/build blocks the Pages deploy - exactly the gate the owner blessed ("CI = deploy.yml only"). npm test is vitest in run mode (it exits with counts in every coder report), so it cannot hang CI. No app code touched; no local trio needed. Verification is the Actions run itself: the next push must show Test and Lint steps passing before Build.
+
+**P2 batch status once green:** T3.20+a, T3.21, T3.22+a, T3.23+a, CI gate - ALL SHIPPED. Next stop is the gate wrap-up: the wave 3 cut decision menu (owner decides; Item + Options format).
+
 ## 2026-07-15 - T3.23a review PASS: stuck-drag fix verified in diff; T3.23+T3.23a go to USER TEST as one combined commit
 
 **Context:** T3.23a report DONE (345 tests; live re-verification of the exact release-over-badge scenario, including a disciplined retest after a backgrounded-tab relayout polluted the first attempt). Diff reviewed via the standing channel (t323a-review.diff, SeedBar.ts only - the other two files are unchanged since the reviewed T3.23 diff; verified by diffing the two review diffs programmatically).
