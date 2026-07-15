@@ -15,6 +15,14 @@ Format:
 
 ---
 
+## 2026-07-15 - T3.26 review PASS -> COMMIT (no user test: pure refactor pinned by tests); Tests 355
+
+**Context:** T3.26 report DONE. Diff reviewed (t326-review.diff, incl. the new files via git add -N): formatCurrency + helpers and formatAwayDuration moved byte-identical into Phaser-free src/data/format.ts with doc comments; importers updated; 10 new tests pin all six formatCurrency boundary values and the away-duration rollovers; dead 'sell-sunwheat' pulse target removed end to end (union member, registration, sunwheatCount field, two stale comments). Suite 345 -> 355.
+
+**Verdict: COMMIT directly** - refactor-with-tests, zero behavior change, coder live-verified the HUD counters and inventory panel. First direct-COMMIT verdict of the wave; the bar stays: only for changes whose entire surface is pinned by tests plus a coder live check.
+
+**Side flag for owner:** the dev-server save carries a negative coin balance (-997,741, old debug leftover) - fix at leisure with dev.addCoins or a save import; unrelated to T3.26.
+
 ## 2026-07-15 - Phone validations PASSED (seed-bar scroll feel + staged-audio feel); T3.26 housekeeping bundle cut for the idle coder
 
 **Context:** Owner tested both open validations on a real phone against the live site and reports both feel fine: the T3.23 seed-bar scroll strip + readability bump, and the T3.21 staged audio loading on real network. Both validation lines close. (The T3.20 WYWA foreground-threshold feel remains open - it needs a natural long-absence return, not a bench test.)

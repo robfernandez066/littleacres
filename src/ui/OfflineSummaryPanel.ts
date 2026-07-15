@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
+import { formatAwayDuration } from '../data/format';
 import type { AudioManager } from '../systems/audio';
 import type { OfflineSummary } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -66,16 +67,6 @@ const CONFIRM_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontStyle: 'bold',
   color: '#4a3218',
 };
-
-/** Friendly away duration: largest two units, minutes floored (never rounded up). */
-export function formatAwayDuration(elapsedMs: number): string {
-  const totalMinutes = Math.floor(elapsedMs / 60_000);
-  if (totalMinutes < 60) return `${totalMinutes} min`;
-  const totalHours = Math.floor(totalMinutes / 60);
-  if (totalHours < 24) return `${totalHours} Hr ${totalMinutes % 60} min`;
-  const days = Math.floor(totalHours / 24);
-  return `${days} Day ${totalHours % 24} Hr`;
-}
 
 export class OfflineSummaryPanel {
   private readonly container: Phaser.GameObjects.Container;

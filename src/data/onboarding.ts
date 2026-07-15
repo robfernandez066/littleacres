@@ -50,8 +50,7 @@ export type PulseTargetId =
   | 'bag-button'
   | 'fulfill-slot-0'
   | 'orders-close'
-  | 'order-card-0'
-  | 'sell-sunwheat';
+  | 'order-card-0';
 
 export interface OnboardingStep {
   id: OnboardingStepId;

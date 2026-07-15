@@ -5,7 +5,6 @@ import { CROPS, type CropDef, type CropId } from '../data/crops';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
-import { registerPulseTarget } from '../systems/pulseTargets';
 import { ModalBackdrop } from './ModalBackdrop';
 
 /**
@@ -76,8 +75,7 @@ const ARMED_FONT_SIZE = 26;
 const ARMED_FONT_MIN_SIZE = 18;
 const ARMED_TEXT_MAX_WIDTH = SELL_BUTTON_WIDTH - 30;
 /** Tint pulses between these two (gold <-> bright white) while a row is armed - "brighter/pulsing"
- * per the task, done via tint rather than a scale tween since the tutorial's own pulse-target
- * breathing (OnboardingGuide) already owns this button's scale during the sell-sunwheat step. */
+ * per the task, done via tint rather than a scale tween. */
 const ARMED_TINT_LOW = Phaser.Display.Color.ValueToColor(0xffe27a);
 const ARMED_TINT_HIGH = Phaser.Display.Color.ValueToColor(0xffffff);
 const ARMED_PULSE_MS = 450;
@@ -146,8 +144,6 @@ export class InventoryPanel {
   private readonly rows: InventoryRow[] = [];
   private readonly backdrop: ModalBackdrop;
   private visible = false;
-  /** Last rendered sunwheat count, for the sell-sunwheat pulse provider. */
-  private sunwheatCount = 0;
   /** The one row currently armed (two-tap sell confirm), or null. */
   private armedCropId: CropId | null = null;
   /** Real wall-clock arm time (UI timer, not game time) - drives ARM_TIMEOUT_MS. */
@@ -221,22 +217,6 @@ export class InventoryPanel {
     Object.values(CROPS).forEach((crop, index) => {
       this.rows.push(this.buildRow(crop, index));
     });
-
-    // Onboarding highlight over sunwheat's Sell all button - only while the
-    // panel is open and there is actually sunwheat to sell. The button
-    // nineslice has no owner-managed scale state, so it is safe for the
-    // guide to scale-breathe.
-    registerPulseTarget('sell-sunwheat', () => {
-      const row = this.rows.find((r) => r.cropId === 'sunwheat');
-      if (!this.visible || row === undefined || this.sunwheatCount <= 0) return null;
-      return {
-        x: row.worldX,
-        y: row.worldY,
-        width: SELL_BUTTON_WIDTH,
-        height: SELL_BUTTON_HEIGHT,
-        object: row.sellButton,
-      };
-    });
   }
 
   private buildRow(crop: CropDef, index: number): InventoryRow {
@@ -297,8 +277,6 @@ export class InventoryPanel {
    * closing and another row arming are handled at their own call sites.
    */
   refresh(state: GameStateData): void {
-    this.sunwheatCount = state.inventory.sunwheat ?? 0;
-
     if (this.armedCropId !== null) {
       const currentCount = state.inventory[this.armedCropId] ?? 0;
       const timedOut = Date.now() - this.armedAt >= ARM_TIMEOUT_MS;
@@ -393,13 +371,7 @@ export class InventoryPanel {
     }
   }
 
-  /**
-   * "Brighter/pulsing" armed-state highlight, via a tint pulse rather than a
-   * scale tween: the sell-sunwheat pulse target (OnboardingGuide) already
-   * scale-breathes this same button during the tutorial's sell step, and
-   * tint states belong to their owners (OnboardingGuide's own convention) -
-   * so this never fights that tween over `.scale`.
-   */
+  /** "Brighter/pulsing" armed-state highlight, via a tint pulse rather than a scale tween. */
   private startArmedPulse(sellButton: Phaser.GameObjects.NineSlice): void {
     this.armedSellButton = sellButton;
     this.armPulsePhase.t = 0;
