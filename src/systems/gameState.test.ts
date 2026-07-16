@@ -7,8 +7,12 @@ import {
   EXPANDED_PLOT_COUNT,
   EXPANSION_COST,
   FARM_COLS,
-  FARM_MAX_ROWS,
-  FARM_ROWS,
+  PLOT_GRID_COORD_MAX,
+  PLOT_GRID_COORD_MIN,
+  PLOT_PLACEABLE_MAX_X,
+  PLOT_PLACEABLE_MAX_Y,
+  PLOT_PLACEABLE_MIN_X,
+  PLOT_PLACEABLE_MIN_Y,
 } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
@@ -42,19 +46,23 @@ import {
 import { DECOR_FRAMES, TROPHY_FRAMES, TROPHY_ITEMS } from '../data/decor';
 import {
   BACKUP_KEY,
+  bestBatchStartTile,
   createDefaultState,
   type GameStateData,
   GameStateStore,
+  isPlotTileFree,
   isValidState,
   MIGRATIONS,
   type Migration,
-  ownedPlotTiles,
+  nextChainPlotTile,
+  placeablePlotTiles,
   type PlotState,
   PLOT_COUNT,
   RECOVERY_KEY,
   SAVE_KEY,
   type SaveStorage,
 } from './gameState';
+import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from './iso';
 import { advanceTime, getTimeOffsetMs, now } from './time';
 
 /** In-memory Storage stand-in so tests never touch real localStorage. */
@@ -1516,8 +1524,9 @@ describe('expandFarm', () => {
     expect(state.plots).toHaveLength(BASE_PLOT_COUNT);
     expect(state.unplacedPlots).toBe(EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT);
     expect(state.expanded).toBe(true);
-    // Owned land grew to the full 4x4.
-    expect(ownedPlotTiles(state)).toHaveLength(FARM_COLS * FARM_MAX_ROWS);
+    // The Expand sign's blocked footprint tiles free up with the sign gone
+    // (T3.3a-r - geometry never changes; the purchase is only a grant).
+    expect(isPlotTileFree(state, 4, 4)).toBe(true);
     // The grant queued its popup event.
     expect(store.consumePlotGrantEvents()).toEqual([
       { count: EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT },
@@ -1692,19 +1701,37 @@ describe('plot validation (T3.3a: coords, dupes, entitlement range)', () => {
     expect(isValidState(doubled, 16)).toBe(false);
   });
 
-  it('rejects non-integer or out-of-grid coordinates', () => {
+  it('rejects non-integer or out-of-bounds coordinates (T3.3a-r static validator bounds)', () => {
     const base = createDefaultState(16);
     for (const bad of [
       { col: 0.5, row: 0 },
-      { col: -1, row: 0 },
-      { col: FARM_COLS, row: 0 },
-      { col: 0, row: FARM_MAX_ROWS },
+      { col: PLOT_GRID_COORD_MIN - 1, row: 0 },
+      { col: PLOT_GRID_COORD_MAX + 1, row: 0 },
+      { col: 0, row: PLOT_GRID_COORD_MIN - 1 },
+      { col: 0, row: PLOT_GRID_COORD_MAX + 1 },
       { col: Number.NaN, row: 0 },
     ]) {
       const state = { ...base, plots: [...base.plots] };
       state.plots[0] = { state: 'empty', ...bad };
       expect(isValidState(state, 16)).toBe(false);
     }
+  });
+
+  it('accepts negative and wide coordinates at the validator bounds (T3.3a-r loosens v16 - no schema bump)', () => {
+    const base = createDefaultState(16);
+    const state = { ...base, plots: [...base.plots] };
+    state.plots[0] = { state: 'empty', col: PLOT_GRID_COORD_MIN, row: PLOT_GRID_COORD_MAX };
+    state.plots[1] = { state: 'empty', col: PLOT_GRID_COORD_MAX, row: PLOT_GRID_COORD_MIN };
+    expect(isValidState(state, 16)).toBe(true);
+  });
+
+  it('distinct-tile check survives the wide grid: (4, 0) and (0, 1) are distinct (the old row*4+col key collided)', () => {
+    const base = createDefaultState(16);
+    const state = { ...base, plots: [...base.plots] };
+    // base.plots[4] already sits at (0, 1); under the old numeric key both
+    // hashed to 4 and this valid layout was wrongly rejected.
+    state.plots[0] = { state: 'empty', col: 4, row: 0 };
+    expect(isValidState(state, 16)).toBe(true);
   });
 
   it('rejects a negative, fractional, or missing unplacedPlots and a non-boolean expanded', () => {
@@ -1734,12 +1761,392 @@ describe('plantCrop / harvestPlot on a placed expansion plot (T3.3a)', () => {
   });
 });
 
-describe('ownedPlotTiles (T3.3a owned-land authority)', () => {
-  it('is the 4x3 base rows unexpanded and the full 4x4 once expanded', () => {
-    expect(ownedPlotTiles({ expanded: false })).toHaveLength(FARM_COLS * FARM_ROWS);
-    expect(ownedPlotTiles({ expanded: false })).not.toContainEqual({ col: 0, row: 3 });
-    expect(ownedPlotTiles({ expanded: true })).toHaveLength(FARM_COLS * FARM_MAX_ROWS);
-    expect(ownedPlotTiles({ expanded: true })).toContainEqual({ col: 3, row: 3 });
+describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
+  it('every tile diamond fits inside the placeable rect, in the frozen frame', () => {
+    for (const { col, row } of placeablePlotTiles()) {
+      const { x, y } = gridToIso(col, row);
+      expect(x - TILE_WIDTH / 2).toBeGreaterThanOrEqual(PLOT_PLACEABLE_MIN_X);
+      expect(x + TILE_WIDTH / 2).toBeLessThanOrEqual(PLOT_PLACEABLE_MAX_X);
+      expect(y - TILE_HEIGHT / 2).toBeGreaterThanOrEqual(PLOT_PLACEABLE_MIN_Y);
+      expect(y + TILE_HEIGHT / 2).toBeLessThanOrEqual(PLOT_PLACEABLE_MAX_Y);
+    }
+  });
+
+  it('pins the derivation: 67 tiles, negative coordinates present, the whole legacy 4x4 included', () => {
+    const tiles = placeablePlotTiles();
+    expect(tiles).toHaveLength(67);
+    // Negative col/row are expected - tile (0, 0) is the legacy grid's top
+    // corner, not the scene's.
+    expect(tiles).toContainEqual({ col: -5, row: -2 });
+    expect(tiles).toContainEqual({ col: 0, row: -1 });
+    for (let row = 0; row < 4; row++) {
+      for (let col = 0; col < FARM_COLS; col++) {
+        expect(tiles).toContainEqual({ col, row });
+      }
+    }
+  });
+
+  it('the static validator bounds enclose the set with margin (pins the farm.ts derivation)', () => {
+    const tiles = placeablePlotTiles();
+    const cols = tiles.map((tile) => tile.col);
+    const rows = tiles.map((tile) => tile.row);
+    expect(Math.min(...cols)).toBe(-5);
+    expect(Math.max(...cols)).toBe(7);
+    expect(Math.min(...rows)).toBe(-5);
+    expect(Math.max(...rows)).toBe(7);
+    expect(PLOT_GRID_COORD_MIN).toBeLessThan(-5);
+    expect(PLOT_GRID_COORD_MAX).toBeGreaterThan(7);
+  });
+});
+
+describe('isPlotTileFree (T3.3a-r collision rules)', () => {
+  /** A minimal state slice: `plots` on the given tiles, optional decor, unexpanded by default. */
+  function slice(
+    plots: { col: number; row: number }[],
+    options: { decorations?: GameStateData['decorations']; expanded?: boolean } = {},
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+    return {
+      plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
+      decorations: options.decorations ?? [],
+      expanded: options.expanded ?? false,
+    };
+  }
+
+  it('rejects a tile occupied by another plot, unless that plot is the exempted mover', () => {
+    const state = slice([{ col: 0, row: 3 }]);
+    expect(isPlotTileFree(state, 0, 3)).toBe(false);
+    expect(isPlotTileFree(state, 0, 3, 0)).toBe(true);
+    expect(isPlotTileFree(state, 1, 3)).toBe(true);
+  });
+
+  it('rejects structure footprint tiles: farmhouse and notice board, always', () => {
+    const state = slice([], { expanded: true });
+    // Farmhouse footprint (position 880, 520 - see the hardcoded set's derivation).
+    expect(isPlotTileFree(state, 0, -2)).toBe(false);
+    expect(isPlotTileFree(state, -1, -3)).toBe(false);
+    // Notice board footprint (position 900, 1310).
+    expect(isPlotTileFree(state, 5, 2)).toBe(false);
+    expect(isPlotTileFree(state, 6, 3)).toBe(false);
+    // Neighbors just outside the footprints stay free.
+    expect(isPlotTileFree(state, 1, -1)).toBe(true);
+    expect(isPlotTileFree(state, 4, 2)).toBe(true);
+  });
+
+  it('rejects the expand sign tiles only while the sign still stands (unexpanded)', () => {
+    expect(isPlotTileFree(slice([]), 3, 3)).toBe(false);
+    expect(isPlotTileFree(slice([]), 4, 4)).toBe(false);
+    expect(isPlotTileFree(slice([], { expanded: true }), 3, 3)).toBe(true);
+    expect(isPlotTileFree(slice([], { expanded: true }), 4, 4)).toBe(true);
+  });
+
+  it('rejects a tile whose diamond contains a decoration ground anchor', () => {
+    // Tile (0, 3) centers at (156, 960) in the frozen frame.
+    const onCenter = slice([], {
+      decorations: [{ frame: 'decor_bench', x: 156, y: 960, scale: 0.7, flip: false }],
+    });
+    expect(isPlotTileFree(onCenter, 0, 3)).toBe(false);
+    // On the diamond's edge midpoint (half-width right, half-height up) - inside.
+    const onEdge = slice([], {
+      decorations: [{ frame: 'decor_bench', x: 156 + 64, y: 960 - 32, scale: 0.7, flip: false }],
+    });
+    expect(isPlotTileFree(onEdge, 0, 3)).toBe(false);
+    // Just past the diamond's right corner - outside, tile stays free.
+    const outside = slice([], {
+      decorations: [{ frame: 'decor_bench', x: 156 + 130, y: 960, scale: 0.7, flip: false }],
+    });
+    expect(isPlotTileFree(outside, 0, 3)).toBe(true);
+  });
+
+  it('rejects non-placeable and non-integer coordinates', () => {
+    const state = slice([]);
+    expect(isPlotTileFree(state, 4, 0)).toBe(false); // col-row = 4: diamond off the rect's right edge
+    expect(isPlotTileFree(state, 0, 4)).toBe(false); // col-row = -4: off the left edge
+    expect(isPlotTileFree(state, 99, 99)).toBe(false);
+    expect(isPlotTileFree(state, 0.5, 3)).toBe(false);
+    expect(isPlotTileFree(state, Number.NaN, 0)).toBe(false);
+  });
+});
+
+describe('nextChainPlotTile (T3.3a-r chain adjacency preference)', () => {
+  function slice(
+    plots: { col: number; row: number }[],
+    expanded = true,
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+    return {
+      plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
+      decorations: [],
+      expanded,
+    };
+  }
+
+  it('single entry: prefers same column next row (col, row + 1)', () => {
+    expect(nextChainPlotTile(slice([{ col: 0, row: 0 }]), [{ col: 0, row: 0 }])).toEqual({
+      col: 0,
+      row: 1,
+    });
+  });
+
+  it('single entry: falls back to same row next column (col + 1, row) when row + 1 is taken', () => {
+    const state = slice([
+      { col: 0, row: 0 },
+      { col: 0, row: 1 },
+    ]);
+    expect(nextChainPlotTile(state, [{ col: 0, row: 0 }])).toEqual({ col: 1, row: 0 });
+  });
+
+  it('the preference candidates respect blockers, not just occupancy', () => {
+    // Unexpanded, from (3, 2): (3, 3) is an expand-sign footprint tile while
+    // the sign stands, so the chain skips straight to (4, 2).
+    expect(nextChainPlotTile(slice([{ col: 3, row: 2 }], false), [{ col: 3, row: 2 }])).toEqual({
+      col: 4,
+      row: 2,
+    });
+  });
+
+  it('continues a column run (T3.3a-r2f direction inference)', () => {
+    const history = [
+      { col: 0, row: 0 },
+      { col: 0, row: 1 },
+    ];
+    expect(nextChainPlotTile(slice(history), history)).toEqual({ col: 0, row: 2 });
+  });
+
+  it('continues a row run - incl. one re-aimed by dragging the second plot beside the first', () => {
+    // The caller passes CURRENT tiles, so a second plot dragged to (1, 0)
+    // reads as a row step regardless of where it originally spawned.
+    const history = [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+    ];
+    expect(nextChainPlotTile(slice(history), history)).toEqual({ col: 2, row: 0 });
+  });
+
+  it('continues a run UPWARD or LEFTWARD too - direction comes from the history, not a fixed axis', () => {
+    const upward = [
+      { col: 0, row: 1 },
+      { col: 0, row: 0 },
+    ];
+    expect(nextChainPlotTile(slice(upward), upward)).toEqual({ col: 0, row: -1 });
+  });
+
+  it('blocked column continuation starts the parallel line at the run start (+1 col)', () => {
+    const history = [
+      { col: 2, row: 0 },
+      { col: 2, row: 1 },
+      { col: 2, row: 2 },
+    ];
+    // (2, 3) blocked by a foreign plot: the next placement opens the
+    // adjacent column at the run's FIRST tile - (3, 0).
+    const state = slice([...history, { col: 2, row: 3 }]);
+    expect(nextChainPlotTile(state, history)).toEqual({ col: 3, row: 0 });
+  });
+
+  it('blocked row continuation starts the parallel line at the run start (+1 row)', () => {
+    const history = [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+    ];
+    const state = slice([...history, { col: 2, row: 0 }]);
+    expect(nextChainPlotTile(state, history)).toEqual({ col: 0, row: 1 });
+  });
+
+  it('the run starts after the last bend, not at the session start', () => {
+    // Row step first, then a column run (1,0) -> (1,2): the current run
+    // starts at (1, 0), so the parallel column opens at (2, 0).
+    const history = [
+      { col: 0, row: 0 },
+      { col: 1, row: 0 },
+      { col: 1, row: 1 },
+      { col: 1, row: 2 },
+    ];
+    const state = slice([...history, { col: 1, row: 3 }]);
+    expect(nextChainPlotTile(state, history)).toEqual({ col: 2, row: 0 });
+  });
+
+  it('blocked continuation AND blocked parallel start fall through to nearest-free', () => {
+    const history = [
+      { col: 2, row: 0 },
+      { col: 2, row: 1 },
+    ];
+    // Continuation (2, 2), parallel start (3, 0), and the 128px-near (1, 0)
+    // all blocked: nearest free to (2, 1) is (3, 2) at one tile-height.
+    const state = slice([...history, { col: 2, row: 2 }, { col: 3, row: 0 }, { col: 1, row: 0 }]);
+    expect(nextChainPlotTile(state, history)).toEqual({ col: 3, row: 2 });
+  });
+
+  it('a non-unit last step (a long drag) uses the single-entry rule from the last tile', () => {
+    const history = [
+      { col: 0, row: 0 },
+      { col: 2, row: 2 },
+    ];
+    expect(nextChainPlotTile(slice(history), history)).toEqual({ col: 2, row: 3 });
+  });
+
+  it('hug-aware single entry (T3.3a-r2f3): a neighbor touching an old plot beats plain row + 1', () => {
+    // Session plot at (3, 2), pre-existing plot at (3, 0): row + 1 (3, 3) is
+    // free but touches nothing old; the up-neighbor (3, 1) hugs (3, 0).
+    const state = slice([
+      { col: 3, row: 0 },
+      { col: 3, row: 2 },
+    ]);
+    expect(nextChainPlotTile(state, [{ col: 3, row: 2 }])).toEqual({ col: 3, row: 1 });
+  });
+
+  it('hug-aware single entry: among several hugging neighbors, row + 1 still leads', () => {
+    // Both (1, 2) (touches old (0, 2)) and (2, 1) (touches old (2, 0)) hug;
+    // the fixed order keeps row + 1 first.
+    const state = slice([
+      { col: 2, row: 0 },
+      { col: 0, row: 2 },
+      { col: 1, row: 1 },
+    ]);
+    expect(nextChainPlotTile(state, [{ col: 1, row: 1 }])).toEqual({ col: 1, row: 2 });
+  });
+
+  it('falls back to the nearest free tile when no neighbor is free or hugging - exact ties break toward hugging', () => {
+    // (0, 0)'s row + 1 and col + 1 are taken and no free neighbor touches an
+    // old plot; the 128px ring ties (1, 1) against (-1, -1), and (1, 1) wins
+    // by hugging (0, 1) (T3.3a-r2f3 tie-break; enumeration order would have
+    // picked (-1, -1)).
+    const state = slice([
+      { col: 0, row: 0 },
+      { col: 0, row: 1 },
+      { col: 1, row: 0 },
+    ]);
+    expect(nextChainPlotTile(state, [{ col: 0, row: 0 }])).toEqual({ col: 1, row: 1 });
+  });
+
+  it('returns null for an empty history or when every placeable tile is blocked', () => {
+    expect(nextChainPlotTile(slice([]), [])).toBeNull();
+    const full = slice(placeablePlotTiles().map((tile) => ({ ...tile })));
+    expect(nextChainPlotTile(full, [{ col: 0, row: 0 }])).toBeNull();
+  });
+});
+
+describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
+  function slice(
+    plots: { col: number; row: number }[],
+    decorations: GameStateData['decorations'] = [],
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+    return {
+      plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
+      decorations,
+      expanded: true,
+    };
+  }
+
+  /** A decoration anchored exactly on (col, row)'s tile center - blocks that one tile. */
+  function decorOn(col: number, row: number): GameStateData['decorations'][number] {
+    const { x, y } = gridToIso(col, row);
+    return { frame: 'decor_bench', x, y, scale: 0.7, flip: false };
+  }
+
+  /** The default 12-plot farm (cols 0..3, rows 0..2) after the expansion purchase. */
+  function defaultFarm(
+    decorations: GameStateData['decorations'] = [],
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+    return { plots: createDefaultState(16).plots, decorations, expanded: true };
+  }
+
+  /** A 3x3 block (cols/rows 0..2): all four of its faces are fully on the placeable rect. */
+  function blockPlots(): { col: number; row: number }[] {
+    const tiles: { col: number; row: number }[] = [];
+    for (let row = 0; row < 3; row++) for (let col = 0; col < 3; col++) tiles.push({ col, row });
+    return tiles;
+  }
+
+  it('starts at the BOTTOM face left end (T3.3a-r2f4 owner scenario: 12-plot farm, 4 grants)', () => {
+    expect(bestBatchStartTile(defaultFarm(), 4)).toEqual({ col: 0, row: 3 });
+  });
+
+  it('a blocker in the BOTTOM leading run moves the batch to the LEFT face', () => {
+    expect(bestBatchStartTile(defaultFarm([decorOn(1, 3)]), 4)).toEqual({ col: -1, row: 0 });
+  });
+
+  it('face priority continues RIGHT then TOP as leading runs disqualify', () => {
+    // 3x3 block, 3 grants: bottom fails on its leading run's first tile,
+    // left on its LAST (partial-face disqualification).
+    const right = slice(blockPlots(), [decorOn(0, 3), decorOn(-1, 2)]);
+    expect(bestBatchStartTile(right, 3)).toEqual({ col: 3, row: 0 });
+    const top = slice(blockPlots(), [decorOn(0, 3), decorOn(-1, 2), decorOn(3, 1)]);
+    expect(bestBatchStartTile(top, 3)).toEqual({ col: 0, row: -1 });
+  });
+
+  it('a face longer than the shed count only needs its LEADING tiles free', () => {
+    // Bottom face cols 0..3 with (3, 3) blocked: 2 grants only need
+    // (0, 3) and (1, 3), so the bottom face still wins...
+    expect(bestBatchStartTile(defaultFarm([decorOn(3, 3)]), 2)).toEqual({ col: 0, row: 3 });
+    // ...while 4 grants need the whole row and fall through to LEFT.
+    expect(bestBatchStartTile(defaultFarm([decorOn(3, 3)]), 4)).toEqual({ col: -1, row: 0 });
+  });
+
+  it('a shed count longer than the face: the face still qualifies at its full length', () => {
+    // 3-tile bottom face, 5 grants: the leading run caps at the face length.
+    expect(bestBatchStartTile(slice(blockPlots()), 5)).toEqual({ col: 0, row: 3 });
+  });
+
+  it('no qualifying face: the nearest free tile still touching the block', () => {
+    // Default farm, 4 grants: LEFT and BOTTOM blocked by decor; RIGHT
+    // auto-fails ((4, 0) is off the placeable rect) and TOP's 4-tile
+    // leading run ends off-rect at (3, -1). The hug fallback picks the
+    // nearest block-touching free tile to the plots' center of mass -
+    // (0, -1), tied at ~233px with (3, 3) and first in enumeration order.
+    const state = defaultFarm([decorOn(-1, 0), decorOn(0, 3)]);
+    expect(bestBatchStartTile(state, 4)).toEqual({ col: 0, row: -1 });
+  });
+
+  it('no free tile touches the block at all: plain nearest-free to the center of mass', () => {
+    // A lone plot with all four neighbors decor-blocked: every face fails,
+    // no tile hugs, and the 128px ring's row-major first tile wins.
+    const state = slice(
+      [{ col: 0, row: 0 }],
+      [decorOn(0, 1), decorOn(1, 0), decorOn(0, -1), decorOn(-1, 0)],
+    );
+    expect(bestBatchStartTile(state, 1)).toEqual({ col: -1, row: -1 });
+  });
+
+  it('zero plots (dev case): the nearest free tile to the design center', () => {
+    expect(bestBatchStartTile(slice([]), 4)).toEqual({ col: 1, row: 1 });
+  });
+
+  it('returns null only when every placeable tile is blocked', () => {
+    const full = slice(placeablePlotTiles().map((tile) => ({ ...tile })));
+    expect(bestBatchStartTile(full, 4)).toBeNull();
+  });
+
+  it('owner scenario end-to-end: 4 grants fill the bottom row rightward, every placement touching the block', () => {
+    const original = createDefaultState(16).plots;
+    let plots = [...original];
+    const state = (): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> => ({
+      plots,
+      decorations: [],
+      expanded: true,
+    });
+    const history: { col: number; row: number }[] = [];
+    const place = (tile: { col: number; row: number }): void => {
+      plots = [...plots, { state: 'empty', ...tile }];
+      history.push(tile);
+    };
+    const t1 = bestBatchStartTile(state(), 4)!;
+    expect(t1).toEqual({ col: 0, row: 3 });
+    place(t1);
+    // Hug pass: (0, 4) is off the placeable rect, so (1, 3) - touching the
+    // old (1, 2) - leads; the two-entry row direction then carries the rest.
+    const t2 = nextChainPlotTile(state(), history)!;
+    expect(t2).toEqual({ col: 1, row: 3 });
+    place(t2);
+    const t3 = nextChainPlotTile(state(), history)!;
+    expect(t3).toEqual({ col: 2, row: 3 });
+    place(t3);
+    const t4 = nextChainPlotTile(state(), history)!;
+    expect(t4).toEqual({ col: 3, row: 3 });
+    place(t4);
+    for (const tile of [t1, t2, t3, t4]) {
+      const touchesOldBlock = original.some(
+        (plot) => Math.abs(plot.col - tile.col) + Math.abs(plot.row - tile.row) === 1,
+      );
+      expect(touchesOldBlock).toBe(true);
+    }
   });
 });
 
@@ -1792,18 +2199,44 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.getState().plots).toHaveLength(13);
   });
 
-  it('placePlot rejects unowned and out-of-grid tiles, and non-integer coords', () => {
+  it('placePlot is expansion-independent (T3.3a-r): an unexpanded save places on row 3 and negative tiles', () => {
     const unexpanded = new GameStateStore({ storage: null });
     completeOnboarding(unexpanded);
     expect(unexpanded.grantPlots(2)).toBe(true);
-    // Row 3 exists on the maximal grid but is not owned before the expansion.
-    expect(unexpanded.placePlot(0, 3)).toBe(false);
+    // Row 3 was unowned pre-expansion under the old zoning; any free
+    // placeable tile works now - the purchase only grants plots.
+    expect(unexpanded.placePlot(0, 3)).toBe(12);
+    expect(unexpanded.placePlot(-2, -1)).toBe(13);
+    expect(unexpanded.getState().plots[13]).toEqual({ state: 'empty', col: -2, row: -1 });
+  });
+
+  it('placePlot rejects non-placeable tiles, blocked tiles, and non-integer coords', () => {
     const store = expandedStore();
-    expect(store.placePlot(4, 0)).toBe(false);
+    expect(store.placePlot(4, 0)).toBe(false); // diamond off the placeable rect
     expect(store.placePlot(0, 4)).toBe(false);
-    expect(store.placePlot(-1, 0)).toBe(false);
+    expect(store.placePlot(0, -2)).toBe(false); // farmhouse footprint
+    expect(store.placePlot(5, 2)).toBe(false); // notice-board footprint
     expect(store.placePlot(0.5, 3)).toBe(false);
     expect(store.getState().unplacedPlots).toBe(4);
+  });
+
+  it('placePlot rejects the expand sign footprint only while unexpanded', () => {
+    const unexpanded = new GameStateStore({ storage: null });
+    completeOnboarding(unexpanded);
+    expect(unexpanded.grantPlots(1)).toBe(true);
+    expect(unexpanded.placePlot(4, 4)).toBe(false); // the sign still stands
+    const store = expandedStore();
+    expect(store.placePlot(4, 4)).toBe(12); // sign retired by the purchase
+  });
+
+  it('placePlot rejects a tile under a decoration ground anchor', () => {
+    const store = expandedStore();
+    // Anchor a decoration on tile (0, 3)'s center (156, 960).
+    store
+      .getState()
+      .decorations.push({ frame: 'decor_bench', x: 156, y: 960, scale: 0.7, flip: false });
+    expect(store.placePlot(0, 3)).toBe(false);
+    expect(store.placePlot(1, 3)).toBe(12); // the neighbor stays free
   });
 
   it('placePlot rejects with an empty shed even on a free owned tile', () => {
@@ -1829,15 +2262,24 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.getState().plots[5]).toEqual({ state: 'empty', col, row });
   });
 
-  it('movePlot rejects an occupied target, an unowned tile, and bad coords', () => {
+  it('movePlot rejects an occupied target, blocked and non-placeable tiles, and bad coords', () => {
     const store = expandedStore();
     expect(store.movePlot(5, ...(Object.values(tileOf(6)) as [number, number]))).toBe(false);
-    const unexpanded = new GameStateStore({ storage: null });
-    completeOnboarding(unexpanded);
-    expect(unexpanded.movePlot(5, 0, 3)).toBe(false);
-    expect(store.movePlot(5, 4, 0)).toBe(false);
+    expect(store.movePlot(5, 0, -2)).toBe(false); // farmhouse footprint
+    expect(store.movePlot(5, 6, 3)).toBe(false); // notice-board footprint
+    expect(store.movePlot(5, 4, 0)).toBe(false); // off the placeable rect
     expect(store.movePlot(5, 1, 3.5)).toBe(false);
     expect(store.getState().plots[5]).toEqual({ state: 'empty', ...tileOf(5) });
+  });
+
+  it('movePlot is expansion-independent (T3.3a-r): an unexpanded save moves onto row 3 and negative tiles', () => {
+    const unexpanded = new GameStateStore({ storage: null });
+    completeOnboarding(unexpanded);
+    expect(unexpanded.movePlot(5, 0, 3)).toBe(true);
+    expect(unexpanded.movePlot(5, -3, -3)).toBe(true);
+    expect(unexpanded.getState().plots[5]).toEqual({ state: 'empty', col: -3, row: -3 });
+    // The sign footprint still blocks while the sign stands.
+    expect(unexpanded.movePlot(5, 3, 3)).toBe(false);
   });
 
   it('movePlot refuses a growing plot (harvest first, then move) and an out-of-range index', () => {

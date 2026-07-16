@@ -1,3 +1,4 @@
+import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
 import {
   CHEST_COINS_MAX,
@@ -26,8 +27,12 @@ import {
   EXPANDED_PLOT_COUNT,
   EXPANSION_COST,
   FARM_COLS,
-  FARM_MAX_ROWS,
-  FARM_ROWS,
+  PLOT_GRID_COORD_MAX,
+  PLOT_GRID_COORD_MIN,
+  PLOT_PLACEABLE_MAX_X,
+  PLOT_PLACEABLE_MAX_Y,
+  PLOT_PLACEABLE_MIN_X,
+  PLOT_PLACEABLE_MIN_Y,
 } from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
@@ -65,6 +70,7 @@ import {
   WEEK_MS,
 } from '../data/quests';
 import { isReady } from './growth';
+import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from './iso';
 import { now } from './time';
 
 /**
@@ -95,7 +101,8 @@ export const PLOT_COUNT = BASE_PLOT_COUNT;
 
 export interface EmptyPlot {
   state: 'empty';
-  /** Explicit grid tile (T3.3a), in the frozen FARM_COLS x FARM_MAX_ROWS frame. */
+  /** Explicit hidden-grid tile (T3.3a) in the frozen iso frame; any placeable
+   * tile (T3.3a-r), so negative coordinates are legal and expected. */
   col: number;
   row: number;
 }
@@ -105,7 +112,8 @@ export interface GrowingPlot {
   cropId: CropId;
   /** Game-clock timestamp (see systems/time.ts) when the crop was planted. */
   plantedAt: number;
-  /** Explicit grid tile (T3.3a), in the frozen FARM_COLS x FARM_MAX_ROWS frame. */
+  /** Explicit hidden-grid tile (T3.3a) in the frozen iso frame; any placeable
+   * tile (T3.3a-r), so negative coordinates are legal and expected. */
   col: number;
   row: number;
 }
@@ -338,10 +346,11 @@ export interface GameStateData {
    */
   unplacedPlots: number;
   /**
-   * Whether the one-time farm expansion has been purchased (T3.3a). Grows
-   * `ownedPlotTiles` from the base 4x3 to the full 4x4. Before v16 this was
-   * derived from `plots.length === 16`, which stopped working once granted
-   * plots wait in the shed instead of appearing instantly.
+   * Whether the one-time farm expansion has been purchased (T3.3a). No longer
+   * geometry (T3.3a-r): it only gates the Expand sign's one-time 4-plot grant
+   * (and, while false, the sign's own blocked footprint tiles). Before v16
+   * this was derived from `plots.length === 16`, which stopped working once
+   * granted plots wait in the shed instead of appearing instantly.
    */
   expanded: boolean;
   inventory: Partial<Record<CropId, number>>;
@@ -718,33 +727,401 @@ export function createDefaultState(version: number): GameStateData {
   };
 }
 
+/** One hidden-grid tile coordinate (frozen iso frame - see systems/iso.ts). */
+export interface PlotTileCoord {
+  col: number;
+  row: number;
+}
+
+/** Collision-set key for a tile. String, not `row * cols + col` arithmetic -
+ * numeric keys collide once coordinates go negative (T3.3a-r). */
+function plotTileKey(col: number, row: number): string {
+  return `${col},${row}`;
+}
+
 /**
- * THE owned-land authority (T3.3a): the tiles plots may occupy - the base
- * 4x3 rows, growing to the full 4x4 once the expansion is purchased. Every
- * ownership decision (placement, moves, the scene's free-tile search and
- * unowned-row rendering) goes through this one function; nothing else may
- * hardcode ownership. T3.3b (regions) will swap its geometry.
+ * Enumerate every hidden-grid tile whose diamond fits inside the placeable
+ * rect (data/farm.ts), in the frozen iso frame. The scan range is the static
+ * validator bounds, which enclose the placeable set with margin (pinned by a
+ * test), so nothing is ever clipped at the scan edge.
  */
-export function ownedPlotTiles(
-  state: Pick<GameStateData, 'expanded'>,
-): { col: number; row: number }[] {
-  const rows = state.expanded ? FARM_MAX_ROWS : FARM_ROWS;
-  const tiles: { col: number; row: number }[] = [];
-  for (let row = 0; row < rows; row++) {
-    for (let col = 0; col < FARM_COLS; col++) {
-      tiles.push({ col, row });
+function computePlaceablePlotTiles(): PlotTileCoord[] {
+  const tiles: PlotTileCoord[] = [];
+  for (let row = PLOT_GRID_COORD_MIN; row <= PLOT_GRID_COORD_MAX; row++) {
+    for (let col = PLOT_GRID_COORD_MIN; col <= PLOT_GRID_COORD_MAX; col++) {
+      const { x, y } = gridToIso(col, row);
+      if (
+        x - TILE_WIDTH / 2 >= PLOT_PLACEABLE_MIN_X &&
+        x + TILE_WIDTH / 2 <= PLOT_PLACEABLE_MAX_X &&
+        y - TILE_HEIGHT / 2 >= PLOT_PLACEABLE_MIN_Y &&
+        y + TILE_HEIGHT / 2 <= PLOT_PLACEABLE_MAX_Y
+      ) {
+        tiles.push({ col, row });
+      }
     }
   }
   return tiles;
+}
+
+/** Static geometry - computed once at module load. */
+const PLACEABLE_PLOT_TILES: readonly PlotTileCoord[] = computePlaceablePlotTiles();
+const PLACEABLE_PLOT_TILE_KEYS: ReadonlySet<string> = new Set(
+  PLACEABLE_PLOT_TILES.map((tile) => plotTileKey(tile.col, tile.row)),
+);
+
+/**
+ * THE placement authority (T3.3a-r, replacing the owned-land zoning of
+ * `ownedPlotTiles`): every hidden-grid tile a plot may occupy - a scene-wide
+ * set, deliberately independent of `expanded` (the expansion is only a 4-plot
+ * grant now, never geometry). Coordinates include negative col/row: tile
+ * (0, 0) is the legacy grid's top corner, not the scene's. Whether a given
+ * tile is currently FREE (unoccupied, clear of structures and decor) is
+ * `isPlotTileFree`'s business.
+ */
+export function placeablePlotTiles(): readonly PlotTileCoord[] {
+  return PLACEABLE_PLOT_TILES;
+}
+
+/**
+ * Structure footprint tiles (T3.3a-r): placeable tiles a plot may never sit
+ * on because a structure's art stands there. Each set is hardcoded from a
+ * derivation over the existing position constants - a tile is blocked when
+ * its diamond center lies within the structure's measured footprint rect
+ * expanded by a quarter tile (64, 32), i.e. the diamond overlaps the
+ * structure by more than a corner graze. Tile centers in the frozen frame:
+ * (540 + (col-row)*128, 768 + (col+row)*64).
+ *
+ * The villager needs no set: VILLAGER_POSITION (config.ts) is an off-screen
+ * fly-to point (x 1240), not a standing structure.
+ */
+
+/**
+ * Farmhouse: FARMHOUSE_POSITION (880, 520), 300x300 display centered, opaque
+ * art y 370..670 (config.ts measured comment) -> footprint rect
+ * x [730, 1030], y [370, 670].
+ */
+const FARMHOUSE_BLOCKED_TILES: readonly PlotTileCoord[] = [
+  { col: -2, row: -4 },
+  { col: -1, row: -4 },
+  { col: -2, row: -3 },
+  { col: -1, row: -3 },
+  { col: 0, row: -3 },
+  { col: -1, row: -2 },
+  { col: 0, row: -2 },
+];
+
+/**
+ * Notice board: NOTICE_BOARD_POSITION (900, 1310), opaque art x ~822..978,
+ * y ~1190..1430 (config.ts measured comment) -> footprint rect x [822, 978],
+ * y [1190, 1430].
+ */
+const NOTICE_BOARD_BLOCKED_TILES: readonly PlotTileCoord[] = [
+  { col: 5, row: 2 },
+  { col: 5, row: 3 },
+  { col: 6, row: 3 },
+  { col: 6, row: 4 },
+];
+
+/**
+ * Expand sign, blocked only while it stands (`expanded` false - it hides
+ * permanently once purchased): SIGN_X/Y (540, 1300) at 240x240 display
+ * centered (ui/ExpandSign.ts) -> footprint rect x [420, 660], y [1180, 1420].
+ */
+const EXPAND_SIGN_BLOCKED_TILES: readonly PlotTileCoord[] = [
+  { col: 3, row: 3 },
+  { col: 4, row: 3 },
+  { col: 3, row: 4 },
+  { col: 4, row: 4 },
+  { col: 5, row: 4 },
+  { col: 4, row: 5 },
+  { col: 5, row: 5 },
+];
+
+const STRUCTURE_BLOCKED_KEYS: ReadonlySet<string> = new Set(
+  [...FARMHOUSE_BLOCKED_TILES, ...NOTICE_BOARD_BLOCKED_TILES].map((tile) =>
+    plotTileKey(tile.col, tile.row),
+  ),
+);
+const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
+  EXPAND_SIGN_BLOCKED_TILES.map((tile) => plotTileKey(tile.col, tile.row)),
+);
+
+/**
+ * THE tile-collision authority (T3.3a-r): whether a plot may be placed on or
+ * moved to (col, row) right now. A tile is free when it is placeable
+ * (`placeablePlotTiles`), no OTHER plot occupies it (`ignorePlotIndex`
+ * exempts the plot being moved), it is not under a structure footprint (the
+ * Expand sign's only counts while the sign still stands), and no
+ * decoration's ground anchor (its x/y position) lies inside the tile's
+ * diamond - decor stays free-form; this only stops plots from sliding under
+ * existing decor (decor-over-plot stays the known nit). Every placement
+ * decision - the store's `placePlot`/`movePlot` and the scene's drag snap
+ * and free-tile searches - goes through this one function.
+ */
+export function isPlotTileFree(
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  col: number,
+  row: number,
+  ignorePlotIndex = -1,
+): boolean {
+  if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+  const key = plotTileKey(col, row);
+  if (!PLACEABLE_PLOT_TILE_KEYS.has(key)) return false;
+  for (let index = 0; index < state.plots.length; index++) {
+    if (index === ignorePlotIndex) continue;
+    const plot = state.plots[index]!;
+    if (plot.col === col && plot.row === row) return false;
+  }
+  if (STRUCTURE_BLOCKED_KEYS.has(key)) return false;
+  if (!state.expanded && EXPAND_SIGN_BLOCKED_KEYS.has(key)) return false;
+  const center = gridToIso(col, row);
+  for (const decoration of state.decorations) {
+    if (
+      Math.abs(decoration.x - center.x) / (TILE_WIDTH / 2) +
+        Math.abs(decoration.y - center.y) / (TILE_HEIGHT / 2) <=
+      1
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** The unit grid step from `a` to `b` - (0, +/-1) or (+/-1, 0) - or null for
+ * any other displacement (diagonal, a jump, or no move at all). */
+function unitStep(a: PlotTileCoord, b: PlotTileCoord): { dc: number; dr: number } | null {
+  const dc = b.col - a.col;
+  const dr = b.row - a.row;
+  return Math.abs(dc) + Math.abs(dr) === 1 ? { dc, dr } : null;
+}
+
+/**
+ * Whether (col, row) is edge-adjacent (shares a diamond edge - one of the
+ * four grid neighbors) to any plot whose CURRENT tile is not in
+ * `excludeKeys`. The exclude set carries the session's own placements
+ * (T3.3a-r2f3), so "hugging" always means touching the pre-existing farm
+ * block, never the strip being built right now.
+ */
+function isHuggingPlot(
+  state: Pick<GameStateData, 'plots'>,
+  col: number,
+  row: number,
+  excludeKeys?: ReadonlySet<string>,
+): boolean {
+  for (const plot of state.plots) {
+    if (excludeKeys?.has(plotTileKey(plot.col, plot.row))) continue;
+    if (Math.abs(plot.col - col) + Math.abs(plot.row - row) === 1) return true;
+  }
+  return false;
+}
+
+/**
+ * The nearest free placeable tile to the design-space point (x, y)
+ * (screen-space distance in the frozen frame), or null when every placeable
+ * tile is blocked. With `hugExcludeKeys` given, EXACT distance ties break
+ * toward a tile hugging the farm block (edge-adjacent to a plot outside the
+ * exclude set; T3.3a-r2f3) - granted plots must never drift away from the
+ * block when an equally near hugging tile exists. Remaining ties resolve to
+ * enumeration order (row-major from the grid minimum) - stable, if
+ * arbitrary. Distances are integer-coordinate sums of squares, so the
+ * equality compare is exact.
+ */
+function nearestFreePlaceableTile(
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  x: number,
+  y: number,
+  hugExcludeKeys?: ReadonlySet<string>,
+): PlotTileCoord | null {
+  let best: PlotTileCoord | null = null;
+  let bestDistSq = Number.POSITIVE_INFINITY;
+  let bestHugs = false;
+  for (const tile of PLACEABLE_PLOT_TILES) {
+    if (!isPlotTileFree(state, tile.col, tile.row)) continue;
+    const pos = gridToIso(tile.col, tile.row);
+    const distSq = (pos.x - x) ** 2 + (pos.y - y) ** 2;
+    const hugs =
+      hugExcludeKeys !== undefined && isHuggingPlot(state, tile.col, tile.row, hugExcludeKeys);
+    if (distSq < bestDistSq || (distSq === bestDistSq && hugs && !bestHugs)) {
+      bestDistSq = distSq;
+      best = tile;
+      bestHugs = hugs;
+    }
+  }
+  return best;
+}
+
+/**
+ * Chain placement's next tile (T3.3a-r, direction-aware since T3.3a-r2f):
+ * where the next granted plot spawns, given the session's committed
+ * placements IN ORDER at their CURRENT tiles (the caller re-reads live
+ * positions, so a player dragging a spawned plot re-aims the chain).
+ *
+ * - History >= 2 whose last step (B - A) is a unit grid step: continue the
+ *   line (B + step) - the player drags to steer, and steering outranks
+ *   hugging. If that is blocked, start the adjacent PARALLEL line: the
+ *   fixed perpendicular (+1 col for a column run, +1 row for a row run)
+ *   applied to the current straight run's FIRST tile. If that exact tile is
+ *   blocked too, fall through to nearest-free - predictable, not clever.
+ * - History of 1 (or a non-unit last step, e.g. after a long drag):
+ *   hug-aware (T3.3a-r2f3) - among B's four free neighbors, prefer one
+ *   edge-adjacent to a plot NOT placed this session, so the batch keeps
+ *   hugging the farm block; ordering (and the no-hug remainder) stays
+ *   (B.col, B.row + 1), then (B.col + 1, B.row).
+ * - Fallback in all cases: the nearest free placeable tile to B (exact
+ *   ties breaking toward a hugging tile); null when every placeable tile
+ *   is blocked (or the history is empty).
+ */
+export function nextChainPlotTile(
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  history: readonly PlotTileCoord[],
+): PlotTileCoord | null {
+  const last = history[history.length - 1];
+  if (last === undefined) return null;
+  const sessionKeys: ReadonlySet<string> = new Set(
+    history.map((tile) => plotTileKey(tile.col, tile.row)),
+  );
+  const prev = history[history.length - 2];
+  const step = prev === undefined ? null : unitStep(prev, last);
+  if (step !== null) {
+    if (isPlotTileFree(state, last.col + step.dc, last.row + step.dr)) {
+      return { col: last.col + step.dc, row: last.row + step.dr };
+    }
+    // The current straight run: the longest history suffix advancing by
+    // this same step. A bend earlier in the session starts a new run.
+    let runStartIndex = history.length - 2;
+    while (runStartIndex > 0) {
+      const earlier = unitStep(history[runStartIndex - 1]!, history[runStartIndex]!);
+      if (earlier === null || earlier.dc !== step.dc || earlier.dr !== step.dr) break;
+      runStartIndex--;
+    }
+    const runStart = history[runStartIndex]!;
+    const parallel =
+      step.dc === 0
+        ? { col: runStart.col + 1, row: runStart.row }
+        : { col: runStart.col, row: runStart.row + 1 };
+    if (isPlotTileFree(state, parallel.col, parallel.row)) return parallel;
+  } else {
+    // Hug pass (T3.3a-r2f3): a free neighbor touching the pre-existing
+    // block, in the fixed preference order (down, right, up, left).
+    const neighbors: PlotTileCoord[] = [
+      { col: last.col, row: last.row + 1 },
+      { col: last.col + 1, row: last.row },
+      { col: last.col, row: last.row - 1 },
+      { col: last.col - 1, row: last.row },
+    ];
+    for (const neighbor of neighbors) {
+      if (
+        isPlotTileFree(state, neighbor.col, neighbor.row) &&
+        isHuggingPlot(state, neighbor.col, neighbor.row, sessionKeys)
+      ) {
+        return neighbor;
+      }
+    }
+    if (isPlotTileFree(state, last.col, last.row + 1)) return { col: last.col, row: last.row + 1 };
+    if (isPlotTileFree(state, last.col + 1, last.row)) return { col: last.col + 1, row: last.row };
+  }
+  const origin = gridToIso(last.col, last.row);
+  return nearestFreePlaceableTile(state, origin.x, origin.y, sessionKeys);
+}
+
+/**
+ * Where a freshly granted batch's FIRST plot spawns (T3.3a-r2f3 design
+ * correction, superseding r2f's away-from-farm run rule): granted plots
+ * EXTEND the farm block like adding a row or column to the grid, hugging
+ * its face. Over the existing plots' bounding box, the candidate face
+ * strips in priority order are BOTTOM row (maxRow + 1, the owner's
+ * preferred face - where the legacy expansion row used to appear;
+ * T3.3a-r2f4), LEFT column (minCol - 1), RIGHT column (maxCol + 1), TOP
+ * row (minRow - 1). A face
+ * qualifies when its LEADING min(shedCount, faceLength) consecutive tiles
+ * are free (`isPlotTileFree` - off-rect or blocked tiles disqualify), and
+ * the batch starts at the face's first tile (the minRow end for columns,
+ * the minCol end for rows). With no qualifying face: the free tile
+ * edge-adjacent to any existing plot nearest the plots' center of mass,
+ * then the plain nearest-free tile; null only when everything is blocked.
+ * With ZERO existing plots (dev cases), the nearest free tile to the
+ * design center, as before.
+ */
+export function bestBatchStartTile(
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  shedCount: number,
+): PlotTileCoord | null {
+  if (state.plots.length === 0) {
+    return nearestFreePlaceableTile(state, DESIGN_WIDTH / 2, DESIGN_HEIGHT / 2);
+  }
+  let minCol = Number.POSITIVE_INFINITY;
+  let maxCol = Number.NEGATIVE_INFINITY;
+  let minRow = Number.POSITIVE_INFINITY;
+  let maxRow = Number.NEGATIVE_INFINITY;
+  let sumX = 0;
+  let sumY = 0;
+  for (const plot of state.plots) {
+    minCol = Math.min(minCol, plot.col);
+    maxCol = Math.max(maxCol, plot.col);
+    minRow = Math.min(minRow, plot.row);
+    maxRow = Math.max(maxRow, plot.row);
+    const pos = gridToIso(plot.col, plot.row);
+    sumX += pos.x;
+    sumY += pos.y;
+  }
+  const centerX = sumX / state.plots.length;
+  const centerY = sumY / state.plots.length;
+  const columnFace = (col: number): PlotTileCoord[] => {
+    const tiles: PlotTileCoord[] = [];
+    for (let row = minRow; row <= maxRow; row++) tiles.push({ col, row });
+    return tiles;
+  };
+  const rowFace = (row: number): PlotTileCoord[] => {
+    const tiles: PlotTileCoord[] = [];
+    for (let col = minCol; col <= maxCol; col++) tiles.push({ col, row });
+    return tiles;
+  };
+  const faces = [
+    rowFace(maxRow + 1), // BOTTOM - the owner's preferred face (T3.3a-r2f4)
+    columnFace(minCol - 1), // LEFT
+    columnFace(maxCol + 1), // RIGHT
+    rowFace(minRow - 1), // TOP
+  ];
+  for (const face of faces) {
+    const leading = Math.min(Math.max(shedCount, 1), face.length);
+    let leadingFree = true;
+    for (let i = 0; i < leading; i++) {
+      if (!isPlotTileFree(state, face[i]!.col, face[i]!.row)) {
+        leadingFree = false;
+        break;
+      }
+    }
+    if (leadingFree) return face[0]!;
+  }
+  // No qualifying face: the nearest free tile still touching the block.
+  let best: PlotTileCoord | null = null;
+  let bestDistSq = Number.POSITIVE_INFINITY;
+  for (const tile of PLACEABLE_PLOT_TILES) {
+    if (!isPlotTileFree(state, tile.col, tile.row)) continue;
+    if (!isHuggingPlot(state, tile.col, tile.row)) continue;
+    const pos = gridToIso(tile.col, tile.row);
+    const distSq = (pos.x - centerX) ** 2 + (pos.y - centerY) ** 2;
+    if (distSq < bestDistSq) {
+      bestDistSq = distSq;
+      best = tile;
+    }
+  }
+  return best ?? nearestFreePlaceableTile(state, centerX, centerY);
 }
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/** An integer grid coordinate within [0, max). */
-function isGridCoord(value: unknown, max: number): value is number {
-  return isFiniteNumber(value) && Number.isInteger(value) && value >= 0 && value < max;
+/** An integer plot grid coordinate within the static validator bounds
+ * (T3.3a-r, data/farm.ts) - negative coordinates are legal. */
+function isPlotGridCoord(value: unknown): value is number {
+  return (
+    isFiniteNumber(value) &&
+    Number.isInteger(value) &&
+    value >= PLOT_GRID_COORD_MIN &&
+    value <= PLOT_GRID_COORD_MAX
+  );
 }
 
 /** A channel volume: a finite number within 0..1. */
@@ -754,8 +1131,9 @@ function isVolume(value: unknown): value is number {
 
 function isPlotState(value: unknown): value is PlotState {
   if (!isRecord(value)) return false;
-  // Explicit tile (T3.3a): integers inside the maximal (frozen) grid.
-  if (!isGridCoord(value.col, FARM_COLS) || !isGridCoord(value.row, FARM_MAX_ROWS)) return false;
+  // Explicit tile (T3.3a): integers within the static validator bounds
+  // (T3.3a-r - wider than the placeable set, negative coords included).
+  if (!isPlotGridCoord(value.col) || !isPlotGridCoord(value.row)) return false;
   if (value.state === 'empty') return true;
   return (
     value.state === 'growing' &&
@@ -765,11 +1143,13 @@ function isPlotState(value: unknown): value is PlotState {
   );
 }
 
-/** No two plots on one tile (T3.3a). Entries must already be shape-proven. */
+/** No two plots on one tile (T3.3a). Entries must already be shape-proven.
+ * String keys (T3.3a-r): the old `row * FARM_COLS + col` arithmetic collides
+ * once coordinates go negative or past the legacy grid width. */
 function plotsTilesDistinct(plots: readonly PlotState[]): boolean {
-  const seen = new Set<number>();
+  const seen = new Set<string>();
   for (const plot of plots) {
-    const key = plot.row * FARM_COLS + plot.col;
+    const key = plotTileKey(plot.col, plot.row);
     if (seen.has(key)) return false;
     seen.add(key);
   }
@@ -1321,12 +1701,13 @@ export class GameStateStore {
 
   /**
    * Purchase the one-time farm expansion (T3.3a rework): charges
-   * EXPANSION_COST and flips `expanded` (which grows `ownedPlotTiles` to the
-   * full 4x4), then GRANTS the 4 new plots into the shed via `grantPlots`
-   * instead of pushing them onto fixed tiles - the player places them
-   * wherever they wish. Returns false without mutating anything if already
-   * expanded or coins are insufficient. Rejected during the tutorial
-   * (belt-and-braces; the sign is already hidden then).
+   * EXPANSION_COST and flips `expanded` (which retires the Expand sign and
+   * its blocked footprint tiles - never geometry since T3.3a-r), then GRANTS
+   * the 4 new plots into the shed via `grantPlots` instead of pushing them
+   * onto fixed tiles - the player places them wherever they wish. Returns
+   * false without mutating anything if already expanded or coins are
+   * insufficient. Rejected during the tutorial (belt-and-braces; the sign is
+   * already hidden then).
    */
   expandFarm(): boolean {
     if (!this.railsAllow('expand')) return false;
@@ -1360,29 +1741,18 @@ export class GameStateStore {
     return true;
   }
 
-  /** Whether (col, row) is inside the currently owned land (see `ownedPlotTiles`). */
-  private isTileOwned(col: number, row: number): boolean {
-    return ownedPlotTiles(this.state).some((tile) => tile.col === col && tile.row === row);
-  }
-
-  /** The index of the plot occupying (col, row), or -1 when the tile is free. */
-  private plotIndexAtTile(col: number, row: number): number {
-    return this.state.plots.findIndex((plot) => plot.col === col && plot.row === row);
-  }
-
   /**
    * Place one shed plot onto (col, row) (T3.3a): consumes an unplaced plot
    * into a new empty plot at that tile. Returns the new plot's index (always
    * `plots.length - 1`, placements only ever append - the same contract as
    * `placeFromWarehouse`) so the caller can select it, or false without
-   * mutating anything if the shed is empty, the coordinates are not integers,
-   * the tile is not owned, or another plot already occupies it. Autosaves.
+   * mutating anything if the shed is empty or the tile is not free
+   * (`isPlotTileFree` - placeable, unoccupied, clear of structure footprints
+   * and decor anchors; T3.3a-r). Autosaves.
    */
   placePlot(col: number, row: number): number | false {
     if (this.state.unplacedPlots <= 0) return false;
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
-    if (!this.isTileOwned(col, row)) return false;
-    if (this.plotIndexAtTile(col, row) !== -1) return false;
+    if (!isPlotTileFree(this.state, col, row)) return false;
     this.state.unplacedPlots--;
     this.state.plots.push({ state: 'empty', col, row });
     this.save();
@@ -1393,17 +1763,20 @@ export class GameStateStore {
    * Relocate an EXISTING plot to (col, row) (T3.3a - the arrange-mode move).
    * Returns false without mutating anything if the index is out of range,
    * the plot is not empty (a growing crop locks its plot in place - harvest
-   * first, then move), the coordinates are not integers, the tile is not
-   * owned, or ANOTHER plot occupies it (a move onto the plot's own tile is a
-   * valid no-op commit). Autosaves.
+   * first, then move), or the tile is not free for it (`isPlotTileFree` with
+   * this plot exempted from the occupancy check; T3.3a-r). A move onto the
+   * plot's own tile is always a valid no-op commit - even if a decoration
+   * has since been dropped over that tile, putting a plot back where it
+   * already stands can never be wrong. Autosaves.
    */
   movePlot(index: number, col: number, row: number): boolean {
     const plot = this.state.plots[index];
     if (plot === undefined || plot.state !== 'empty') return false;
-    if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
-    if (!this.isTileOwned(col, row)) return false;
-    const occupant = this.plotIndexAtTile(col, row);
-    if (occupant !== -1 && occupant !== index) return false;
+    if (plot.col === col && plot.row === row) {
+      this.save();
+      return true;
+    }
+    if (!isPlotTileFree(this.state, col, row, index)) return false;
     plot.col = col;
     plot.row = row;
     this.save();

@@ -48,6 +48,46 @@ Format:
 
 **Addendum (owner, same day): OVERRIDE ACCEPTED - fence fixed scale = 1.20.** The owner eyeballed 1.20 as matching one plot edge visually (the 128-native frame carries padding, so display-frame px and visible art width differ). T3.3a2 therefore normalizes fences TO scale 1.20 and derives the chain-snap pitch from the fence art's actual opaque width at that scale; the gap-free-outline acceptance case remains the truth test - if outlines cannot close flush at 1.20, the coder flags back for an owner re-eyeball instead of silently resizing.
 
+## 2026-07-16 - r2f3 delivered (face-strip hugging, 436 tests); tie-break deviation APPROVED; owner refined start corner -> r2f4 (bottom face first)
+
+**Context:** r2f3 report DONE: face-strip batch start (left/bottom/right/top priority), hug-aware single-entry chaining, and one flagged deviation - the terminal nearest-free fallback gains a hug tie-break on EXACT distance ties, without which the owner scenario's 4th grant provably lands away from the block and AC2 cannot hold. **PM ruling: APPROVED** - AC2 as ground truth was correct; the change is minimal and semantics are otherwise byte-identical. Steering and dead-end behavior verified intact.
+
+**Owner refinement from live test:** placements hug correctly, but the batch should START at the BOTTOM row face's left end (minCol, maxRow+1 - down-left of the block, where the legacy expansion row lived), not the left column face's top. r2f4 issued: face priority reorder to bottom/left/right/top, nothing else. After r2f4: full-tree diff review, owner user test, one combined commit closes the placement saga (T3.3a-r through r2f4).
+
+## 2026-07-16 - PM SPEC ERROR on batch placement corrected by owner screenshot: granted plots HUG the farm block, never build away -> T3.3a-r2f3
+
+**Context:** Owner's live test of the chain fixes showed plots still marching away from the farm in a strip; his annotated screenshot (arrow along the farm block's left face) made the intent unambiguous. Root cause is a PM misread: the owner's earlier "the first four new plots it tries to build away from the original plots" was a BUG DESCRIPTION, and PM spec'd it into r2f as a feature (bestBatchStartTile preferring a clear run away from the block). The coder built the spec faithfully - r2f2's investigation correctly found no code defect in the plain flow, and its bookkeeping-before-juice hardening + regression pin stay shipped.
+
+**Corrected design (r2f3):** granted plots extend the farm like adding a row/column to the grid. Batch start = the first tile of the best FACE STRIP hugging the existing plots' bounding box, priority left column face (matches the owner's arrow), then bottom row, right column, top row - a face qualifies when its leading min(shedCount, length) tiles are free. Single-entry chain preference becomes HUG-AWARE: among the last placement's free neighbors, prefer tiles edge-adjacent to a non-session plot (keep hugging the block), then the old row+1/col+1 order. The explicit two-entry direction rule (player drags to steer) still outranks hugging.
+
+**Process lesson (PM):** when an owner report mixes symptom and wish in one sentence, confirm which half is which before it becomes spec - a 10-second question would have saved two coder rounds.
+
+## 2026-07-16 - Mere: day-one sliver CONFIRMED; generation sizes specified
+
+**Context:** Owner picked day-one visibility (a sliver of the mere at the day-one world's western edge - the signature on screen from session one) and asked for generation sizes. PM specified per-part targets, all authored once against the FINAL 2160x2880 world (the day-one 1440x2560 world crops the same art): water band ~640x2880 built from three overlapping ~768x1344 sections stitched (shoreline pieces cover seams by design; band ships opaque), shoreline pieces ~384-512 wide with alpha at 2x-then-downscale, glow patches 256-512px generated DIM for engine tinting, shimmer 512 or code-derived, ecology decals at decor-master sizes, silhouette 192-256px mist-faded. mere-art-direction.md updated with both.
+
+**Consequence for T3.3a-r2:** the world-growth task should leave the western band's rendering seam ready (the mere band mounts at the day-one world's west edge when the art lands - no code dependency now, just no hardcoded grass assumptions at that edge).
+
+## 2026-07-16 - Mere art direction v2 ("nature-made"): the mere becomes the edge of the world, not an object on the farm
+
+**Context:** Owner raised ambition for the mere and named round 1's failure precisely: it read as a small backyard pond someone made in an afternoon. PM diagnosis: the failure was BOUNDEDNESS - an object placed on the farm whose full outline was visible. Nature-made water is defined by what you cannot see.
+
+**Direction (docs/design/mere-art-direction.md/.docx):** the mere runs the world's entire western edge and bleeds off-frame on three sides - no camera position ever shows a far bank; irregular shoreline from 4-6 distinct edge pieces (no oval curvature); depth gradient from pebbly shallows to near-black deeps; a marshy transition band so farm grass never butts into water; the glow rises FROM the depths (the region-brightening layer, still separate); one mist-faded mystery silhouette in the far water (the dock's eventual destination, unexplained in v1). Generation vocabulary + anti-pond negatives included. Composite-parts plan survives, every part upgraded.
+
+**Open owner decision:** show a sliver of the mere at the day-one world's west edge (PM rec - the signature on screen from session one) vs mere arrives only with the Shore region.
+
+## 2026-07-16 - Giant ground texture SKIPPED (tiles stay); land-era art list reconfirmed and re-prioritized
+
+**Context:** Owner asked whether AI (Scenario etc.) could produce the ground as one giant texture replacing the tile blocks. PM laid out the trade (possible - texture mode + upscale pipeline; ~25MB GPU at final world size, WebP shipping, slight softness at zoom 1.6, hybrid base+decals recommended if ever done). Owner: skip it. Tiles remain the ground system.
+
+**Land-era art list as it now stands (post placement-freedom redesign):** the legacy 500-coin expansion needs NO art (locked previews are dead; sign exists). T3.3b needs: overgrowth/bramble tiles (+ optional mist) for locked region land (tint-dim fallback acceptable interim), and optionally a fresh region sign (reuse acceptable). Region ground reuses existing grass + decals (reconfirmed by the giant-texture skip). T3.3c needs: the composite mere (water band, shore strips, separate glow overlay for region-brightening tints, shimmer layer, accent decals) and the dock ruined stage-0. All generated against the locked world plan (1440x2560 day one, regions beyond). Owner priority order for incremental generation: overgrowth -> mere composite -> dock.
+
+## 2026-07-16 - Owner confirms hidden-grid model; wants day-one world grown for pattern freedom -> T3.3a-r2 decision menu presented
+
+**Context:** Owner confirmed the hidden scene-wide grid (free-form pixels explicitly not the goal) - T3.3a-r is running against that spec. While it runs, owner added: even whole-scene placement feels cramped pre-expansion; wants to "zoom out a bit more" so day-one players can lay plot patterns. PM analysis: T3.4b's shipped camera makes this cheap - grow the world around the existing scene (all current coordinates unchanged, new apron = plain grass until region art), default view stays today's zoom-1 farmstead, the zoom-out floor drops to fitZoom(world), and T3.3a-r's placeable grid extends over it. Trade-offs: world art shrinks at full zoom-out (UI layer unaffected), and oversizing now would strip T3.3b's regions of spatial meaning.
+
+**Decision menu (owner pick pending):** A (PM rec) 1440x2560 (+33%, floor 0.75, regions keep real space) / B full 2160x2880 now (floor 0.5, regions sell mostly plots) / C hold until R1. T3.3a-r2 is cut as a small task once T3.3a-r clears review and the owner picks.
+
 ## 2026-07-16 - Owner redesigns placement freedom after hands-on: whole-scene placement, chain placing, no locked-tile previews -> T3.3a-r cut
 
 **Context:** Owner tested T3.3a, confirmed it works as built, and rejected the underlying zoning model: "technically the owned land is the entire farm scene." New direction: (1) plots placeable on ANY free space in the scene - blocked only by other plots, structure footprints, and decor; the 4x4 owned-rect dies as a placement boundary. (2) Snap is an ASSIST, not a restriction. (3) CHAIN PLACEMENT for plots and decor: commit via a Place button, the next shed item auto-appears adjacent (same column preference, then next column, then next row), repeat until the shed empties, then Done. (4) The unowned 4th-row grass preview tiles ("locked plots") are removed entirely - unowned land renders as nothing; the expand sign simply sells 4 plots.
