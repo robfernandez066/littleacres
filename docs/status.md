@@ -1,8 +1,8 @@
 # Little Acres - Status
 
-**Updated:** 2026-07-14
-**Phase:** WAVE 3 (blessed 2026-07-15): T3.3+T3.4 lead; T3.24 in flight
-**Schema:** v15 · **Tests:** 379 · **Live:** robfernandez066.github.io/littleacres/
+**Updated:** 2026-07-16
+**Phase:** WAVE 3: land+camera package. Camera SHIPPED; T3.3a placement + r2 world growth SHIPPED; T3.3a-r3 long-press pickup WITH CODER
+**Schema:** v16 · **Tests:** 440 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
@@ -13,15 +13,13 @@
 
 ## Queue
 
-1. r2 bundle reviewed PASS - in USER TEST (world growth + south fence + farmhouse depth + interleave guard + dev buttons; 440 tests) -> ONE commit
-2. T3.3a-r3 long-press pickup (pan-vs-lift in Edit Layout; FRESH session after the bundle ships)
-3. T3.3a2 fences + sizing table -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
-2. Then T3.3a plots -> T3.3a2 fence snap (spec grown: fence width = 1 plot; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; candidate rider: per-item max-scale sanity) -> T3.3b R1 + owner checkpoint -> T3.3c
-4. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
-5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
-6. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)
-3. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
-4. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
+1. r2 bundle SHIPPED 2026-07-16 (world 1440x2560 live; Tests 440). T3.3a-r3 + r3b (long-press pickup + post-drop grace): both reviews PASS; combined USER TEST (phone) in flight - covers r3's second-finger/haptics cases + r3b nudge flow. On pass: ONE commit ships r3+r3b. Watch item from coder: iso-depth can put a plot tile atop just-dropped decor on the field, muting grace there (spec-conformant; follow-up only if owner feels it).
+2. T3.3a2 fences + sizing table (fence width = 1 plot at fixed scale 1.20, flip-aware chain snap, gap-free outlining = primary acceptance; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; per-item sizing table as decor.ts config with clamp-down migration; candidate rider: per-item max-scale sanity) -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
+3. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
+4. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
+5. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)
+6. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
+7. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
 
 ## Open validations (real-player / device evidence still required, not findings that passed)
 
@@ -44,7 +42,7 @@
 
 - T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center; 2026-07-14 review adds a ghost-drag-confirm option), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
 - Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
-- Comment re-attachment x2: enterArrangeMode's doc comment floats above toggleArrangeMode (T3.25 nit, FarmScene), and registerDressingEditorHooks's doc comment floats above registerDecorSizingToggle (T3.27 nit, dev.ts) - fix when a task touches those files (T3.3a touches both)
+- Comment re-attachment: registerDressingEditorHooks's doc comment floats above registerDecorSizingToggle (T3.27 nit, dev.ts) - fix when a task touches dev.ts. (The FarmScene half CLEARED 2026-07-16: T3.3a-r3 coder verified the float healed during the placement-saga rewrites.)
 - DevOverlay 'Edit dressing' toggle renders full-width (block vs inline styling slip; dev-only cosmetic, owner 2026-07-15) - ride the next task touching dev files
 - Decor per-item sizing table DELIVERED (owner, 2026-07-15, via dev.decorSizing): per-item default = max scale, full table in decisions.md - ships as decor.ts config in T3.3a2 (with clamp-down migration for over-max placements)
 - Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice

@@ -48,6 +48,36 @@ Format:
 
 **Addendum (owner, same day): OVERRIDE ACCEPTED - fence fixed scale = 1.20.** The owner eyeballed 1.20 as matching one plot edge visually (the 128-native frame carries padding, so display-frame px and visible art width differ). T3.3a2 therefore normalizes fences TO scale 1.20 and derives the chain-snap pitch from the fence art's actual opaque width at that scale; the gap-free-outline acceptance case remains the truth test - if outlines cannot close flush at 1.20, the coder flags back for an owner re-eyeball instead of silently resizing.
 
+## 2026-07-16 - T3.3a-r3b review PASS -> USER TEST (combined phone pass for r3+r3b, then ONE commit)
+
+**Context:** Coder delivered the grace window; PM isolated the r3b delta against the reviewed r3 diff (78 added lines of substance). Delta matches spec: lazy timestamp expiry checked at the down (approved deviation - equivalent to a timer, allocation-free), startLift extracted so hold and grace share one side-effect-free ignition (returns false when the target no longer qualifies, so a stale grace target falls through to the normal hold arm), every commit re-arms including refused plot commits (approved - the snapped-home piece is still "the piece you just dropped"), grace cleared in exitArrangeMode + fireHoldLift's gate bail + both move-handler modal bails. Reference-not-index rule held throughout; a despawned grace target is never dereferenced (indexOf lookup only).
+
+**Coder-flagged edge (accepted, watch on phone):** dropping decor ONTO the plot field can leave a plot tile topmost in the hit stack (iso depth), so the instant regrab may not apply there and the hold rule governs - spec-conformant since grace keys off movableLiftTarget. If the owner feels re-hold friction on plot-dense farms, a follow-up can prefer the grace target within a radius.
+
+**Verdict:** USER TEST - combined phone pass (r3's untested second-finger/haptics cases + r3b nudge flow), then ONE commit ships r3+r3b together (same file, sequential polish, no reason for two).
+
+## 2026-07-16 - Owner phone-test feedback on r3: post-drop GRACE period -> T3.3a-r3b (follow-up, same session)
+
+**Context:** Owner tested the long-press lift on the phone and hit the nudge case: drop a piece, want to adjust it slightly, and the game demands a fresh press-and-hold. Fine-tuning is the most common arrange sequence, so re-holding per nudge is friction exactly where the mode should feel fluid.
+
+**Decision (PM design, owner-triggered):** after a lift commits, the SAME piece stays hot for GRACE_MS = 1500 (tunable, next to HOLD_MS): an arrange-mode down on it lifts INSTANTLY (same selection + pulse + buzz path), and each drop re-arms the window. Grace tracks the most recent drop only (lifting a different piece via hold transfers grace to it at ITS drop). Timer-only expiry; downs elsewhere do not cancel it; arrange exit and modals do. ACCEPTED TRADEOFF: for 1.5s a pan-swipe starting on that exact piece moves it instead of panning - that is the feature, it self-expires, and every other object keeps the full hold rule throughout.
+
+**Verdict on the r3 report chain:** CODER FIX (follow-up r3b, same session). Phone re-test covers the nudge flow plus pan-safety after grace expiry.
+
+## 2026-07-16 - T3.3a-r3 review PASS -> USER TEST (phone pass is the acceptance, not a formality); FarmScene comment nit CLEARED
+
+**Context:** Coder delivered the long-press lift with the report explicitly PARTIAL: everything driveable from desktop Chrome verified (A-D, F), criteria E (second-finger cases) and the haptic half of B physically require a phone. Diff reviewed (661 lines).
+
+**Review findings:** (1) The state machine matches spec exactly - 'lift-pending' resolves to exactly one of lift/pan/pinch/tap, slop movement re-anchors the pan at the pointer's current position, 'lift' is deliberately absent from maybeStartPinch's convertible list. (2) The find of the review: the coder REMOVED the per-object Phaser drag path entirely (decor pointerdown/drag/dragend handlers, wirePlotTileInput, every draggable:true flag) instead of gating it - there is now ONE input path, so the drag plugin can never instant-lift behind the classifier's back. (3) Pulse settles to the exact pre-pulse scale before any commit, so commitDecorationTransform (which reads live sprite scale) cannot be skewed by a mid-pulse release. (4) Grab-offset math replicates Phaser's dragX/dragY through fieldPointerWorld (two-camera correct). (5) Accepted behavior delta: holding a non-empty plot now wiggle-refuses where the old drag plugin silently did nothing (dragstart required empty) - better feedback, store authority unchanged (movePlot still sole rule).
+
+**Rider outcome:** the T3.25 comment-float nit does NOT exist in the current tree (healed during the placement-saga rewrites); coder verified both doc comments attached correctly and fixed an unbalanced paren instead. Backlog nit CLEARED for FarmScene; the dev.ts half (registerDressingEditorHooks) still stands.
+
+**Verdict:** USER TEST - the phone pass IS the acceptance for this task (the whole point is how panning vs lifting feels under a real finger); E and haptics are untestable any other way. Tests 440 green, build+lint green. On pass: single commit.
+
+## 2026-07-16 - r2 bundle SHIPPED; T3.3a-r3 issued (long-press pickup in Edit Layout, fresh session)
+
+**Context:** Owner passed the bundle test (desktop + phone) and pushed. Day-one world 1440x2560 is live. T3.3a-r3 issued with the designed long-press model plus prompt-time PM decisions: HOLD_MS 250 (tunable constant); lift feedback = haptic buzz + quick scale pulse; a second finger during LIFT-PENDING converts to pinch (nothing lifted, T3.4c consistency) but during an ACTIVE lift is IGNORED (a brushed finger must not drop furniture); growing plots wiggle-refuse at hold time; swipes past slop before the hold always PAN. Mechanism left to the coder (manual lift management vs Phaser drag thresholds) as long as behavior matches.
+
 ## 2026-07-16 - r2 bundle review PASS -> USER TEST; the dressing-interleave root cause is the find of the wave
 
 **Context:** All five bundle tasks delivered and the combined diff reviewed (world growth r2, south fence r2x, farmhouse depth r2y, dev buttons r2z, interleave guard r2w; 440 tests). **r2y's root cause deserves the record:** the farmhouse was never resurrected by our recent work at all - the DOM dev overlay's "Edit dressing" toggle stays clickable through the arrange-mode hitbox sweep (the sweep only touches Phaser objects), and toggling it on+off mid-arrange made the DRESSING sweep's blind restore re-enable ~94 objects the ARRANGE sweep had disabled - a latent T2.28a-era interleave surfaced by heavy arrange usage. Fixes shipped at two layers: openDecorShop routes by arrangeModeActive (every caller inherits the right depth forever), and setDressingEditActive refuses during arrange (r2w PM ruling - the modes were never meant to coexist). Known dev-only cosmetic: the overlay's label can read "on" after a refusal; self-heals.

@@ -624,6 +624,30 @@ const WHEEL_ZOOM_STEP = 0.0012;
  * release within it fires the tap.
  */
 const TAP_SLOP = 12;
+/**
+ * Long-press lift hold (T3.3a-r3): an arrange-mode down on a movable object
+ * (decor sprite or plot tile) must stay within TAP_SLOP this long before
+ * the object lifts. Movement past the slop first cancels the pending lift
+ * and reclassifies the gesture as a pan - panning is safe everywhere,
+ * picking something up is deliberate.
+ */
+const HOLD_MS = 250;
+/**
+ * Post-drop grace window (T3.3a-r3b): for this long after a lift commits,
+ * the just-dropped piece lifts again INSTANTLY on touch - no hold - so
+ * fine-tuning a placement (arrange mode's most common sequence) never
+ * demands a fresh press-and-hold. Tracks the most recent drop only, and
+ * every commit re-arms it. Deliberate tradeoff (owner decision): a
+ * pan-swipe that starts on the grace piece moves the piece instead of
+ * panning until the window expires; every other object keeps the hold rule.
+ */
+const GRACE_MS = 1500;
+/** Visual lift cue (T3.3a-r3): quick scale pulse - one leg up to
+ *  LIFT_PULSE_SCALE, yoyo back, so ~2x LIFT_PULSE_MS total. */
+const LIFT_PULSE_SCALE = 1.1;
+const LIFT_PULSE_MS = 90;
+/** Haptic lift cue duration - see `buzzOnLift` (feature-checked; iOS Safari has no vibrate). */
+const LIFT_VIBRATE_MS = 30;
 /** Recenter glide duration (task-specified ~250ms, Sine.easeOut). */
 const RECENTER_GLIDE_MS = 250;
 /** Off-default detection thresholds - a finished tween lands exactly, these absorb float noise. */
@@ -882,13 +906,34 @@ export class FarmScene extends Phaser.Scene {
    *   expand sign, ARMED but not opened. Fires its open action on an
    *   in-slop release; converts to a re-anchored pan past TAP_SLOP; a
    *   second finger converts to pinch and it never fires.
+   * - 'lift-pending' (T3.3a-r3): the down landed on a movable arrange
+   *   object (decor sprite or plot tile). Nothing lifts yet - a holding
+   *   state that resolves to exactly one of: the hold timer maturing
+   *   within TAP_SLOP lifts ('lift'), movement past the slop converts to
+   *   'pan' (the object never moves), a second finger converts to 'pinch',
+   *   and an in-slop release is the old tap-select.
+   * - 'lift' (T3.3a-r3): the hold matured - the object follows the finger
+   *   (plots snap live to free hidden-grid tiles, exactly as before the
+   *   hold existed) and the release commits through the same store calls.
+   *   A second finger during an active lift is deliberately IGNORED.
+   *   During the post-drop grace window (T3.3a-r3b, see `graceLift`) a
+   *   down on the just-dropped piece classifies 'lift' directly - no hold.
    * - 'object': the down landed on any other interactive object - not ours,
    *   its own per-object input handles everything.
    * - 'idle': the down landed in the banner or seed-bar band - nothing to do
    *   (the seed bar's own scene-level drag owns its band).
    */
   private fieldGesture:
-    'farm' | 'farm-pending' | 'pan' | 'pinch' | 'structure-armed' | 'object' | 'idle' | null = null;
+    | 'farm'
+    | 'farm-pending'
+    | 'pan'
+    | 'pinch'
+    | 'structure-armed'
+    | 'lift-pending'
+    | 'lift'
+    | 'object'
+    | 'idle'
+    | null = null;
   /**
    * The armed structure tap (T3.4c), set by `handleStructureDown` in the
    * same event dispatch the scene-level classifier then reads it in - see
@@ -911,6 +956,56 @@ export class FarmScene extends Phaser.Scene {
   private armedFarmDownY = 0;
   private armedFarmWorldX = 0;
   private armedFarmWorldY = 0;
+  /**
+   * The pending long-press lift (T3.3a-r3), set while `fieldGesture` is
+   * 'lift-pending': the movable object under the down, the down's screen
+   * position (slop test), the grab offset (object position minus the down's
+   * world point - the same offset Phaser's drag plugin used, so the lifted
+   * object follows the finger without jumping), and the hold timer whose
+   * firing lifts (`fireHoldLift`). `target` is a sprite REFERENCE, never an
+   * index - indices shift when a decoration is stored (spliced), so every
+   * index derives fresh via `indexOf` at use time (the decoration-sprite
+   * pattern).
+   */
+  private pendingLift: {
+    pointer: Phaser.Input.Pointer;
+    kind: 'decor' | 'plot';
+    target: Phaser.GameObjects.Image;
+    downX: number;
+    downY: number;
+    grabOffsetX: number;
+    grabOffsetY: number;
+    timer: Phaser.Time.TimerEvent;
+  } | null = null;
+  /** The active lift (T3.3a-r3), set while `fieldGesture` is 'lift' - same
+   *  reference-not-index rule as `pendingLift`. */
+  private activeLift: {
+    kind: 'decor' | 'plot';
+    target: Phaser.GameObjects.Image;
+    grabOffsetX: number;
+    grabOffsetY: number;
+  } | null = null;
+  /** The lift pulse's target and its pre-pulse scale, so a release landing
+   *  mid-pulse can settle the scale exactly - `commitDecorationTransform`
+   *  reads the sprite's live scale, which an in-flight pulse would skew. */
+  private liftPulse: {
+    target: Phaser.GameObjects.Image;
+    scaleX: number;
+    scaleY: number;
+  } | null = null;
+  /**
+   * The post-drop grace target (T3.3a-r3b), armed by `finishLift` on every
+   * commit: until `until` (scene time) passes, a down whose topmost movable
+   * is `target` skips the hold and lifts instantly. Same reference-not-index
+   * rule as `pendingLift`. Expiry is timer-only - downs on anything else
+   * leave it armed; exiting arrange mode and the gate-fail paths that
+   * discard pending/active lifts (a modal opening mid-gesture) clear it.
+   */
+  private graceLift: {
+    kind: 'decor' | 'plot';
+    target: Phaser.GameObjects.Image;
+    until: number;
+  } | null = null;
   /** The pointer that owns the current farm/pan gesture (a second pointer must not drive it). */
   private gesturePointerId = -1;
   /**
@@ -1377,8 +1472,9 @@ export class FarmScene extends Phaser.Scene {
    * Whether camera gestures (pan/pinch/wheel) may run at all: inert while
    * any modal panel is open, during the tutorial rails, and during the
    * dev-only dressing editor (whose decal drags a pan would fight). Arrange
-   * mode is deliberately ACTIVE: decor drags stay per-object input (the
-   * currentlyOver rule), dragging empty ground pans.
+   * mode is deliberately ACTIVE: a down on a movable object arms the
+   * long-press lift (T3.3a-r3, via the currentlyOver rule), dragging
+   * empty ground - or swiping off a movable before the hold matures - pans.
    */
   private cameraGesturesAllowed(): boolean {
     return gameState.getState().onboarding.completed && !isModalOpen() && !this.dressingEditActive;
@@ -1432,8 +1528,39 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     if (currentlyOver.length > 0) {
-      // Not ours: decor drags (arrange), badges, panels, and every button
-      // keep their own per-object input unchanged.
+      // Arrange mode (T3.3a-r3): a down on a movable object (decor sprite
+      // or plot tile) arms a deliberate long-press lift instead of lifting
+      // instantly - a swipe that merely STARTS on one must pan.
+      const movable = this.arrangeModeActive ? this.movableLiftTarget(currentlyOver) : null;
+      if (movable !== null) {
+        // Post-drop grace (T3.3a-r3b): the piece dropped less than GRACE_MS
+        // ago lifts again right now - straight to 'lift', same cue, no hold
+        // - so a just-placed piece can be nudged without a fresh hold.
+        if (this.graceLift !== null && this.time.now > this.graceLift.until) {
+          this.graceLift = null;
+        }
+        if (this.graceLift?.target === movable.target) {
+          const world = this.fieldPointerWorld(pointer);
+          if (
+            this.startLift(
+              movable.kind,
+              movable.target,
+              movable.target.x - world.x,
+              movable.target.y - world.y,
+            )
+          ) {
+            return;
+          }
+          // A grace target that can no longer lift is stale - forget it and
+          // fall through to the normal hold arm.
+          this.graceLift = null;
+        }
+        this.fieldGesture = 'lift-pending';
+        this.beginPendingLift(pointer, movable.kind, movable.target);
+        return;
+      }
+      // Not ours: badges, panels, and every button keep their own
+      // per-object input unchanged.
       this.fieldGesture = 'object';
       return;
     }
@@ -1521,6 +1648,248 @@ export class FarmScene extends Phaser.Scene {
     return plot.state === 'empty' && this.seedBar.getSelected() !== null;
   }
 
+  // -- ARRANGE LIFT (T3.3a-r3) -----------------------------------------------
+
+  /**
+   * The topmost movable arrange object under the down, or null - the hit
+   * list arrives topmost-first, so the first decor sprite or plot tile in
+   * it is the one the finger visually landed on.
+   */
+  private movableLiftTarget(
+    currentlyOver: readonly Phaser.GameObjects.GameObject[],
+  ): { kind: 'decor' | 'plot'; target: Phaser.GameObjects.Image } | null {
+    for (const object of currentlyOver) {
+      const image = object as Phaser.GameObjects.Image;
+      if (this.decorationSprites.includes(image)) return { kind: 'decor', target: image };
+      if (this.plotTileSprites.includes(image)) return { kind: 'plot', target: image };
+    }
+    return null;
+  }
+
+  /**
+   * Arm a long-press lift (T3.3a-r3): nothing user-visible happens at the
+   * down. The scene-clock timer maturing while the pointer is still within
+   * TAP_SLOP is the only path that lifts a PENDING arm (`fireHoldLift`);
+   * every other resolution - slop movement (pan), a second finger (pinch),
+   * an in-slop release (tap-select) - cancels the timer first. (A down
+   * inside the post-drop grace window never arms at all - it classifies
+   * 'lift' directly in the classifier, T3.3a-r3b.)
+   */
+  private beginPendingLift(
+    pointer: Phaser.Input.Pointer,
+    kind: 'decor' | 'plot',
+    target: Phaser.GameObjects.Image,
+  ): void {
+    const world = this.fieldPointerWorld(pointer);
+    this.pendingLift = {
+      pointer,
+      kind,
+      target,
+      downX: pointer.x,
+      downY: pointer.y,
+      grabOffsetX: target.x - world.x,
+      grabOffsetY: target.y - world.y,
+      timer: this.time.delayedCall(HOLD_MS, () => this.fireHoldLift()),
+    };
+  }
+
+  /** Discard the pending lift and its hold timer (no-op when none is armed). */
+  private cancelPendingLift(): void {
+    if (this.pendingLift === null) return;
+    this.pendingLift.timer.remove(false);
+    this.pendingLift = null;
+  }
+
+  /**
+   * Ignite an active lift on `target` (T3.3a-r3b splits this out of
+   * `fireHoldLift` so the post-drop grace path shares it): selection first
+   * (byte-identical to the old instant path's down), then the pulse + buzz
+   * cue, and the gesture becomes 'lift'. Returns false with NO side
+   * effects when the target no longer qualifies (despawned decoration,
+   * missing or non-empty plot) - callers decide the fallback.
+   */
+  private startLift(
+    kind: 'decor' | 'plot',
+    target: Phaser.GameObjects.Image,
+    grabOffsetX: number,
+    grabOffsetY: number,
+  ): boolean {
+    if (kind === 'plot') {
+      const plotIndex = this.plotTileSprites.indexOf(target);
+      const plot = plotIndex === -1 ? undefined : gameState.getState().plots[plotIndex];
+      if (plot === undefined || plot.state !== 'empty') return false;
+      this.setPlotSelection(plotIndex);
+      this.plotDragIndex = plotIndex;
+      this.plotDragCol = plot.col;
+      this.plotDragRow = plot.row;
+    } else {
+      const index = this.decorationSprites.indexOf(target);
+      if (index === -1) return false;
+      this.setDecorationSelection(index);
+    }
+    this.activeLift = { kind, target, grabOffsetX, grabOffsetY };
+    this.fieldGesture = 'lift';
+    this.playLiftPulse(target);
+    this.buzzOnLift();
+    return true;
+  }
+
+  /**
+   * The hold timer matured (T3.3a-r3): the pointer stayed within slop for
+   * HOLD_MS, so the press is deliberate. A decoration or an EMPTY plot
+   * lifts (`startLift`). A growing plot refuses with the locked-plot
+   * wiggle and the REST of the gesture pans (`movePlot` only ever allows
+   * EMPTY). Every bail path fully resolves the gesture - 'lift-pending'
+   * never outlives its timer.
+   */
+  private fireHoldLift(): void {
+    const pending = this.pendingLift;
+    if (pending === null || this.fieldGesture !== 'lift-pending') return;
+    this.pendingLift = null;
+    if (!pending.pointer.isDown || !this.arrangeModeActive || !this.cameraGesturesAllowed()) {
+      this.graceLift = null;
+      this.fieldGesture = null;
+      this.gesturePointerId = -1;
+      return;
+    }
+    if (pending.kind === 'plot') {
+      const plotIndex = this.plotTileSprites.indexOf(pending.target);
+      const plot = plotIndex === -1 ? undefined : gameState.getState().plots[plotIndex];
+      if (plot !== undefined && plot.state !== 'empty') {
+        // Locked: wiggle refusal, and the remainder of the gesture pans -
+        // re-anchored at the pointer's current position, so no jump.
+        this.shakeLockedPlot(pending.target);
+        this.fieldGesture = 'pan';
+        this.beginPan(pending.pointer);
+        return;
+      }
+    }
+    if (!this.startLift(pending.kind, pending.target, pending.grabOffsetX, pending.grabOffsetY)) {
+      this.fieldGesture = null;
+      this.gesturePointerId = -1;
+    }
+  }
+
+  /**
+   * Live lift follow (T3.3a-r3): the object's would-be free-form position
+   * is the pointer's world point plus the grab offset - exactly the
+   * dragX/dragY Phaser's drag plugin fed the pre-hold handlers. Decorations
+   * move free-form (y-depth and ground shadow re-derived every frame, as
+   * the old 'drag' handler did); plots never move free-form - the free
+   * position only feeds the live grid snap (`updatePlotDragSnap`).
+   */
+  private updateLiftDrag(pointer: Phaser.Input.Pointer): void {
+    const lift = this.activeLift;
+    if (lift === null) return;
+    const world = this.fieldPointerWorld(pointer);
+    const freeX = world.x + lift.grabOffsetX;
+    const freeY = world.y + lift.grabOffsetY;
+    if (lift.kind === 'decor') {
+      lift.target.setPosition(freeX, freeY).setDepth(freeY);
+      const index = this.decorationSprites.indexOf(lift.target);
+      const shadow = index === -1 ? undefined : this.decorationShadowSprites[index];
+      if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, lift.target);
+    } else {
+      const { col, row } = isoToGrid(freeX, freeY);
+      this.updatePlotDragSnap(Math.round(col), Math.round(row));
+    }
+  }
+
+  /**
+   * Release of an active lift (T3.3a-r3): settle the pulse FIRST (an early
+   * release can land mid-pulse, and `commitDecorationTransform` reads the
+   * sprite's live scale), then commit exactly as the pre-hold 'dragend'
+   * handlers did - `setDecorationTransform`/`movePlot` stay the sole rule
+   * authorities, and a refused commit snaps back from committed state.
+   * Every commit (re-)arms the post-drop grace window on the piece just
+   * dropped (T3.3a-r3b) - including an in-place drop, whose same-position
+   * commit is harmless and simply re-arms.
+   */
+  private finishLift(): void {
+    const lift = this.activeLift;
+    this.activeLift = null;
+    this.settleLiftPulse();
+    if (lift === null) return;
+    if (lift.kind === 'decor') {
+      if (!this.arrangeModeActive) return;
+      const index = this.decorationSprites.indexOf(lift.target);
+      if (index !== -1) {
+        this.commitDecorationTransform(index, lift.target);
+        this.armGraceLift('decor', lift.target);
+      }
+    } else if (this.plotDragIndex !== null) {
+      this.commitPlotDrag();
+      this.armGraceLift('plot', lift.target);
+    }
+  }
+
+  /** Arm (or re-arm) the post-drop grace window on the piece just committed (T3.3a-r3b). */
+  private armGraceLift(kind: 'decor' | 'plot', target: Phaser.GameObjects.Image): void {
+    this.graceLift = { kind, target, until: this.time.now + GRACE_MS };
+  }
+
+  /**
+   * In-slop release before the hold fired (T3.3a-r3): a tap, byte-for-byte
+   * the old per-object pointer-down behavior - a decoration selects, an
+   * empty plot selects, a growing plot answers with the locked-plot shake
+   * and no selection change.
+   */
+  private resolveLiftTap(kind: 'decor' | 'plot', target: Phaser.GameObjects.Image): void {
+    if (kind === 'decor') {
+      const index = this.decorationSprites.indexOf(target);
+      if (index !== -1) this.setDecorationSelection(index);
+      return;
+    }
+    const plotIndex = this.plotTileSprites.indexOf(target);
+    if (plotIndex === -1) return;
+    const plot = gameState.getState().plots[plotIndex];
+    if (plot === undefined) return;
+    if (plot.state === 'growing') {
+      this.shakeLockedPlot(target);
+      return;
+    }
+    this.setPlotSelection(plotIndex);
+  }
+
+  /**
+   * Visual lift cue (T3.3a-r3): a quick scale pulse up to LIFT_PULSE_SCALE
+   * and back. `liftPulse` records the pre-pulse scale so `settleLiftPulse`
+   * can restore it exactly whenever the lift ends before the tween does.
+   */
+  private playLiftPulse(target: Phaser.GameObjects.Image): void {
+    this.settleLiftPulse();
+    this.liftPulse = { target, scaleX: target.scaleX, scaleY: target.scaleY };
+    this.tweens.add({
+      targets: target,
+      scaleX: target.scaleX * LIFT_PULSE_SCALE,
+      scaleY: target.scaleY * LIFT_PULSE_SCALE,
+      duration: LIFT_PULSE_MS,
+      yoyo: true,
+      ease: 'Sine.easeInOut',
+      onComplete: () => this.settleLiftPulse(),
+    });
+  }
+
+  /** Stop the pulse (if still running) and restore the exact pre-pulse scale. */
+  private settleLiftPulse(): void {
+    const pulse = this.liftPulse;
+    if (pulse === null) return;
+    this.liftPulse = null;
+    this.tweens.killTweensOf(pulse.target);
+    pulse.target.setScale(pulse.scaleX, pulse.scaleY);
+  }
+
+  /**
+   * Haptic half of the lift cue: a short buzz where the platform supports
+   * it (iOS Safari has no navigator.vibrate - the scale pulse is the
+   * universal cue there).
+   */
+  private buzzOnLift(): void {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(LIFT_VIBRATE_MS);
+    }
+  }
+
   private onFieldPointerMove(pointer: Phaser.Input.Pointer): void {
     if (this.fieldGesture === 'pinch') {
       this.updatePinch();
@@ -1556,6 +1925,41 @@ export class FarmScene extends Phaser.Scene {
         const world = this.fieldPointerWorld(pointer);
         this.handlePlotEntered(this.plotTracker.move(world.x, world.y, gameState.getState().plots));
       }
+      return;
+    }
+    if (this.fieldGesture === 'lift-pending') {
+      const pending = this.pendingLift;
+      // A modal popping mid-hold quietly discards the arm, like
+      // 'farm-pending' - and the grace window with it (T3.3a-r3b).
+      if (pending === null || !this.arrangeModeActive || !this.cameraGesturesAllowed()) {
+        this.cancelPendingLift();
+        this.graceLift = null;
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        return;
+      }
+      if (Math.hypot(pointer.x - pending.downX, pointer.y - pending.downY) > TAP_SLOP) {
+        // The gesture proved itself a swipe before the hold matured: the
+        // object never moves, and the pan re-anchors at the pointer's
+        // CURRENT position (beginPan records it) - the critical case.
+        this.cancelPendingLift();
+        this.fieldGesture = 'pan';
+        this.beginPan(pointer);
+      }
+      return;
+    }
+    if (this.fieldGesture === 'lift') {
+      // Arrange mode ending mid-lift (a second finger on Done) already
+      // nulled the drag state in exitArrangeMode - just drop the gesture
+      // (and the grace window, T3.3a-r3b).
+      if (!this.arrangeModeActive) {
+        this.activeLift = null;
+        this.graceLift = null;
+        this.fieldGesture = null;
+        this.gesturePointerId = -1;
+        return;
+      }
+      this.updateLiftDrag(pointer);
       return;
     }
     if (this.fieldGesture === 'structure-armed') {
@@ -1626,6 +2030,22 @@ export class FarmScene extends Phaser.Scene {
         this.endFarmGesture();
       } else if (gesture === 'pan') {
         this.finishPan(true);
+      } else if (gesture === 'lift-pending') {
+        const pending = this.pendingLift;
+        this.cancelPendingLift();
+        // In-slop release before the hold fired: the tap - selection and
+        // arrange controls exactly as the old instant path. Re-checked
+        // against the gates in case a modal popped while armed.
+        if (
+          pending !== null &&
+          this.arrangeModeActive &&
+          this.cameraGesturesAllowed() &&
+          Math.hypot(pointer.x - pending.downX, pointer.y - pending.downY) <= TAP_SLOP
+        ) {
+          this.resolveLiftTap(pending.kind, pending.target);
+        }
+      } else if (gesture === 'lift') {
+        this.finishLift();
       } else if (gesture === 'structure-armed') {
         const armed = this.armedStructure;
         this.armedStructure = null;
@@ -1752,18 +2172,22 @@ export class FarmScene extends Phaser.Scene {
    * whose first finger lands on a ready crop zooms and harvests NOTHING;
    * on a building, zooms and opens nothing), an already-live farm sweep
    * cancels (plots harvested by earlier movement stay harvested), and ALL
-   * farming input stays suppressed until every finger lifts. Only OUR
-   * gestures convert - a down whose first finger landed on any other
-   * interactive object ('object': a decor drag, a pressed button) keeps
-   * that object's own input, and 'idle' downs (seed-bar band, where the
-   * bar's own strip drag may be live) stay idle.
+   * farming input stays suppressed until every finger lifts. A pending
+   * long-press lift converts too (T3.3a-r3: the hold timer cancels, the
+   * object never lifts), but an ACTIVE 'lift' is deliberately absent from
+   * the list - a second finger during a lift is IGNORED and the lift
+   * continues. Only OUR gestures convert - a down whose first finger
+   * landed on any other interactive object ('object': a pressed button)
+   * keeps that object's own input, and 'idle' downs (seed-bar band, where
+   * the bar's own strip drag may be live) stay idle.
    */
   private maybeStartPinch(): void {
     if (
       this.fieldGesture !== 'farm' &&
       this.fieldGesture !== 'farm-pending' &&
       this.fieldGesture !== 'pan' &&
-      this.fieldGesture !== 'structure-armed'
+      this.fieldGesture !== 'structure-armed' &&
+      this.fieldGesture !== 'lift-pending'
     )
       return;
     if (!this.cameraGesturesAllowed()) return;
@@ -1782,6 +2206,7 @@ export class FarmScene extends Phaser.Scene {
     this.plotTracker.end();
     this.gestureMode = null;
     this.armedStructure = null;
+    this.cancelPendingLift();
     this.killCameraTween();
     this.fieldGesture = 'pinch';
     this.farmingSuppressed = true;
@@ -2292,10 +2717,10 @@ export class FarmScene extends Phaser.Scene {
    * image ('plot'/'plot_occupied' per state - empty land renders nothing,
    * the permanent 16-tile field is gone) plus the reusable crop sprite with
    * the crop's baseline anchoring, hidden until the plot has a growing crop.
-   * The tile is wired for arrange mode's select/lift here once, inert until
-   * `refreshArrangePlotInteractivity` makes it interactive - the same
-   * "always wired, only listens while the mode flag is on" pattern as
-   * `createDecorationSprite`.
+   * The tile carries no per-object listeners (T3.3a-r3: arrange mode's
+   * tap-select and long-press lift run through the scene-level gesture
+   * classifier, like `createDecorationSprite`); it stays inert until
+   * `refreshArrangePlotInteractivity` makes it hit-testable for the mode.
    */
   private createPlotVisuals(index: number): void {
     const plot = gameState.getState().plots[index];
@@ -2304,7 +2729,6 @@ export class FarmScene extends Phaser.Scene {
       .image(x, y, ATLAS_KEY, 'plot')
       .setOrigin(0.5, TILE_ORIGIN_Y)
       .setDepth(this.plotTileDepth(y));
-    this.wirePlotTileInput(tile);
     this.plotTileSprites[index] = tile;
     const sprite = this.add
       .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
@@ -2656,38 +3080,22 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * One decoration's sprite (T3.9a), wired for arrange mode's select/drag
-   * events - inert until `enterArrangeMode` makes it interactive, same
-   * "always wired, only listens while the mode flag is on" pattern as
-   * `createDressingSprite`. Dragging moves the sprite and its ground shadow
-   * live every frame (including re-deriving depth from the live y, so it
-   * naturally re-sorts against crops/structures while being dragged); the
-   * position only commits to the store on drag-end.
+   * One decoration's sprite (T3.9a). No per-object listeners since
+   * T3.3a-r3: arrange mode's tap-select and long-press lift both run
+   * through the scene-level gesture classifier ('lift-pending'/'lift'),
+   * which finds the sprite via the down's `currentlyOver` hit list - so
+   * the sprite only needs to BE interactive, which `enterArrangeMode`
+   * makes it for the mode's duration. While lifted it moves (re-deriving
+   * its y depth and ground shadow) every frame in `updateLiftDrag`; the
+   * position only commits to the store on release
+   * (`commitDecorationTransform`).
    */
   private createDecorationSprite(decoration: DecorationPlacement): Phaser.GameObjects.Image {
-    const sprite = this.add
+    return this.add
       .image(decoration.x, decoration.y, ATLAS_KEY, decoration.frame)
       .setScale(decoration.scale)
       .setFlipX(decoration.flip)
       .setDepth(decoration.y);
-    sprite.on('pointerdown', () => {
-      if (!this.arrangeModeActive) return;
-      const index = this.decorationSprites.indexOf(sprite);
-      if (index !== -1) this.setDecorationSelection(index);
-    });
-    sprite.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
-      if (!this.arrangeModeActive) return;
-      sprite.setPosition(dragX, dragY).setDepth(dragY);
-      const index = this.decorationSprites.indexOf(sprite);
-      const shadow = index !== -1 ? this.decorationShadowSprites[index] : undefined;
-      if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
-    });
-    sprite.on('dragend', () => {
-      if (!this.arrangeModeActive) return;
-      const index = this.decorationSprites.indexOf(sprite);
-      if (index !== -1) this.commitDecorationTransform(index, sprite);
-    });
-    return sprite;
   }
 
   /**
@@ -3183,11 +3591,12 @@ export class FarmScene extends Phaser.Scene {
   /**
    * Enter arrange mode (T3.9a): called by the Decor Shop's "Arrange Farm"
    * button (already closed by then). Makes every placed decoration
-   * draggable + tap-selectable (and every plot-hosting tile lift-testable -
-   * T3.3a, see `refreshArrangePlotInteractivity`), hides the seed bar and
+   * hit-testable for tap-select and long-press lift (T3.3a-r3 - the scene
+   * classifier owns both; same for every plot-hosting tile, see
+   * `refreshArrangePlotInteractivity`), hides the seed bar and
    * shows the floating control row in its band (T3.9b), and suppresses every
    * other interactive object in the scene (field gestures are gated
-   * separately, in `handlePlotEntered`/`maybeShowCountdown` - mirrors
+   * separately, in `handlePlotEntered`/`maybeShowCountdown`) - mirrors
    * `setDressingEditActive` exactly, just player-facing.
    */
   private enterArrangeMode(): void {
@@ -3195,7 +3604,7 @@ export class FarmScene extends Phaser.Scene {
     this.selectedDecorationIndex = null;
     this.selectedPlotIndex = null;
     this.seedBar.setVisible(false);
-    for (const sprite of this.decorationSprites) sprite.setInteractive({ draggable: true });
+    for (const sprite of this.decorationSprites) sprite.setInteractive();
     this.setArrangeControlsVisible(true);
     this.updateArrangeItemButtonsState();
     this.updatePlaceNextButton();
@@ -3228,6 +3637,13 @@ export class FarmScene extends Phaser.Scene {
     this.setDecorationSelection(null);
     this.setPlotSelection(null);
     this.plotDragIndex = null;
+    // A lift can only be pending/active mid-exit via a second finger on
+    // Done (T3.3a-r3); drop it cleanly - nothing was committed yet, and the
+    // gesture's own move/up handlers self-resolve on the dead mode flag.
+    this.cancelPendingLift();
+    this.activeLift = null;
+    this.graceLift = null;
+    this.settleLiftPulse();
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
     // Plot tiles go inert again (T3.3a). They are exempt from the enter
     // sweep (see `arrangeExemptObjects`), so the restore pass below can
@@ -3304,62 +3720,10 @@ export class FarmScene extends Phaser.Scene {
     const decoration = gameState.getState().decorations[index];
     if (decoration === undefined) return;
     const sprite = this.createDecorationSprite(decoration);
-    sprite.setInteractive({ draggable: true });
+    sprite.setInteractive();
     this.decorationSprites.push(sprite);
     this.decorationShadowSprites.push(this.createGroundShadow(sprite));
     this.setDecorationSelection(index);
-  }
-
-  /**
-   * Wire one plot's tile sprite for arrange mode (T3.3a, per-plot sprites
-   * since T3.3a-r), once at creation - the handlers self-gate on
-   * `arrangeModeActive`, derive their plot index fresh via `indexOf` (the
-   * decoration-sprite pattern, so a dev shrink can never leave a stale
-   * capture), and the tile only becomes interactive at all via
-   * `refreshArrangePlotInteractivity`, mirroring `createDecorationSprite`'s
-   * "always wired, only listens in the mode" pattern. A down on an EMPTY
-   * plot's tile selects it; a growing plot refuses to lift with a brief tile
-   * shake (harvest first, then move). Dragging never moves the tile
-   * free-form: it jumps tile center to tile center, snapped LIVE to the
-   * nearest free placeable tile (`updatePlotDragSnap`), and the release
-   * commits through `gameState.movePlot` - the store stays the sole rule
-   * authority.
-   */
-  private wirePlotTileInput(tile: Phaser.GameObjects.Image): void {
-    tile.on('pointerdown', () => {
-      if (!this.arrangeModeActive) return;
-      const plotIndex = this.plotTileSprites.indexOf(tile);
-      if (plotIndex === -1) return;
-      const plot = gameState.getState().plots[plotIndex];
-      if (plot === undefined) return;
-      if (plot.state === 'growing') {
-        this.shakeLockedPlot(tile);
-        return;
-      }
-      this.setPlotSelection(plotIndex);
-    });
-    tile.on('dragstart', () => {
-      if (!this.arrangeModeActive) return;
-      const plotIndex = this.plotTileSprites.indexOf(tile);
-      if (plotIndex === -1) return;
-      const plot = gameState.getState().plots[plotIndex];
-      if (plot?.state !== 'empty') return;
-      this.plotDragIndex = plotIndex;
-      this.plotDragCol = plot.col;
-      this.plotDragRow = plot.row;
-    });
-    tile.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
-      if (!this.arrangeModeActive || this.plotDragIndex === null) return;
-      // dragX/dragY track where the tile's own position would be if it moved
-      // free-form - i.e. the lifted diamond's center - which is exactly the
-      // point to snap to the grid.
-      const { col, row } = isoToGrid(dragX, dragY);
-      this.updatePlotDragSnap(Math.round(col), Math.round(row));
-    });
-    tile.on('dragend', () => {
-      if (this.plotDragIndex === null) return;
-      this.commitPlotDrag();
-    });
   }
 
   /**
@@ -3409,13 +3773,14 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Make every plot's tile sprite interactive/draggable for arrange mode
+   * Make every plot's tile sprite hit-testable for arrange mode
    * (T3.3a-r: every tile IS a plot's now - growing plots stay interactive
-   * for the locked-plot shake) - called on arrange-mode entry and after
-   * every placement, so a tile spawned mid-arrange (chain placement) becomes
-   * liftable too. The full interactive config (diamond hit area included) is
-   * re-passed each time, so the "no-arg setInteractive preserves the hit
-   * area" rule is moot here.
+   * for the locked-plot shake; lifting itself is the scene classifier's
+   * long-press path since T3.3a-r3, so no `draggable`) - called on
+   * arrange-mode entry and after every placement, so a tile spawned
+   * mid-arrange (chain placement) becomes liftable too. The full
+   * interactive config (diamond hit area included) is re-passed each time,
+   * so the "no-arg setInteractive preserves the hit area" rule is moot here.
    */
   private refreshArrangePlotInteractivity(): void {
     if (!this.arrangeModeActive) return;
@@ -3423,7 +3788,6 @@ export class FarmScene extends Phaser.Scene {
       tile.setInteractive({
         hitArea: PLOT_TILE_HIT_AREA,
         hitAreaCallback: Phaser.Geom.Polygon.Contains,
-        draggable: true,
         useHandCursor: true,
       });
     }
