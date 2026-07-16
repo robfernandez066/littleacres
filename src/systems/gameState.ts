@@ -9,16 +9,21 @@ import {
 import { CROPS, type CropId } from '../data/crops';
 import {
   DECOR_FRAMES,
-  DECOR_SCALE_MAX,
   DECOR_SCALE_MIN,
-  DECOR_SPAWN_SCALE,
+  DECOR_SIZING,
   DECOR_X_MAX,
   DECOR_X_MIN,
   DECOR_Y_MAX,
   DECOR_Y_MIN,
   DECOR_ITEMS,
-  MAX_DECORATIONS,
-  purchasableOwnedCount,
+  decorMaxScale,
+  decorOwnedCount,
+  decorSpawnScale,
+  FENCE_FIXED_SCALE,
+  FENCE_FRAME,
+  fenceOwnedCount,
+  MAX_DECOR_ITEMS,
+  MAX_FENCES,
   WAREHOUSE_PLACE_X,
   WAREHOUSE_PLACE_Y,
 } from '../data/decor';
@@ -361,7 +366,7 @@ export interface GameStateData {
   orders: OrderSlot[];
   /** Skip-cooldown escalation streak (see `skipOrder`). */
   orderSkips: OrderSkipsState;
-  /** Placed decorations (T3.9); purchasable placed+warehoused <= MAX_DECORATIONS, trophies exempt (T3.17). */
+  /** Placed decorations (T3.9); purchasable placed+warehoused within the split budgets (MAX_DECOR_ITEMS / MAX_FENCES, T3.3a2), trophies exempt (T3.17). */
   decorations: DecorationPlacement[];
   /**
    * Owned-but-unplaced decorations (T3.9b): frame -> count. A purchase always
@@ -673,6 +678,38 @@ const v15ToV16: Migration = (raw) => ({
   expanded: Array.isArray(raw.plots) && raw.plots.length === EXPANDED_PLOT_COUNT,
 });
 
+/**
+ * v16 -> v17: fence normalization + per-item sizing (T3.3a2). Every fence
+ * placement's scale becomes exactly FENCE_FIXED_SCALE; every OTHER placement
+ * with a DECOR_SIZING entry clamps DOWN to that entry's maxScale if above
+ * it. Positions and flip are untouched, entries at or below their max pass
+ * through unchanged, and frames without a table entry (including unknown
+ * frames - validation is the arbiter of those) pass through untouched.
+ */
+const v16ToV17: Migration = (raw) => ({
+  ...raw,
+  decorations: Array.isArray(raw.decorations)
+    ? raw.decorations.map((decoration) => {
+        if (
+          !isRecord(decoration) ||
+          typeof decoration.frame !== 'string' ||
+          !isFiniteNumber(decoration.scale)
+        ) {
+          return decoration;
+        }
+        if (decoration.frame === FENCE_FRAME) {
+          return decoration.scale === FENCE_FIXED_SCALE
+            ? decoration
+            : { ...decoration, scale: FENCE_FIXED_SCALE };
+        }
+        const sizing = DECOR_SIZING[decoration.frame];
+        return sizing !== undefined && decoration.scale > sizing.maxScale
+          ? { ...decoration, scale: sizing.maxScale }
+          : decoration;
+      })
+    : raw.decorations,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -690,6 +727,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v13ToV14,
   v14ToV15,
   v15ToV16,
+  v16ToV17,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1325,8 +1363,10 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     Array.isArray(raw.decorations) &&
     raw.decorations.every(isDecorationPlacement) &&
     // Entries are shape-proven above, so their frames are safe to read here.
-    // Purchasable only - trophy frames are exempt from the cap (T3.17).
-    purchasableOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECORATIONS &&
+    // Purchasable only - trophy frames are exempt from both budgets (T3.17).
+    // Split budgets (T3.3a2): non-fence decor and fences cap independently.
+    decorOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECOR_ITEMS &&
+    fenceOwnedCount(raw.decorations, raw.warehouse) <= MAX_FENCES &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
@@ -1791,28 +1831,24 @@ export class GameStateStore {
   }
 
   /**
-   * Owned purchasable decorations, placed + warehoused - the shared
-   * MAX_DECORATIONS cap (T3.9b, purchasable-only since T3.17). Trophies do
-   * not count, so they never consume shop capacity.
-   */
-  private purchasableOwnedDecorations(): number {
-    return purchasableOwnedCount(this.state.decorations, this.state.warehouse);
-  }
-
-  /**
    * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b):
    * deducts its price from the right currency and increments its warehouse
    * count - nothing is placed on the lawn. Returns false without mutating
-   * anything if `itemFrame` is not a known `DECOR_ITEMS` frame, the combined
-   * PURCHASABLE placed+warehoused count is already at MAX_DECORATIONS
-   * (trophies exempt, T3.17), the balance is insufficient, or onboarding is
+   * anything if `itemFrame` is not a known `DECOR_ITEMS` frame, the item's
+   * OWN placed+warehoused budget is already full (split budgets, T3.3a2:
+   * fences against MAX_FENCES, everything else against MAX_DECOR_ITEMS;
+   * trophies exempt, T3.17), the balance is insufficient, or onboarding is
    * still active (the tutorial has no shop step).
    */
   buyDecoration(itemFrame: string): boolean {
     if (!this.railsAllow('decor-shop')) return false;
     const item = DECOR_ITEMS.find((candidate) => candidate.frame === itemFrame);
     if (item === undefined) return false;
-    if (this.purchasableOwnedDecorations() >= MAX_DECORATIONS) return false;
+    if (item.frame === FENCE_FRAME) {
+      if (fenceOwnedCount(this.state.decorations, this.state.warehouse) >= MAX_FENCES) return false;
+    } else if (decorOwnedCount(this.state.decorations, this.state.warehouse) >= MAX_DECOR_ITEMS) {
+      return false;
+    }
     const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
     if (balance < item.price) return false;
     if (item.currency === 'coins') this.state.coins -= item.price;
@@ -1824,9 +1860,10 @@ export class GameStateStore {
 
   /**
    * Place one warehoused unit of `frame` onto the lawn (T3.9b), at screen
-   * center and its intended art size (WAREHOUSE_PLACE_X/Y, DECOR_SPAWN_SCALE)
-   * so a placed item is immediately visible and ready to drag - grown or
-   * shrunk from there via arrange mode. Decrements the warehouse count
+   * center and its per-item spawn scale (WAREHOUSE_PLACE_X/Y,
+   * `decorSpawnScale` - showcase size for DECOR_SIZING items, T3.3a2) so a
+   * placed item is immediately visible and ready to drag - shrunk to taste
+   * from there via arrange mode. Decrements the warehouse count
    * (removing the key entirely once it hits 0, never leaving a 0 entry),
    * appends the new placement (unmirrored), one save. Returns the new
    * placement's index (always `decorations.length - 1`, since placements
@@ -1842,7 +1879,7 @@ export class GameStateStore {
       frame,
       x: WAREHOUSE_PLACE_X,
       y: WAREHOUSE_PLACE_Y,
-      scale: DECOR_SPAWN_SCALE,
+      scale: decorSpawnScale(frame),
       flip: false,
     });
     this.save();
@@ -1868,12 +1905,15 @@ export class GameStateStore {
    * flip added T3.15). Returns false without mutating anything if `index` is
    * out of range, any of x/y/scale is non-finite, or `flip` is not a
    * boolean; otherwise clamps x/y/scale to their legal ranges
-   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..scaleCeiling),
-   * applies `flip` unclamped (a plain boolean), one save. `scaleCeiling`
-   * defaults to DECOR_SCALE_MAX (normal play); T3.27's dev-only decor sizing
-   * probe passes a higher dev ceiling while its flag is on so the selected
-   * item's arrange-mode Scale +/- buttons can bypass the normal cap - this
-   * store method stays the sole clamp authority either way.
+   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..ceiling),
+   * applies `flip` unclamped (a plain boolean), one save. The scale ceiling
+   * defaults to the item's own `decorMaxScale` (per-item sizing, T3.3a2);
+   * T3.27's dev-only decor sizing probe passes a higher dev ceiling while
+   * its flag is on so the selected item's arrange-mode Scale +/- buttons can
+   * bypass the normal cap - this store method stays the sole clamp authority
+   * either way. FENCES are the exception (T3.3a2): their scale is pinned to
+   * exactly FENCE_FIXED_SCALE unconditionally - no caller, dev probe
+   * included, can resize a fence.
    */
   setDecorationTransform(
     index: number,
@@ -1881,7 +1921,7 @@ export class GameStateStore {
     y: number,
     scale: number,
     flip: boolean,
-    scaleCeiling: number = DECOR_SCALE_MAX,
+    scaleCeiling?: number,
   ): boolean {
     const decoration = this.state.decorations[index];
     if (decoration === undefined) return false;
@@ -1889,7 +1929,11 @@ export class GameStateStore {
     if (typeof flip !== 'boolean') return false;
     decoration.x = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
     decoration.y = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
-    decoration.scale = Math.min(scaleCeiling, Math.max(DECOR_SCALE_MIN, scale));
+    const ceiling = scaleCeiling ?? decorMaxScale(decoration.frame);
+    decoration.scale =
+      decoration.frame === FENCE_FRAME
+        ? FENCE_FIXED_SCALE
+        : Math.min(ceiling, Math.max(DECOR_SCALE_MIN, scale));
     decoration.flip = flip;
     this.save();
     return true;
@@ -2046,7 +2090,7 @@ export class GameStateStore {
   /**
    * Grant a quest's reward: a trophy lands directly in the warehouse with no
    * cap check needed - trophy frames are exempt from the purchasable
-   * MAX_DECORATIONS cap BY DEFINITION (T3.17), so the grant and save
+   * budgets (MAX_DECOR_ITEMS/MAX_FENCES) BY DEFINITION (T3.17), so the grant and save
    * validation agree and this is not a bypass; chests go through the
    * existing chest-grant path (`grantChests`: rolled contents, instant
    * grant, ceremony event queued); moondust is direct. Any subset may be

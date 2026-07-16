@@ -1,7 +1,7 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-16
-**Phase:** WAVE 3: land+camera package. Camera SHIPPED; T3.3a placement + r2 world growth SHIPPED; T3.3a-r3 long-press pickup WITH CODER
+**Phase:** WAVE 3: land+camera package. Camera + T3.3a placement + r2 world growth + r3/r3b long-press pickup ALL SHIPPED. T3.3a2 fences WITH CODER (fresh session; caps decided: decor 50 + fence 60; schema v17)
 **Schema:** v16 · **Tests:** 440 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
@@ -13,8 +13,8 @@
 
 ## Queue
 
-1. r2 bundle SHIPPED 2026-07-16 (world 1440x2560 live; Tests 440). T3.3a-r3 + r3b (long-press pickup + post-drop grace): both reviews PASS; combined USER TEST (phone) in flight - covers r3's second-finger/haptics cases + r3b nudge flow. On pass: ONE commit ships r3+r3b. Watch item from coder: iso-depth can put a plot tile atop just-dropped decor on the field, muting grace there (spec-conformant; follow-up only if owner feels it).
-2. T3.3a2 fences + sizing table (fence width = 1 plot at fixed scale 1.20, flip-aware chain snap, gap-free outlining = primary acceptance; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; per-item sizing table as decor.ts config with clamp-down migration; candidate rider: per-item max-scale sanity) -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
+1. T3.3a-r3 + r3b SHIPPED 2026-07-16 (one commit): long-press pickup + 1.5s post-drop grace; arrange mode pan-safe; combined phone pass green. Watch item: iso-depth can put a plot tile atop just-dropped decor on the field, muting grace there (spec-conformant; follow-up only if owner feels it).
+2. T3.3a2 + T3.3a-r3c + T3.3a2-r1 (plot-edge fence snap; apex notch ACCEPTED as gate-look, real gate piece = future art) all code complete, reviews PASS; combined USER TEST (phone) in flight, then ONE commit ships all three (includes new src/data/decor.test.ts; tests 455). ART TRACK: plot.png/plot_occupied.png regenerated via epoch 15, ADOPTED, repack awaiting its own commit; farmhouse regen in audition (moon variant question open); gate prompt issued. T3.3a2 detail: fences fixed 1.20 + post-overlap chain snap (pitch 85,41 + 4 corner junctions, pixel-proven flush), sizing table, budgets 50/60, schema v17 (tests 451 pending commit). NEW FOLLOW-UP FLAGGED: decor/fence clamp bounds still legacy (y 380..1520) while plots reach the r2 apron - apron plot blocks cannot be fence-outlined; grow decor bounds (fold into T3.3b prompt or small T3.3a2x) -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
 3. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
 4. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
 5. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)

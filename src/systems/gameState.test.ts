@@ -414,7 +414,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(15);
+    expect(MIGRATIONS).toHaveLength(16);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -425,7 +425,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -448,7 +448,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -458,8 +458,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(16);
-    expect(store.getState().version).toBe(16);
+    expect(store.currentVersion).toBe(17);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -495,7 +495,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -539,7 +539,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -579,7 +579,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -667,7 +667,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -707,7 +707,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -741,7 +741,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -782,7 +782,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -797,7 +797,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -855,8 +855,9 @@ describe('decorations and warehouse validation and round-trip', () => {
     const tooMany = {
       ...base,
       // flip present so this genuinely trips the cap check, which now runs
-      // after the per-entry shape check (T3.17).
-      decorations: Array.from({ length: 31 }, () => ({
+      // after the per-entry shape check (T3.17). 51 non-fence placements:
+      // one over MAX_DECOR_ITEMS (T3.3a2).
+      decorations: Array.from({ length: 51 }, () => ({
         frame: 'decor_bench',
         x: 0,
         y: 0,
@@ -876,38 +877,59 @@ describe('decorations and warehouse validation and round-trip', () => {
     expect(isValidState({ ...base, warehouse: 'nope' }, 12)).toBe(false);
   });
 
-  it('rejects when purchasable placed + warehoused exceeds MAX_DECORATIONS, even split across both - accepts exactly at the cap', () => {
+  it('rejects when non-fence placed + warehoused exceeds MAX_DECOR_ITEMS (50), even split across both - accepts exactly at the cap', () => {
     const base = createDefaultState(12);
     const combined = {
       ...base,
-      decorations: Array.from({ length: 20 }, () => ({
+      decorations: Array.from({ length: 40 }, () => ({
         frame: 'decor_bench',
         x: 0,
         y: 0,
         scale: 1,
         flip: false,
       })),
-      warehouse: { decor_fence: 11 },
+      warehouse: { decor_barrels: 11 },
     };
     expect(isValidState(combined, 12)).toBe(false);
-    combined.warehouse = { decor_fence: 10 };
+    combined.warehouse = { decor_barrels: 10 };
     expect(isValidState(combined, 12)).toBe(true);
   });
 
-  it('exempts trophies from the cap: 30 purchasable + all 5 trophies (mixed placed/warehoused) validates, 31 purchasable does not', () => {
+  it('budgets are split (T3.3a2): 50 decor + 60 fences validates together, the 61st fence fails, fences never consume decor slots', () => {
+    const base = createDefaultState(12);
+    const placement = (frame: string) => ({ frame, x: 0, y: 0, scale: 1, flip: false });
+    const bothAtCap = {
+      ...base,
+      // 40 placed decor + 30 placed fences...
+      decorations: [
+        ...Array.from({ length: 40 }, () => placement('decor_bench')),
+        ...Array.from({ length: 30 }, () => placement('decor_fence')),
+      ],
+      // ...10 warehoused decor + 30 warehoused fences = 50 decor, 60 fences.
+      warehouse: { decor_barrels: 10, decor_fence: 30 },
+    };
+    expect(isValidState(bothAtCap, 12)).toBe(true);
+    const extraFence = {
+      ...bothAtCap,
+      warehouse: { ...bothAtCap.warehouse, decor_fence: 31 },
+    };
+    expect(isValidState(extraFence, 12)).toBe(false);
+  });
+
+  it('exempts trophies from both budgets: 50 decor + all 5 trophies (mixed placed/warehoused) validates, 51 decor does not', () => {
     const base = createDefaultState(12);
     const placement = (frame: string) => ({ frame, x: 0, y: 0, scale: 1, flip: false });
     const atCapWithTrophies = {
       ...base,
-      // 20 purchasable placed + 2 trophies placed...
+      // 40 non-fence purchasable placed + 2 trophies placed...
       decorations: [
-        ...Array.from({ length: 20 }, () => placement('decor_bench')),
+        ...Array.from({ length: 40 }, () => placement('decor_bench')),
         placement('trophy_goldscarecrow'),
         placement('trophy_starbanner'),
       ],
-      // ...10 purchasable warehoused + 3 trophies warehoused = 30 purchasable, 5 trophies.
+      // ...10 purchasable warehoused + 3 trophies warehoused = 50 purchasable, 5 trophies.
       warehouse: {
-        decor_fence: 10,
+        decor_barrels: 10,
         trophy_moonwell: 1,
         trophy_traderscart: 1,
         trophy_ancientoak: 1,
@@ -918,7 +940,7 @@ describe('decorations and warehouse validation and round-trip', () => {
     // One purchasable over the cap fails, whichever side it lands on.
     const extraWarehoused = {
       ...atCapWithTrophies,
-      warehouse: { ...atCapWithTrophies.warehouse, decor_fence: 11 },
+      warehouse: { ...atCapWithTrophies.warehouse, decor_barrels: 11 },
     };
     expect(isValidState(extraWarehoused, 12)).toBe(false);
     const extraPlaced = {
@@ -989,46 +1011,63 @@ describe('buyDecoration', () => {
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 
-  it('fails at MAX_DECORATIONS purchasable (placed + warehoused combined), without mutation', () => {
+  it('fails at MAX_DECOR_ITEMS non-fence purchasable (placed + warehoused combined), without mutation - fences still buyable (T3.3a2)', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     store.addCoins(1_000_000);
-    for (let i = 0; i < 30; i++) {
+    for (let i = 0; i < 50; i++) {
+      expect(store.buyDecoration('decor_bench')).toBe(true);
+    }
+    expect(store.getState().warehouse).toEqual({ decor_bench: 50 });
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.buyDecoration('decor_bench')).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+    // The decor budget being full does not block the fence budget.
+    expect(store.buyDecoration('decor_fence')).toBe(true);
+  });
+
+  it('fails at MAX_FENCES fences, without mutation - decor still buyable (T3.3a2)', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(1_000_000);
+    for (let i = 0; i < 60; i++) {
       expect(store.buyDecoration('decor_fence')).toBe(true);
     }
-    expect(store.getState().warehouse).toEqual({ decor_fence: 30 });
+    expect(store.getState().warehouse).toEqual({ decor_fence: 60 });
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.buyDecoration('decor_fence')).toBe(false);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+    // The fence budget being full does not block the decor budget.
+    expect(store.buyDecoration('decor_bench')).toBe(true);
   });
 
-  it('ignores trophies for the cap: buys at 29 purchasable + all 5 trophies, fails at 30 purchasable', () => {
+  it('ignores trophies for the cap: buys at 49 purchasable + all 5 trophies, fails at 50 purchasable', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     store.addCoins(1_000_000);
     for (const frame of TROPHY_FRAMES) {
       store.getState().warehouse[frame] = 1;
     }
-    for (let i = 0; i < 29; i++) {
-      expect(store.buyDecoration('decor_fence')).toBe(true);
+    for (let i = 0; i < 49; i++) {
+      expect(store.buyDecoration('decor_bench')).toBe(true);
     }
-    // 29 purchasable + 5 trophies: the trophies do not consume shop capacity.
-    expect(store.buyDecoration('decor_fence')).toBe(true);
-    // 30 purchasable: at the cap regardless of trophies.
-    expect(store.buyDecoration('decor_fence')).toBe(false);
-    expect(store.getState().warehouse.decor_fence).toBe(30);
+    // 49 purchasable + 5 trophies: the trophies do not consume shop capacity.
+    expect(store.buyDecoration('decor_bench')).toBe(true);
+    // 50 purchasable: at the cap regardless of trophies.
+    expect(store.buyDecoration('decor_bench')).toBe(false);
+    expect(store.getState().warehouse.decor_bench).toBe(50);
   });
 
   it('counts placed decorations toward the same cap as warehoused ones', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     store.addCoins(1_000_000);
-    for (let i = 0; i < 30; i++) store.buyDecoration('decor_fence');
-    for (let i = 0; i < 20; i++) store.placeFromWarehouse('decor_fence');
+    for (let i = 0; i < 50; i++) store.buyDecoration('decor_bench');
+    for (let i = 0; i < 20; i++) store.placeFromWarehouse('decor_bench');
     expect(store.getState().decorations).toHaveLength(20);
-    expect(store.getState().warehouse).toEqual({ decor_fence: 10 });
+    expect(store.getState().warehouse).toEqual({ decor_bench: 30 });
     const snapshot = JSON.parse(store.exportSave()) as unknown;
-    expect(store.buyDecoration('decor_fence')).toBe(false);
+    expect(store.buyDecoration('decor_bench')).toBe(false);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 
@@ -1094,6 +1133,17 @@ describe('placeFromWarehouse', () => {
       'decor_bench',
       'decor_fence',
     ]);
+  });
+
+  it('spawns sizing-table items at their own defaultScale, fences at FENCE_FIXED_SCALE (T3.3a2)', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(10_000);
+    store.buyDecoration('decor_well');
+    store.buyDecoration('decor_fence');
+    store.placeFromWarehouse('decor_well');
+    store.placeFromWarehouse('decor_fence');
+    expect(store.getState().decorations.map((d) => d.scale)).toEqual([1.15, 1.2]);
   });
 });
 
@@ -1251,6 +1301,35 @@ describe('setDecorationTransform', () => {
     // @ts-expect-error deliberately wrong type, mirrors the non-finite-input test above
     expect(store.setDecorationTransform(0, 600, 900, 0.7, 'yes')).toBe(false);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('clamps a sizing-table item at its own maxScale; the global minimum is unchanged (T3.3a2)', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(10_000);
+    store.buyDecoration('decor_well');
+    store.placeFromWarehouse('decor_well');
+    expect(store.setDecorationTransform(0, 600, 900, 5, false)).toBe(true);
+    expect(store.getState().decorations[0]?.scale).toBe(1.15);
+    expect(store.setDecorationTransform(0, 600, 900, 0, false)).toBe(true);
+    expect(store.getState().decorations[0]?.scale).toBe(0.35);
+  });
+
+  it('pins a fence at exactly FENCE_FIXED_SCALE - even against an explicit dev ceiling (T3.3a2)', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.addCoins(10_000);
+    store.buyDecoration('decor_fence');
+    store.placeFromWarehouse('decor_fence');
+    expect(store.getState().decorations[0]?.scale).toBe(1.2);
+    expect(store.setDecorationTransform(0, 600, 900, 0.5, true, 3.0)).toBe(true);
+    expect(store.getState().decorations[0]).toEqual({
+      frame: 'decor_fence',
+      x: 600,
+      y: 900,
+      scale: 1.2,
+      flip: true,
+    });
   });
 });
 
@@ -3376,7 +3455,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(16);
+    const saved = createDefaultState(17);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -3882,7 +3961,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -3909,7 +3988,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3938,7 +4017,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3969,7 +4048,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -3983,7 +4062,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3999,7 +4078,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4014,7 +4093,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(16);
+    expect(store.getState().version).toBe(17);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4046,7 +4125,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4063,7 +4142,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(16);
+    expect(state.version).toBe(17);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4071,6 +4150,98 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     expect(state.unplacedPlots).toBe(0);
     expect(state.expanded).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3a2)', () => {
+  /** MIGRATIONS[i] migrates version i+1 to i+2, so v16 -> v17 is index 15. */
+  const v16ToV17 = MIGRATIONS[15]!;
+  const rng = () => 0.5;
+  const placement = (frame: string, scale: number) => ({
+    frame,
+    x: 321,
+    y: 987,
+    scale,
+    flip: true,
+  });
+
+  /** A genuine v16 save: current shape, decorations at pre-v17 scales. */
+  function v16Save(decorations: unknown[]): Record<string, unknown> {
+    const saved = createDefaultState(17) as unknown as Record<string, unknown>;
+    saved.version = 16;
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.decorations = decorations;
+    return saved;
+  }
+
+  it('round-trips a v16 save with an oversized fence and an oversized table item: both normalize, everything else identical', () => {
+    const saved = v16Save([
+      placement('decor_fence', 2.0),
+      placement('trophy_ancientoak', 2.5),
+      placement('decor_bench', 0.55),
+    ]);
+    saved.coins = 777;
+    saved.warehouse = { decor_gnome: 2 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual({
+      ...saved,
+      version: 17,
+      decorations: [
+        // Fence normalized to exactly 1.2, position/flip untouched.
+        placement('decor_fence', 1.2),
+        // Table item clamped down to its own maxScale.
+        placement('trophy_ancientoak', 2.0),
+        // Non-table item passes through untouched.
+        placement('decor_bench', 0.55),
+      ],
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('normalizes every fence to exactly FENCE_FIXED_SCALE, above or below', () => {
+    const migrated = v16ToV17(
+      { decorations: [placement('decor_fence', 0.7), placement('decor_fence', 1.2)] },
+      rng,
+    );
+    expect(migrated.decorations).toEqual([
+      placement('decor_fence', 1.2),
+      placement('decor_fence', 1.2),
+    ]);
+  });
+
+  it('clamps a table item above its maxScale down to it', () => {
+    const migrated = v16ToV17({ decorations: [placement('decor_gnome', 3.0)] }, rng);
+    expect(migrated.decorations).toEqual([placement('decor_gnome', 0.85)]);
+  });
+
+  it('leaves a table item at or below its maxScale untouched', () => {
+    const atMax = placement('decor_well', 1.15);
+    const belowMax = placement('decor_mushrooms', 0.4);
+    const migrated = v16ToV17({ decorations: [atMax, belowMax] }, rng);
+    // Same entry OBJECTS pass through - not merely equal values.
+    expect((migrated.decorations as unknown[])[0]).toBe(atMax);
+    expect((migrated.decorations as unknown[])[1]).toBe(belowMax);
+  });
+
+  it('passes an unknown frame or a malformed entry through untouched for validation to judge', () => {
+    const unknown = placement('mystery_item', 9);
+    const malformed = { frame: 'decor_gnome', scale: 'huge' };
+    const migrated = v16ToV17({ decorations: [unknown, malformed, 'garbage'] }, rng);
+    expect((migrated.decorations as unknown[])[0]).toBe(unknown);
+    expect((migrated.decorations as unknown[])[1]).toBe(malformed);
+    expect((migrated.decorations as unknown[])[2]).toBe('garbage');
+  });
+
+  it('passes a save with no decorations array through untouched', () => {
+    const migrated = v16ToV17({ decorations: 'nope' }, rng);
+    expect(migrated.decorations).toBe('nope');
   });
 });
 

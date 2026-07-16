@@ -4,8 +4,11 @@ import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import {
   DECOR_ITEMS,
   type DecorItemDef,
-  MAX_DECORATIONS,
-  purchasableOwnedCount,
+  decorOwnedCount,
+  FENCE_FRAME,
+  fenceOwnedCount,
+  MAX_DECOR_ITEMS,
+  MAX_FENCES,
 } from '../data/decor';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
@@ -16,8 +19,11 @@ import { ModalBackdrop } from './ModalBackdrop';
  * Modal Decor Shop (T3.9), opened by tapping the farmhouse: all 10
  * `DECOR_ITEMS` laid out in two columns of five rows, each row an icon,
  * name, price (currency icon + amount), and a Buy button that dims when
- * unaffordable or at MAX_DECORATIONS - same "row stays for repeat
- * purchases" convention as `InventoryPanel`'s Sell all buttons. Renders
+ * unaffordable or its budget is full (split budgets, T3.3a2: fences count
+ * against MAX_FENCES, everything else against MAX_DECOR_ITEMS) - same "row
+ * stays for repeat purchases" convention as `InventoryPanel`'s Sell all
+ * buttons. A budgets line under the grid shows both counts, and a notice
+ * appears naming WHICH budget is full whenever one blocks buying. Renders
  * purely from the `GameStateData` passed to `refresh`. An "Arrange Farm"
  * button (T3.9a) at the bottom closes the shop and calls `onArrange` - this
  * panel owns no arrange-mode state itself, that all lives in `FarmScene`.
@@ -94,6 +100,14 @@ const ARRANGE_BUTTON_Y = 560;
 const ARRANGE_BUTTON_WIDTH = 320;
 const ARRANGE_BUTTON_HEIGHT = 90;
 
+/**
+ * Split-budget readout (T3.3a2), in the band between the grid's last row
+ * (bottom edge 425) and the Arrange button (top edge 515): a counts line
+ * always, plus a warning notice naming whichever budget is full.
+ */
+const BUDGETS_TEXT_Y = 448;
+const CAP_NOTICE_Y = 490;
+
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
   fontSize: '48px',
@@ -144,6 +158,19 @@ const ARRANGE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+const BUDGETS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '26px',
+  color: '#7a5518',
+};
+
+const CAP_NOTICE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '26px',
+  fontStyle: 'bold',
+  color: '#a03030',
+};
+
 interface ShopRow {
   item: DecorItemDef;
   buyButton: Phaser.GameObjects.NineSlice;
@@ -154,6 +181,9 @@ export class DecorShop {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
   private readonly rows: ShopRow[] = [];
+  /** Split-budget counts line + full-budget notice (T3.3a2) - see `refresh`. */
+  private budgetsText!: Phaser.GameObjects.Text;
+  private capNoticeText!: Phaser.GameObjects.Text;
   private visible = false;
 
   constructor(
@@ -208,6 +238,13 @@ export class DecorShop {
     DECOR_ITEMS.forEach((item, index) => {
       this.rows.push(this.buildRow(item, index));
     });
+
+    this.budgetsText = scene.add.text(0, BUDGETS_TEXT_Y, '', BUDGETS_STYLE).setOrigin(0.5);
+    this.capNoticeText = scene.add
+      .text(0, CAP_NOTICE_Y, '', CAP_NOTICE_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.container.add([this.budgetsText, this.capNoticeText]);
 
     const arrangeButton = scene.add
       .nineslice(
@@ -290,8 +327,21 @@ export class DecorShop {
   /** Re-derive every row's owned count and Buy button enabled state from state. */
   refresh(state: GameStateData): void {
     // Purchasable only (T3.17) - trophies never consume shop capacity.
-    const totalOwned = purchasableOwnedCount(state.decorations, state.warehouse);
-    const atCap = totalOwned >= MAX_DECORATIONS;
+    // Split budgets (T3.3a2): fences have their own cap and never consume
+    // decor slots (nor the reverse).
+    const decorOwned = decorOwnedCount(state.decorations, state.warehouse);
+    const fenceOwned = fenceOwnedCount(state.decorations, state.warehouse);
+    const decorFull = decorOwned >= MAX_DECOR_ITEMS;
+    const fenceFull = fenceOwned >= MAX_FENCES;
+    this.budgetsText.setText(
+      `Decor ${decorOwned}/${MAX_DECOR_ITEMS}   Fences ${fenceOwned}/${MAX_FENCES}`,
+    );
+    // The blocked message names WHICH budget is full (T3.3a2).
+    const notice = [
+      ...(decorFull ? [`Decor limit reached (${MAX_DECOR_ITEMS} max)`] : []),
+      ...(fenceFull ? [`Fence limit reached (${MAX_FENCES} fences max)`] : []),
+    ].join(' - ');
+    this.capNoticeText.setText(notice).setVisible(notice !== '');
     for (const row of this.rows) {
       // Placed + warehoused (T3.9b) - a purchase always lands in the
       // warehouse, so a placed-only count would undercount what's owned.
@@ -301,6 +351,7 @@ export class DecorShop {
       row.ownedBadge.setText(`x${owned}`).setVisible(owned > 0);
 
       const balance = row.item.currency === 'coins' ? state.coins : state.moondust;
+      const atCap = row.item.frame === FENCE_FRAME ? fenceFull : decorFull;
       const enabled = !atCap && balance >= row.item.price;
       row.buyButton.setAlpha(enabled ? BUY_BUTTON_ENABLED_ALPHA : BUY_BUTTON_DISABLED_ALPHA);
       if (enabled) {

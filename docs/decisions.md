@@ -48,6 +48,66 @@ Format:
 
 **Addendum (owner, same day): OVERRIDE ACCEPTED - fence fixed scale = 1.20.** The owner eyeballed 1.20 as matching one plot edge visually (the 128-native frame carries padding, so display-frame px and visible art width differ). T3.3a2 therefore normalizes fences TO scale 1.20 and derives the chain-snap pitch from the fence art's actual opaque width at that scale; the gap-free-outline acceptance case remains the truth test - if outlines cannot close flush at 1.20, the coder flags back for an owner re-eyeball instead of silently resizing.
 
+## 2026-07-16 - T3.3a2-r1 review PASS; apex-notch ruling: ACCEPT (reads as a gate; real gate piece parked as future art)
+
+**Context:** Coder delivered plot-edge snapping with measured geometry (high post stands on the edge's upper corner; anchor (+48, -15.6) at 1.2, x-mirrored when flipped; two flip-compatible candidates per tile, merged into fenceSnapPosition's nearest-wins pool via a shared consider closure - identical rounding/clamping/radius). Pixel-composite AND in-engine 2x proof of a full 2x2 outline: rails exactly along boundaries, flush mid-side junctions, three of four block corners flush, zero dirt overlap. 4 new unit tests (decor.test.ts, accepted out-of-manifest - criterion E required it); suite 455.
+
+**The geometric residue + PM ruling:** the post pitch (102, 49.2) is shorter than the tile edge (128, 64), so a pure edge-snapped outline leaves a ~6.4px stub-tip notch at the block's BOTTOM apex; the coder proved no one-candidate-per-edge scheme covers all four corners. RULING: ACCEPT the notch - it reads as a gate opening (cozy, not broken), and the fence-to-fence LL corner candidate already in the pool closes it flush (slightly off-grid) for anyone bothered. A real fence GATE decor item is parked as a future art+decor task - the notch becomes a feature. Coder watch items accepted: interior tile seams also snap (that is what makes sub-block outlining work; radius 60 keeps it tame), fence-under-tile depth grab pre-existing.
+
+**Verdict:** USER TEST - the combined phone pass now covers T3.3a2 + r3c + r1, then ONE commit (now including src/data/decor.test.ts).
+
+## 2026-07-16 - Plot art regenerated through the epoch-15 style model: ADOPTED (first style-model art in the game)
+
+**Context:** Owner wanted to try the new checkpoint on real assets. Empty-plot and occupied-plot masters generated at 1024 (weight 0.90 after the word "tile" triggered pixel-art drift at 0.80 - same lesson as "sprite"; fixed by dropping "tile" from the prompt + painterly language), PM-processed to staging: border flood-fill white removal + edge de-contamination (first pass left a 1-2px halo the owner caught in-game; fixed by un-blending white from boundary pixels, verified over grass-green before redelivery), 512 masters written to tools/art-staging (plot.png, plot_occupied.png). Owner repacked and confirmed: "plots look good." Diamond bounds within packer tolerance; T2.21 alignment pass pixel-aligns the pair.
+
+**Convention established:** raw generations land in _to_delete/<name>_raw.png via the connected folder; PM does white-strip + downscale + green-background halo check + staging write; atlas repack commits ride SEPARATELY from code commits. Farmhouse regen in audition next (moon-charm variant question open); fence gate prompt issued for whenever.
+
+## 2026-07-16 - Scenario style model: EPOCH 15 is the working checkpoint (owner-confirmed head-to-head)
+
+**Context:** Training finished (20 epochs). PM compared all 4 auto-probes across epochs 10-20 via contact sheets: whole range on-style, but late-run drift visible (farmhand denim washes toward grey in 18-20, barn roof migrates brown, epochs 19/20 near-identical = memorization onset). Head-to-head at fixed seed/settings (seed 424242, 1024px, steps 28, guidance 4, LoRA weight 0.80) on epochs 15/16/20 with the two deciding prompts (farmhand, mere shoreline).
+
+**Decision:** epoch 15 wins - richest denim, correct crew-neck shirt, and the strongest coherent magical-hat GLOW (the character's signature feature). Owner-labeled uploads confirmed: epoch 16's farmhand grew a spec-breaking shirt collar; epoch 20's glow diffused into scattered sparkles with a weaker brim halo. Shoreline was a near-tie across all three, fully on the mere brief's mood.
+
+**Pipeline settings going forward:** epoch 15 checkpoint, steps 28, guidance 4, LoRA weight 0.80 (per-asset knob: up toward 0.9-1.0 if off-style, down toward 0.6-0.7 if rigid/samey), 1024x1024, fixed seed only for A/B comparisons, content-only prompts + standard negative (pixel art, pixelated, 8-bit, photo, photorealistic, realistic, blurry, 3d render). Next: land-era art batch on this checkpoint - overgrowth pieces first, then mere composite parts per docs/design/mere-art-direction.md.
+
+## 2026-07-16 - T3.3a-r3c review PASS -> USER TEST (combined with T3.3a2, one commit)
+
+**Context:** Coder delivered the selected-piece instant lift. Delta isolated against the reviewed T3.3a2 FarmScene diff: grace machinery removed at all six touch points (GRACE_MS, graceLift field, armGraceLift, both arm calls, all four clears) with docs updated - no dead code; isSelectedMovable compares sprite REFERENCES against the selected indices (survives index shifts, free per down); startLift refusal falls through to the normal hold arm exactly as stale grace did. In-browser verification included a corner-snap commit at the exact flip-aware coordinate, proving the instant-lift path feeds the same fence snap.
+
+**Coder-flagged, accepted as inherent:** (1) a growing plot's TILE can occlude a piece dropped on the plot block (iso depth), so the selected piece may need grabbing by its upper half there - the topmost-movable rule as specified; (2) a selected piece parked under the finger's natural pan path makes panning awkward until the player taps elsewhere - the accepted tradeoff, on-device feel is the judge.
+
+**Verdict:** USER TEST - one combined phone pass covers T3.3a2 (fence outlining, budgets, sizing, migration) + r3c (selected-piece lift), then ONE commit ships both. Tests 451.
+
+## 2026-07-16 - Owner: the SELECTED piece lifts instantly (no hold) -> T3.3a-r3c; SUPERSEDES the post-drop grace window
+
+**Context:** Owner, testing arrange mode: "if i've already tap selected something in edit mode i should be able to move it without having to long press." Selection is the player's explicit working-with-this statement, so demanding a hold on it is friction.
+
+**Decision (PM design, owner-triggered):** in arrange mode a down whose topmost movable is the CURRENTLY SELECTED piece lifts instantly via the shared startLift path (pulse + buzz, no hold). Because a dropped piece stays selected, this fully covers r3b's 1.5s grace window - the grace machinery (GRACE_MS, graceLift, armGraceLift and its clears) is REMOVED, one rule replacing two. Tradeoff carried over and now persistent: a swipe starting on the selected piece moves it instead of panning, self-scoped to the one piece the player chose; every unselected piece keeps hold-to-lift + pan safety. Growing plots remain unselectable so nothing changes for them. Runs as a follow-up in the open T3.3a2 session (shares FarmScene.ts with uncommitted T3.3a2); ONE combined commit ships T3.3a2 + r3c after one combined phone test.
+
+## 2026-07-16 - T3.3a2 review PASS -> USER TEST; fence geometry is post-overlap, not edge-butt; decor bounds lag the r2 world (follow-up flagged)
+
+**Context:** Coder delivered all four parts (fence fixed 1.20 + live chain snap, sizing table, split budgets 50/60, schema v17) with 451 tests. Reviewed the full 5-file diff.
+
+**The geometry find:** the coder alpha-scanned the fence frame BEFORE coding and discovered the intended tiling is POST-OVERLAP - the next piece's high post lands exactly on the previous piece's low post (pitch 85,41 frame px), hiding the connector stubs, so the chain is seam-tolerant by construction; flush was proven by pixel composites of straight chains and all four cross-flip corner junctions before any game code was written (gate G passed properly, not skipped). PM note: the prompt's "frame carries transparent padding" assumption was WRONG horizontally (opaque spans all 128px) - the coder measured instead of obeying, which is the correct reading of the hard rule.
+
+**Review quality points:** snap candidates are rounded AND filtered to the store's clamp range so the lift preview equals the commit exactly; the fence scale pin lives in setDecorationTransform and beats even the T3.27 dev ceiling (unit-tested); migration passes untouched entries through by object identity; validator intentionally does NOT check per-item ceilings (T3.27 probe saves may hold over-cap scales legitimately - accepted). Prior cap was 30, not the ~35 in the prompt; split implemented as specified.
+
+**Finding (pre-existing, flagged for follow-up):** DECOR_X/Y clamp bounds are still the legacy pre-r2 rectangle (y 380..1520), while plots can be placed in the r2 apron - so decor and FENCES cannot follow plots there, and an apron plot block cannot be outlined. Predates this task (r2 grew the world for plots only). Candidate follow-up: grow decor bounds toward the plot placeable rect (respecting the mere reserve and seed-bar dead band) - fold into T3.3b prompt or run as a small T3.3a2x.
+
+**Verdict:** USER TEST (the on-device pass for outlining feel + snap feel), then ONE commit. Tests go 440 -> 451 at ship.
+
+## 2026-07-16 - Decor cap model DECIDED (owner): decor 35 -> 50 PLUS separate fence budget of 60; T3.3a2 issued (fresh session)
+
+**Context:** The one owner decision parked for T3.3a2 prompt time. Owner picked the PM recommendation: raise the decor cap from 35 to 50 AND give fences their own budget of 60 that does not count against decor (outlining a modest plot block eats 25-30 fences; a shared cap would starve decor - and this matches the owner's original tester-feedback note "increase cap, maybe separate fences").
+
+**T3.3a2 prompt-time PM decisions:** fences place at FIXED scale 1.20 (Scale controls inert for fences; Flip stays - it is directional); chain snap is LIVE during the lift within a snap radius (the plot-tile pattern; snap is a helpful tool, not a restriction - owner's words) and free-form otherwise; snap pitch derives from the fence art's actual opaque width at 1.20, flip-aware; if flush closing is impossible at 1.20 the coder STOPS and reports for an owner re-eyeball (never silently resizes); schema bumps to v17 - migration normalizes existing fences to 1.20 and clamps any decor placement above its new per-item max; sizing table ships as per-item {defaultScale, maxScale} in decor.ts with defaultScale = maxScale per the owner's table; global scale min unchanged. Gap-free outlining of a plot block remains the primary acceptance case, verified on a real phone over LAN.
+
+## 2026-07-16 - T3.3a-r3 + r3b SHIPPED (one commit): arrange mode is pan-safe with post-drop grace
+
+**Context:** Owner ran the combined phone pass (grace nudge flow, expiry, grace transfer, r3's second-finger and haptics cases, growing-plot refusal, regression sanity) and pushed. The arrange-mode input model is now: swipe pans everywhere, hold lifts deliberately, the just-dropped piece stays instantly regrabbable for 1.5s. Long-press pickup closes the last known feel defect in the T3.3a placement chain.
+
+**Next:** T3.3a2 (fences at fixed 1.20 + flip-aware chain snap + per-item sizing table + decor cap rework) - fresh session; the decor-cap model is the one owner decision still open at prompt time. Watch items carried: iso-depth grace muting on plot-dense fields; live-site camera feel pass from a real phone remains an open validation.
+
 ## 2026-07-16 - T3.3a-r3b review PASS -> USER TEST (combined phone pass for r3+r3b, then ONE commit)
 
 **Context:** Coder delivered the grace window; PM isolated the r3b delta against the reviewed r3 diff (78 added lines of substance). Delta matches spec: lazy timestamp expiry checked at the down (approved deviation - equivalent to a timer, allocation-free), startLift extracted so hold and grace share one side-effect-free ignition (returns false when the target no longer qualifies, so a stale grace target falls through to the normal hold arm), every commit re-arms including refused plot commits (approved - the snapped-home piece is still "the piece you just dropped"), grace cleared in exitArrangeMode + fireHoldLift's gate bail + both move-handler modal bails. Reference-not-index rule held throughout; a despawned grace target is never dereferenced (indexOf lookup only).

@@ -33,7 +33,20 @@ import {
   WORLD_WIDTH,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
-import { DECOR_ITEMS, DECOR_SCALE_MAX, DECOR_SPAWN_SCALE, TROPHY_ITEMS } from '../data/decor';
+import {
+  DECOR_ITEMS,
+  DECOR_X_MAX,
+  DECOR_X_MIN,
+  DECOR_Y_MAX,
+  DECOR_Y_MIN,
+  decorMaxScale,
+  decorSpawnScale,
+  FENCE_FRAME,
+  FENCE_SNAP_RADIUS,
+  fenceEdgeSnapDeltas,
+  fenceSnapDeltas,
+  TROPHY_ITEMS,
+} from '../data/decor';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
@@ -495,10 +508,11 @@ const DRESSING_SPAWN_SCALE = 0.55;
 const DRESSING_SELECTED_TINT = 0x66ccff;
 /**
  * T3.27 dev-only decor sizing probe: the ceiling `scaleSelectedDecoration`
- * passes to `setDecorationTransform` in place of the normal DECOR_SCALE_MAX
- * while `dev.decorSizing(true)` is on, so the owner can grow the selected
- * item past its normal cap to compare items side by side. Down-clamp
- * (DECOR_SCALE_MIN) is untouched - only the ceiling moves.
+ * passes to `setDecorationTransform` in place of the normal per-item
+ * `decorMaxScale` ceiling (T3.3a2) while `dev.decorSizing(true)` is on, so
+ * the owner can grow the selected item past its normal cap to compare items
+ * side by side. Down-clamp (DECOR_SCALE_MIN) is untouched - only the
+ * ceiling moves. Fences ignore it entirely - the store pins their scale.
  */
 const DEV_DECOR_SCALE_CEILING = 3.0;
 /**
@@ -632,16 +646,6 @@ const TAP_SLOP = 12;
  * picking something up is deliberate.
  */
 const HOLD_MS = 250;
-/**
- * Post-drop grace window (T3.3a-r3b): for this long after a lift commits,
- * the just-dropped piece lifts again INSTANTLY on touch - no hold - so
- * fine-tuning a placement (arrange mode's most common sequence) never
- * demands a fresh press-and-hold. Tracks the most recent drop only, and
- * every commit re-arms it. Deliberate tradeoff (owner decision): a
- * pan-swipe that starts on the grace piece moves the piece instead of
- * panning until the window expires; every other object keeps the hold rule.
- */
-const GRACE_MS = 1500;
 /** Visual lift cue (T3.3a-r3): quick scale pulse - one leg up to
  *  LIFT_PULSE_SCALE, yoyo back, so ~2x LIFT_PULSE_MS total. */
 const LIFT_PULSE_SCALE = 1.1;
@@ -916,8 +920,9 @@ export class FarmScene extends Phaser.Scene {
    *   (plots snap live to free hidden-grid tiles, exactly as before the
    *   hold existed) and the release commits through the same store calls.
    *   A second finger during an active lift is deliberately IGNORED.
-   *   During the post-drop grace window (T3.3a-r3b, see `graceLift`) a
-   *   down on the just-dropped piece classifies 'lift' directly - no hold.
+   *   A down whose topmost movable is the CURRENTLY SELECTED piece
+   *   (T3.3a-r3c) classifies 'lift' directly - no hold; selection is the
+   *   player's explicit "I'm working with this piece".
    * - 'object': the down landed on any other interactive object - not ours,
    *   its own per-object input handles everything.
    * - 'idle': the down landed in the banner or seed-bar band - nothing to do
@@ -992,19 +997,6 @@ export class FarmScene extends Phaser.Scene {
     target: Phaser.GameObjects.Image;
     scaleX: number;
     scaleY: number;
-  } | null = null;
-  /**
-   * The post-drop grace target (T3.3a-r3b), armed by `finishLift` on every
-   * commit: until `until` (scene time) passes, a down whose topmost movable
-   * is `target` skips the hold and lifts instantly. Same reference-not-index
-   * rule as `pendingLift`. Expiry is timer-only - downs on anything else
-   * leave it armed; exiting arrange mode and the gate-fail paths that
-   * discard pending/active lifts (a modal opening mid-gesture) clear it.
-   */
-  private graceLift: {
-    kind: 'decor' | 'plot';
-    target: Phaser.GameObjects.Image;
-    until: number;
   } | null = null;
   /** The pointer that owns the current farm/pan gesture (a second pointer must not drive it). */
   private gesturePointerId = -1;
@@ -1533,13 +1525,14 @@ export class FarmScene extends Phaser.Scene {
       // instantly - a swipe that merely STARTS on one must pan.
       const movable = this.arrangeModeActive ? this.movableLiftTarget(currentlyOver) : null;
       if (movable !== null) {
-        // Post-drop grace (T3.3a-r3b): the piece dropped less than GRACE_MS
-        // ago lifts again right now - straight to 'lift', same cue, no hold
-        // - so a just-placed piece can be nudged without a fresh hold.
-        if (this.graceLift !== null && this.time.now > this.graceLift.until) {
-          this.graceLift = null;
-        }
-        if (this.graceLift?.target === movable.target) {
+        // The SELECTED piece lifts instantly (T3.3a-r3c, supersedes the
+        // post-drop grace window): selection is the player's explicit "I'm
+        // working with this piece", so a down on it goes straight to 'lift'
+        // - same cue, no hold. Deliberate tradeoff (owner decision): a
+        // pan-swipe starting on the selected piece moves the piece instead
+        // of panning for as long as it stays selected; every UNselected
+        // piece keeps hold-to-lift pan safety.
+        if (this.isSelectedMovable(movable)) {
           const world = this.fieldPointerWorld(pointer);
           if (
             this.startLift(
@@ -1551,9 +1544,9 @@ export class FarmScene extends Phaser.Scene {
           ) {
             return;
           }
-          // A grace target that can no longer lift is stale - forget it and
-          // fall through to the normal hold arm.
-          this.graceLift = null;
+          // A selected target that can no longer lift (stale selection -
+          // despawned decor, non-empty plot) falls through to the normal
+          // hold arm, exactly as the stale-grace case did.
         }
         this.fieldGesture = 'lift-pending';
         this.beginPendingLift(pointer, movable.kind, movable.target);
@@ -1667,13 +1660,35 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Whether `movable` is the CURRENTLY SELECTED piece (T3.3a-r3c) - the
+   * decoration at `selectedDecorationIndex` or the plot tile at
+   * `selectedPlotIndex`. Compared by sprite reference, the
+   * decoration-sprite pattern (indices shift when a decoration is stored).
+   */
+  private isSelectedMovable(movable: {
+    kind: 'decor' | 'plot';
+    target: Phaser.GameObjects.Image;
+  }): boolean {
+    if (movable.kind === 'decor') {
+      return (
+        this.selectedDecorationIndex !== null &&
+        this.decorationSprites[this.selectedDecorationIndex] === movable.target
+      );
+    }
+    return (
+      this.selectedPlotIndex !== null &&
+      this.plotTileSprites[this.selectedPlotIndex] === movable.target
+    );
+  }
+
+  /**
    * Arm a long-press lift (T3.3a-r3): nothing user-visible happens at the
    * down. The scene-clock timer maturing while the pointer is still within
    * TAP_SLOP is the only path that lifts a PENDING arm (`fireHoldLift`);
    * every other resolution - slop movement (pan), a second finger (pinch),
-   * an in-slop release (tap-select) - cancels the timer first. (A down
-   * inside the post-drop grace window never arms at all - it classifies
-   * 'lift' directly in the classifier, T3.3a-r3b.)
+   * an in-slop release (tap-select) - cancels the timer first. (A down on
+   * the currently SELECTED piece never arms at all - it classifies 'lift'
+   * directly in the classifier, T3.3a-r3c.)
    */
   private beginPendingLift(
     pointer: Phaser.Input.Pointer,
@@ -1701,12 +1716,12 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Ignite an active lift on `target` (T3.3a-r3b splits this out of
-   * `fireHoldLift` so the post-drop grace path shares it): selection first
-   * (byte-identical to the old instant path's down), then the pulse + buzz
-   * cue, and the gesture becomes 'lift'. Returns false with NO side
-   * effects when the target no longer qualifies (despawned decoration,
-   * missing or non-empty plot) - callers decide the fallback.
+   * Ignite an active lift on `target` (T3.3a-r3b split this out of
+   * `fireHoldLift`; the selected-piece instant lift shares it, T3.3a-r3c):
+   * selection first (byte-identical to the old instant path's down), then
+   * the pulse + buzz cue, and the gesture becomes 'lift'. Returns false
+   * with NO side effects when the target no longer qualifies (despawned
+   * decoration, missing or non-empty plot) - callers decide the fallback.
    */
   private startLift(
     kind: 'decor' | 'plot',
@@ -1747,7 +1762,6 @@ export class FarmScene extends Phaser.Scene {
     if (pending === null || this.fieldGesture !== 'lift-pending') return;
     this.pendingLift = null;
     if (!pending.pointer.isDown || !this.arrangeModeActive || !this.cameraGesturesAllowed()) {
-      this.graceLift = null;
       this.fieldGesture = null;
       this.gesturePointerId = -1;
       return;
@@ -1785,8 +1799,15 @@ export class FarmScene extends Phaser.Scene {
     const freeX = world.x + lift.grabOffsetX;
     const freeY = world.y + lift.grabOffsetY;
     if (lift.kind === 'decor') {
-      lift.target.setPosition(freeX, freeY).setDepth(freeY);
       const index = this.decorationSprites.indexOf(lift.target);
+      // Fence chain snap (T3.3a2): near a placed fence the lifted fence
+      // previews at the snapped continuation; elsewhere it follows the
+      // finger. Release commits whatever position is showing, exactly like
+      // the plot-tile pattern.
+      const snapped = index === -1 ? null : this.fenceSnapPosition(index, freeX, freeY);
+      const x = snapped === null ? freeX : snapped.x;
+      const y = snapped === null ? freeY : snapped.y;
+      lift.target.setPosition(x, y).setDepth(y);
       const shadow = index === -1 ? undefined : this.decorationShadowSprites[index];
       if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, lift.target);
     } else {
@@ -1796,14 +1817,76 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Live fence snap (T3.3a2, plot edges added in T3.3a2-r1): the snapped
+   * anchor for the lifted fence at placement `index`, or null when the
+   * lifted piece is not a fence or no candidate is within
+   * FENCE_SNAP_RADIUS of the free-form position. One nearest-wins pool of
+   * candidates:
+   * - every placed fence's flip-aware continuation offsets
+   *   (`fenceSnapDeltas` - same-facing line steps plus the opposite-facing
+   *   shared-post corners), and
+   * - every placed plot's two flip-compatible tile-edge positions
+   *   (`fenceEdgeSnapDeltas`, T3.3a2-r1 - rail exactly along the diamond
+   *   edge, high post standing on its upper corner; any plot state,
+   *   outlining does not care what's planted).
+   * All candidates are rounded to integers so the preview matches
+   * `commitDecorationTransform`'s rounded commit exactly, and filtered to
+   * the store's x/y clamp range so a committed snap never shifts off its
+   * previewed spot. State is read for frames/flips and the NEIGHBORS'
+   * positions only - the lifted piece's own stale state position is never
+   * used.
+   */
+  private fenceSnapPosition(
+    index: number,
+    freeX: number,
+    freeY: number,
+  ): { x: number; y: number } | null {
+    const decorations = gameState.getState().decorations;
+    const lifted = decorations[index];
+    if (lifted === undefined || lifted.frame !== FENCE_FRAME) return null;
+    let bestX = 0;
+    let bestY = 0;
+    let bestDistSq = FENCE_SNAP_RADIUS * FENCE_SNAP_RADIUS;
+    let found = false;
+    const consider = (rawX: number, rawY: number): void => {
+      const candidateX = Math.round(rawX);
+      const candidateY = Math.round(rawY);
+      if (candidateX < DECOR_X_MIN || candidateX > DECOR_X_MAX) return;
+      if (candidateY < DECOR_Y_MIN || candidateY > DECOR_Y_MAX) return;
+      const distSq = (candidateX - freeX) ** 2 + (candidateY - freeY) ** 2;
+      if (distSq <= bestDistSq) {
+        bestDistSq = distSq;
+        bestX = candidateX;
+        bestY = candidateY;
+        found = true;
+      }
+    };
+    for (let i = 0; i < decorations.length; i++) {
+      const neighbor = decorations[i];
+      if (i === index || neighbor === undefined || neighbor.frame !== FENCE_FRAME) continue;
+      for (const [dx, dy] of fenceSnapDeltas(neighbor.flip, lifted.flip)) {
+        consider(neighbor.x + dx, neighbor.y + dy);
+      }
+    }
+    const edgeDeltas = fenceEdgeSnapDeltas(lifted.flip, TILE_WIDTH, TILE_HEIGHT);
+    for (const plot of gameState.getState().plots) {
+      const center = gridToIso(plot.col, plot.row);
+      for (const [dx, dy] of edgeDeltas) {
+        consider(center.x + dx, center.y + dy);
+      }
+    }
+    return found ? { x: bestX, y: bestY } : null;
+  }
+
+  /**
    * Release of an active lift (T3.3a-r3): settle the pulse FIRST (an early
    * release can land mid-pulse, and `commitDecorationTransform` reads the
    * sprite's live scale), then commit exactly as the pre-hold 'dragend'
    * handlers did - `setDecorationTransform`/`movePlot` stay the sole rule
    * authorities, and a refused commit snaps back from committed state.
-   * Every commit (re-)arms the post-drop grace window on the piece just
-   * dropped (T3.3a-r3b) - including an in-place drop, whose same-position
-   * commit is harmless and simply re-arms.
+   * The dropped piece stays SELECTED, so it regrabs instantly for as long
+   * as it holds the selection (T3.3a-r3c, supersedes the post-drop grace
+   * window).
    */
   private finishLift(): void {
     const lift = this.activeLift;
@@ -1813,19 +1896,10 @@ export class FarmScene extends Phaser.Scene {
     if (lift.kind === 'decor') {
       if (!this.arrangeModeActive) return;
       const index = this.decorationSprites.indexOf(lift.target);
-      if (index !== -1) {
-        this.commitDecorationTransform(index, lift.target);
-        this.armGraceLift('decor', lift.target);
-      }
+      if (index !== -1) this.commitDecorationTransform(index, lift.target);
     } else if (this.plotDragIndex !== null) {
       this.commitPlotDrag();
-      this.armGraceLift('plot', lift.target);
     }
-  }
-
-  /** Arm (or re-arm) the post-drop grace window on the piece just committed (T3.3a-r3b). */
-  private armGraceLift(kind: 'decor' | 'plot', target: Phaser.GameObjects.Image): void {
-    this.graceLift = { kind, target, until: this.time.now + GRACE_MS };
   }
 
   /**
@@ -1930,10 +2004,9 @@ export class FarmScene extends Phaser.Scene {
     if (this.fieldGesture === 'lift-pending') {
       const pending = this.pendingLift;
       // A modal popping mid-hold quietly discards the arm, like
-      // 'farm-pending' - and the grace window with it (T3.3a-r3b).
+      // 'farm-pending'.
       if (pending === null || !this.arrangeModeActive || !this.cameraGesturesAllowed()) {
         this.cancelPendingLift();
-        this.graceLift = null;
         this.fieldGesture = null;
         this.gesturePointerId = -1;
         return;
@@ -1950,11 +2023,9 @@ export class FarmScene extends Phaser.Scene {
     }
     if (this.fieldGesture === 'lift') {
       // Arrange mode ending mid-lift (a second finger on Done) already
-      // nulled the drag state in exitArrangeMode - just drop the gesture
-      // (and the grace window, T3.3a-r3b).
+      // nulled the drag state in exitArrangeMode - just drop the gesture.
       if (!this.arrangeModeActive) {
         this.activeLift = null;
-        this.graceLift = null;
         this.fieldGesture = null;
         this.gesturePointerId = -1;
         return;
@@ -3045,7 +3116,7 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Re-derive placed decorations from state (T3.9): the simplest correct
-   * thing at the MAX_DECORATIONS cap (30) - rebuild the whole sprite (+
+   * thing at the placement-budget caps (T3.3a2) - rebuild the whole sprite (+
    * ground shadow) list whenever the decorations array differs from the last
    * render, rather than diffing entry by entry. Depth = own screen y, so
    * decorations iso-sort with crops/structures. Non-interactive in normal
@@ -3162,7 +3233,7 @@ export class FarmScene extends Phaser.Scene {
   /**
    * T3.27 dev probe toggle (`dev.decorSizing`): while OFF (default) the
    * arrange-mode Scale +/- buttons behave exactly as before - the store's
-   * normal DECOR_SCALE_MAX stays the sole ceiling. While ON, the selected
+   * normal per-item `decorMaxScale` stays the sole ceiling. While ON, the selected
    * decoration may scale up to DEV_DECOR_SCALE_CEILING and every scale
    * change/selection logs. Turning the flag off (and scene boot, see
    * `create`) logs any decoration still holding an over-cap scale so it is
@@ -3192,17 +3263,18 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * T3.27: warns about any decoration currently holding a scale above the
-   * normal DECOR_SCALE_MAX cap (only reachable via the dev ceiling while the
-   * probe was on) - called at scene boot and whenever the probe flag turns
-   * off, so the owner is never surprised by an over-cap scale left over from
-   * a probing session.
+   * T3.27: warns about any decoration currently holding a scale above its
+   * normal per-item cap (`decorMaxScale`, T3.3a2 - only reachable via the
+   * dev ceiling while the probe was on) - called at scene boot and whenever
+   * the probe flag turns off, so the owner is never surprised by an
+   * over-cap scale left over from a probing session.
    */
   private logOverCapDecorations(): void {
     for (const decoration of gameState.getState().decorations) {
-      if (decoration.scale > DECOR_SCALE_MAX) {
+      const maxScale = decorMaxScale(decoration.frame);
+      if (decoration.scale > maxScale) {
         console.log(
-          `[decorSizing] ${decoration.frame} is over the normal cap: scale ${decoration.scale.toFixed(2)} > ${DECOR_SCALE_MAX} - will be clamped the next time it is touched.`,
+          `[decorSizing] ${decoration.frame} is over the normal cap: scale ${decoration.scale.toFixed(2)} > ${maxScale} - will be clamped the next time it is touched.`,
         );
       }
     }
@@ -3544,9 +3616,12 @@ export class FarmScene extends Phaser.Scene {
    * one-way - no put-away for plots), dim and inert otherwise - same
    * enabled/dim convention as DecorShop's Buy button. Scale +/- and Flip
    * disable while a PLOT is selected (plots snap to the grid - they never
-   * scale or flip); with a decoration or nothing selected they stay enabled
-   * as before (a no-selection tap is a no-op). Called whenever the selection
-   * changes and whenever the rows' visibility changes.
+   * scale or flip); Scale +/- ALSO disable while a FENCE is selected
+   * (T3.3a2 - fences are pinned to FENCE_FIXED_SCALE; Flip stays live,
+   * fence flip is directional). With any other decoration or nothing
+   * selected they stay enabled as before (a no-selection tap is a no-op).
+   * Called whenever the selection changes and whenever the rows' visibility
+   * changes.
    */
   private updateArrangeItemButtonsState(): void {
     const storeEnabled = this.selectedDecorationIndex !== null;
@@ -3558,16 +3633,20 @@ export class FarmScene extends Phaser.Scene {
     } else {
       this.arrangeStoreButton.disableInteractive();
     }
-    const scaleFlipEnabled = this.selectedPlotIndex === null;
-    for (const button of [
-      this.arrangeScaleDownButton,
-      this.arrangeScaleUpButton,
-      this.arrangeFlipButton,
-    ]) {
-      button.setAlpha(
-        scaleFlipEnabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
-      );
-      if (scaleFlipEnabled && this.arrangeModeActive) {
+    const selectedDecoration =
+      this.selectedDecorationIndex === null
+        ? undefined
+        : gameState.getState().decorations[this.selectedDecorationIndex];
+    const fenceSelected = selectedDecoration?.frame === FENCE_FRAME;
+    const flipEnabled = this.selectedPlotIndex === null;
+    const scaleEnabled = flipEnabled && !fenceSelected;
+    for (const [button, enabled] of [
+      [this.arrangeScaleDownButton, scaleEnabled],
+      [this.arrangeScaleUpButton, scaleEnabled],
+      [this.arrangeFlipButton, flipEnabled],
+    ] as const) {
+      button.setAlpha(enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA);
+      if (enabled && this.arrangeModeActive) {
         button.setInteractive({ useHandCursor: true });
       } else {
         button.disableInteractive();
@@ -3642,7 +3721,6 @@ export class FarmScene extends Phaser.Scene {
     // gesture's own move/up handlers self-resolve on the dead mode flag.
     this.cancelPendingLift();
     this.activeLift = null;
-    this.graceLift = null;
     this.settleLiftPulse();
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
     // Plot tiles go inert again (T3.3a). They are exempt from the enter
@@ -3958,7 +4036,7 @@ export class FarmScene extends Phaser.Scene {
           newIndex,
           previous.x + DECOR_CHAIN_OFFSET_X,
           previous.y + DECOR_CHAIN_OFFSET_Y,
-          DECOR_SPAWN_SCALE,
+          decorSpawnScale(session.frame),
           false,
         );
       }
