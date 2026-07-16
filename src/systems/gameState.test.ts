@@ -1772,9 +1772,9 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     }
   });
 
-  it('pins the derivation: 67 tiles, negative coordinates present, the whole legacy 4x4 included', () => {
+  it('pins the derivation: 136 tiles, negative coordinates present, the whole legacy 4x4 included', () => {
     const tiles = placeablePlotTiles();
-    expect(tiles).toHaveLength(67);
+    expect(tiles).toHaveLength(136);
     // Negative col/row are expected - tile (0, 0) is the legacy grid's top
     // corner, not the scene's.
     expect(tiles).toContainEqual({ col: -5, row: -2 });
@@ -1786,16 +1786,37 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     }
   });
 
+  it('T3.3a-r2 world growth: apron tiles included on three sides, the west mere reserve excluded', () => {
+    const tiles = placeablePlotTiles();
+    // North apron: center y = -192, above even the old scene top (y 0).
+    expect(tiles).toContainEqual({ col: -8, row: -7 });
+    // South apron: center y = 1920 (the old scene's bottom edge), far past
+    // the old rect's 1540 limit.
+    expect(tiles).toContainEqual({ col: 9, row: 9 });
+    // T3.3a-r2x seed-bar dead band: the next diagonal row south (center
+    // y = 1984, diamond bottom 2048 > 2010) can never scroll clear of the
+    // seed-bar band even at max zoom-in, so it is NOT placeable.
+    expect(tiles).not.toContainEqual({ col: 10, row: 9 });
+    // East strip: center x = 1052, right edge 1180 - past the old 1060 limit.
+    expect(tiles).toContainEqual({ col: 4, row: 0 });
+    // West mere reserve (x < 20): the next column west (col-row = -4 puts the
+    // diamond's left edge at -100) must NOT be placeable.
+    expect(tiles).not.toContainEqual({ col: -4, row: 0 });
+    for (const { col, row } of tiles) {
+      expect(col - row).toBeGreaterThanOrEqual(-3);
+    }
+  });
+
   it('the static validator bounds enclose the set with margin (pins the farm.ts derivation)', () => {
     const tiles = placeablePlotTiles();
     const cols = tiles.map((tile) => tile.col);
     const rows = tiles.map((tile) => tile.row);
-    expect(Math.min(...cols)).toBe(-5);
-    expect(Math.max(...cols)).toBe(7);
-    expect(Math.min(...rows)).toBe(-5);
-    expect(Math.max(...rows)).toBe(7);
-    expect(PLOT_GRID_COORD_MIN).toBeLessThan(-5);
-    expect(PLOT_GRID_COORD_MAX).toBeGreaterThan(7);
+    expect(Math.min(...cols)).toBe(-9);
+    expect(Math.max(...cols)).toBe(11);
+    expect(Math.min(...rows)).toBe(-9);
+    expect(Math.max(...rows)).toBe(10);
+    expect(PLOT_GRID_COORD_MIN).toBeLessThan(-9);
+    expect(PLOT_GRID_COORD_MAX).toBeGreaterThan(11);
   });
 });
 
@@ -1859,8 +1880,8 @@ describe('isPlotTileFree (T3.3a-r collision rules)', () => {
 
   it('rejects non-placeable and non-integer coordinates', () => {
     const state = slice([]);
-    expect(isPlotTileFree(state, 4, 0)).toBe(false); // col-row = 4: diamond off the rect's right edge
-    expect(isPlotTileFree(state, 0, 4)).toBe(false); // col-row = -4: off the left edge
+    expect(isPlotTileFree(state, 5, 0)).toBe(false); // col-row = 5: diamond off the world's east edge
+    expect(isPlotTileFree(state, 0, 4)).toBe(false); // col-row = -4: in the west mere reserve (x < 20)
     expect(isPlotTileFree(state, 99, 99)).toBe(false);
     expect(isPlotTileFree(state, 0.5, 3)).toBe(false);
     expect(isPlotTileFree(state, Number.NaN, 0)).toBe(false);
@@ -2086,13 +2107,14 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   });
 
   it('no qualifying face: the nearest free tile still touching the block', () => {
-    // Default farm, 4 grants: LEFT and BOTTOM blocked by decor; RIGHT
-    // auto-fails ((4, 0) is off the placeable rect) and TOP's 4-tile
-    // leading run ends off-rect at (3, -1). The hug fallback picks the
-    // nearest block-touching free tile to the plots' center of mass -
-    // (0, -1), tied at ~233px with (3, 3) and first in enumeration order.
-    const state = defaultFarm([decorOn(-1, 0), decorOn(0, 3)]);
-    expect(bestBatchStartTile(state, 4)).toEqual({ col: 0, row: -1 });
+    // Default farm, 4 grants, every face's leading tile decor-blocked
+    // (T3.3a-r2: the wider placeable rect means RIGHT and TOP no longer
+    // auto-fail off-rect, so all four need explicit blockers). The hug
+    // fallback picks the nearest block-touching free tile to the plots'
+    // center of mass - (3, 3), tied at ~233px with (0, -1), which is now
+    // one of the blockers.
+    const state = defaultFarm([decorOn(-1, 0), decorOn(0, 3), decorOn(4, 0), decorOn(0, -1)]);
+    expect(bestBatchStartTile(state, 4)).toEqual({ col: 3, row: 3 });
   });
 
   it('no free tile touches the block at all: plain nearest-free to the center of mass', () => {
@@ -2212,8 +2234,8 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
 
   it('placePlot rejects non-placeable tiles, blocked tiles, and non-integer coords', () => {
     const store = expandedStore();
-    expect(store.placePlot(4, 0)).toBe(false); // diamond off the placeable rect
-    expect(store.placePlot(0, 4)).toBe(false);
+    expect(store.placePlot(5, 0)).toBe(false); // diamond off the world's east edge
+    expect(store.placePlot(0, 4)).toBe(false); // west mere reserve (x < 20)
     expect(store.placePlot(0, -2)).toBe(false); // farmhouse footprint
     expect(store.placePlot(5, 2)).toBe(false); // notice-board footprint
     expect(store.placePlot(0.5, 3)).toBe(false);
@@ -2267,7 +2289,8 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.movePlot(5, ...(Object.values(tileOf(6)) as [number, number]))).toBe(false);
     expect(store.movePlot(5, 0, -2)).toBe(false); // farmhouse footprint
     expect(store.movePlot(5, 6, 3)).toBe(false); // notice-board footprint
-    expect(store.movePlot(5, 4, 0)).toBe(false); // off the placeable rect
+    expect(store.movePlot(5, 5, 0)).toBe(false); // off the world's east edge
+    expect(store.movePlot(5, 0, 4)).toBe(false); // west mere reserve (x < 20)
     expect(store.movePlot(5, 1, 3.5)).toBe(false);
     expect(store.getState().plots[5]).toEqual({ state: 'empty', ...tileOf(5) });
   });

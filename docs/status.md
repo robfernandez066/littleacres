@@ -13,7 +13,9 @@
 
 ## Queue
 
-1. Placement saga in flight (T3.3a committed; T3.3a-r + r2f + r2f2 + r2f3 uncommitted in tree; r2f4 face-priority flip WITH CODER) -> full-tree diff review -> owner test -> ONE combined commit -> T3.3a-r2 world growth (owner picked A: 1440x2560) -> T3.3a2 fences + sizing -> T3.3b regions
+1. r2 bundle reviewed PASS - in USER TEST (world growth + south fence + farmhouse depth + interleave guard + dev buttons; 440 tests) -> ONE commit
+2. T3.3a-r3 long-press pickup (pan-vs-lift in Edit Layout; FRESH session after the bundle ships)
+3. T3.3a2 fences + sizing table -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
 2. Then T3.3a plots -> T3.3a2 fence snap (spec grown: fence width = 1 plot; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; candidate rider: per-item max-scale sanity) -> T3.3b R1 + owner checkpoint -> T3.3c
 4. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
 5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)

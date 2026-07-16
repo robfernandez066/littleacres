@@ -12,9 +12,11 @@ import {
   type WorldBounds,
 } from './cameraMath';
 
-/** Today's real geometry: the design-resolution viewport and the world that equals it. */
+/** The design-resolution viewport and the legacy owned rect that equals it (the home view). */
 const VIEWPORT: Viewport = { width: 1080, height: 1920 };
 const WORLD: WorldBounds = { x: 0, y: 0, width: 1080, height: 1920 };
+/** The day-one world rect (T3.3a-r2): config.ts WORLD_MIN_X/Y + WORLD_WIDTH/HEIGHT. */
+const DAY_ONE_WORLD: WorldBounds = { x: -180, y: -320, width: 1440, height: 2560 };
 const MAX_IN = 1.6;
 
 /** Phaser's forward camera transform (zoom about the viewport center) - the
@@ -34,6 +36,11 @@ describe('fitZoom', () => {
   it('takes the smaller per-axis fit so the whole bounds is visible', () => {
     // Width fits at 1080/2160 = 0.5, height at 1920/1920 = 1 - the min wins.
     expect(fitZoom({ x: 0, y: 0, width: 2160, height: 1920 }, VIEWPORT)).toBe(0.5);
+  });
+
+  it('is exactly 0.75 for the day-one 1440x2560 world - the T3.3a-r2 zoom-out floor', () => {
+    // Both axes fit at exactly 3/4: 1080/1440 = 1920/2560 = 0.75.
+    expect(fitZoom(DAY_ONE_WORLD, VIEWPORT)).toBe(0.75);
   });
 });
 
@@ -99,6 +106,21 @@ describe('scrollRange / clampScroll', () => {
     expect(range.minY).toBe(range.maxY);
     expect(range.minX).toBe(0);
     expect(range.minY).toBe(0);
+  });
+
+  it('collapses the day-one world to the single centered scroll (0, 0) at the 0.75 floor', () => {
+    // The world is centered on the legacy rect, so the fully-zoomed-out view
+    // is centered exactly where the home view is: scroll (0, 0).
+    const range = scrollRange(0.75, DAY_ONE_WORLD, VIEWPORT);
+    expect(range).toEqual({ minX: 0, maxX: 0, minY: 0, maxY: 0 });
+  });
+
+  it('pins the day-one-world pan range at zoom 1: the full apron each way, home (0, 0) inside', () => {
+    // Visible rect at zoom 1 is the 1080x1920 legacy rect; the camera can
+    // travel exactly the apron width/height each way.
+    const range = scrollRange(1, DAY_ONE_WORLD, VIEWPORT);
+    expect(range).toEqual({ minX: -180, maxX: 180, minY: -320, maxY: 320 });
+    expect(clampScroll(0, 0, 1, DAY_ONE_WORLD, VIEWPORT)).toEqual({ scrollX: 0, scrollY: 0 });
   });
 });
 

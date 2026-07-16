@@ -1433,6 +1433,13 @@ export class GameStateStore {
     this.applyXp(amount);
   }
 
+  /** Grant moondust directly (dev tooling, T3.3a-r2z) - the same bare
+   *  balance bump the real grant paths apply (quest rewards, premium
+   *  orders, chests all do `state.moondust += n`); mirrors `addCoins`. */
+  addMoondust(amount: number): void {
+    this.state.moondust += amount;
+  }
+
   /** Set the player level directly (dev tooling). Clamped to a minimum of 1. */
   setLevel(level: number): void {
     this.state.level = Math.max(1, Math.floor(level));

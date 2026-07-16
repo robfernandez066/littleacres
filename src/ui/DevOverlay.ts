@@ -103,6 +103,22 @@ export class DevOverlay {
       gameState.save();
       this.refresh();
     });
+    // Stronger economy buttons (T3.3a-r2z), same wiring as the small ones.
+    addButton('+1000 coins', () => {
+      gameState.addCoins(1000);
+      gameState.save();
+      this.refresh();
+    });
+    addButton('+500 moondust', () => {
+      gameState.addMoondust(500);
+      gameState.save();
+      this.refresh();
+    });
+    addButton('+1000 xp', () => {
+      gameState.addXp(1000);
+      gameState.save();
+      this.refresh();
+    });
     addButton('Reset save', () => {
       if (window.confirm('Reset save? This cannot be undone.')) {
         gameState.reset();

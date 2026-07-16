@@ -2,6 +2,20 @@
 export const DESIGN_WIDTH = 1080;
 export const DESIGN_HEIGHT = 1920;
 
+/**
+ * The day-one WORLD rect (T3.3a-r2): the pannable/zoomable farm world, grown
+ * around the legacy 1080x1920 design rect - which stays exactly where it is
+ * (no existing coordinate changes) - with a 180px grass apron east/west and a
+ * 320px apron north/south. The default (home) camera view is still the
+ * legacy design rect at zoom 1; pinch/pan reaches the apron. The world's
+ * west strip is reserved for the mere (see PLOT_PLACEABLE_MIN_X in
+ * data/farm.ts).
+ */
+export const WORLD_MIN_X = -180;
+export const WORLD_MIN_Y = -320;
+export const WORLD_WIDTH = 1440;
+export const WORLD_HEIGHT = 2560;
+
 /** Texture key of the single texture atlas loaded in Preload. */
 export const ATLAS_KEY = 'atlas';
 

@@ -27,6 +27,10 @@ import {
   SHADOW_WIDTH_RATIO,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
+  WORLD_HEIGHT,
+  WORLD_MIN_X,
+  WORLD_MIN_Y,
+  WORLD_WIDTH,
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import { DECOR_ITEMS, DECOR_SCALE_MAX, DECOR_SPAWN_SCALE, TROPHY_ITEMS } from '../data/decor';
@@ -121,27 +125,37 @@ const TILE_ORIGIN_Y = TILE_DIAMOND_CENTER_Y / TILE_FRAME_HEIGHT;
 
 /**
  * Vertical range (in design pixels) covered by the ground layer: the FULL
- * screen. Historically a 420..1500 band (headroom for HUD/seed bar), but the
- * band edges read as visible seams against any ground whose green differs
- * from BACKGROUND_COLOR - the HUD and seed bar draw over the ground anyway
- * (user report + PM-direct fix, 2026-07-12).
+ * WORLD rect (T3.3a-r2 - zoomed out at 0.75 there must be grass to every
+ * edge, no void). Historically a 420..1500 band (headroom for HUD/seed bar),
+ * then the full screen; the band edges read as visible seams against any
+ * ground whose green differs from BACKGROUND_COLOR - the HUD and seed bar
+ * draw over the ground anyway (user report + PM-direct fix, 2026-07-12).
  */
-const FIELD_MIN_Y = 0;
-const FIELD_MAX_Y = DESIGN_HEIGHT;
+const FIELD_MIN_Y = WORLD_MIN_Y;
+const FIELD_MAX_Y = WORLD_MIN_Y + WORLD_HEIGHT;
 
-/** Grid range scanned when laying grass; wide enough to fill the range above. */
-const GRASS_GRID_MIN = -9;
-const GRASS_GRID_MAX = 13;
+/**
+ * Grid range scanned when laying grass; wide enough to fill the world rect.
+ * Derivation: tile centers sit at (540 + (col-row)*128, 768 + (col+row)*64);
+ * covering x in [-180-128, 1260+128] and y in [-320, 2240] needs
+ * col-row in [-6, 6] and col+row in [-17, 23], i.e. col/row in [-11, 14].
+ */
+const GRASS_GRID_MIN = -11;
+const GRASS_GRID_MAX = 14;
 
 /**
  * Depth of the WHOLE ground layer - the texture TileSprite AND the grass
- * tile images alike: below plot tiles (default depth 0) and above the
- * background rect (-2). Grass tiles need this explicitly because the dev
- * ground-mode cycle rebuilds them AFTER the plots exist - at a shared
- * default depth, later insertion drew grass over the plots (user report +
- * PM-direct fix, 2026-07-12).
+ * tile images alike: below every y-depth-sorted world object and above the
+ * background rect (GROUND_LAYER_DEPTH - 1). Grass tiles need this explicitly
+ * because the dev ground-mode cycle rebuilds them AFTER the plots exist - at
+ * a shared default depth, later insertion drew grass over the plots (user
+ * report + PM-direct fix, 2026-07-12). Was -1 while the world's y was never
+ * negative; the T3.3a-r2 north apron has world y down to WORLD_MIN_Y, and a
+ * plot tile there carries depth y - 1 (see `plotTileDepth`), so the ground
+ * must sit below the lowest possible y-derived depth (WORLD_MIN_Y - 1) or
+ * apron plots render UNDER the grass (caught live in this task's checks).
  */
-const GROUND_LAYER_DEPTH = -1;
+const GROUND_LAYER_DEPTH = WORLD_MIN_Y - 2;
 
 /** How often (ms of real time) growth visuals re-derive from state/clock. */
 const CROP_REFRESH_INTERVAL_MS = 250;
@@ -562,16 +576,26 @@ interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
  * this scene owns gesture classification and the live camera writes.
  * `dev.camera(...)` deliberately bypasses all of these clamps.
  */
-/** Zoom-in ceiling for gestures; the floor is fitZoom (1 for today's world). */
+/** Zoom-in ceiling for gestures; the floor is fitZoom(world) (0.75 - see cameraFitZoom). */
 const CAMERA_MAX_ZOOM_IN = 1.6;
 /**
- * The world the camera may show and the owned land the fit zoom must cover -
- * both are the full 1080x1920 design space today, so fitZoom is exactly 1
- * and NO panning is possible until the player zooms in (correct and
- * expected). A future expansion task widens these independently.
+ * T3.3a-r2 splits the two rects the T3.4b gestures share:
+ * - WORLD: the full day-one 1440x2560 world (config.ts) - pan reaches
+ *   everywhere in it, rubber-banding at its true edges, and the zoom-out
+ *   floor is fitZoom(world) = 0.75 exactly (pinned in cameraMath.test.ts),
+ *   showing grass to every edge.
+ * - OWNED: the legacy 1080x1920 design rect, still exactly where it was -
+ *   the HOME view (default + Recenter target) is fitZoom(owned) = 1 at
+ *   scroll (0, 0), so a player who never touches the camera sees no change.
+ * A future purchase task grows OWNED independently (T3.3c).
  */
-const CAMERA_WORLD_BOUNDS: WorldBounds = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT };
-const CAMERA_OWNED_BOUNDS: WorldBounds = CAMERA_WORLD_BOUNDS;
+const CAMERA_WORLD_BOUNDS: WorldBounds = {
+  x: WORLD_MIN_X,
+  y: WORLD_MIN_Y,
+  width: WORLD_WIDTH,
+  height: WORLD_HEIGHT,
+};
+const CAMERA_OWNED_BOUNDS: WorldBounds = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT };
 /**
  * The one-finger PAN band, in screen y: between the HUD banner's bottom edge
  * and the seed bar band's top. Both values are module-local layout constants
@@ -972,14 +996,15 @@ export class FarmScene extends Phaser.Scene {
   create(): void {
     this.createCameraLayers();
 
-    // Depth -2: below the whole ground layer (GROUND_LAYER_DEPTH, -1),
-    // which must render above this rect but below every depth-0 gameplay
-    // object. Without this, texture mode drew beneath the opaque background
-    // and read as solid green (PM-direct fix after T2.28).
+    // One below the whole ground layer (GROUND_LAYER_DEPTH), which must
+    // render above this rect but below every gameplay object. Without this,
+    // texture mode drew beneath the opaque background and read as solid
+    // green (PM-direct fix after T2.28). Covers the FULL world rect
+    // (T3.3a-r2) so the zoomed-out view never shows void.
     this.add
-      .rectangle(0, 0, DESIGN_WIDTH, DESIGN_HEIGHT, BACKGROUND_COLOR)
+      .rectangle(WORLD_MIN_X, WORLD_MIN_Y, WORLD_WIDTH, WORLD_HEIGHT, BACKGROUND_COLOR)
       .setOrigin(0, 0)
-      .setDepth(-2);
+      .setDepth(GROUND_LAYER_DEPTH - 1);
 
     this.createGroundLayer(this.groundMode);
     this.createDirtPath();
@@ -1844,13 +1869,18 @@ export class FarmScene extends Phaser.Scene {
     return { width: this.cameras.main.width, height: this.cameras.main.height };
   }
 
+  /** The gesture zoom-out FLOOR (T3.3a-r2): the zoom that fits the whole
+   *  WORLD - 0.75 exactly for the 1440x2560 world in the design viewport
+   *  (pinned in cameraMath.test.ts). */
   private cameraFitZoom(viewport: Viewport): number {
-    return fitZoom(CAMERA_OWNED_BOUNDS, viewport);
+    return fitZoom(CAMERA_WORLD_BOUNDS, viewport);
   }
 
-  /** The default (home) view: fit zoom, centered - today exactly zoom 1, scroll (0, 0). */
+  /** The default (home) view: the OWNED (legacy 1080x1920) rect's fit zoom,
+   *  centered on it - exactly zoom 1, scroll (0, 0), unchanged by the world
+   *  growth (T3.3a-r2). */
   private cameraHome(viewport: Viewport): { zoom: number; scrollX: number; scrollY: number } {
-    const zoom = this.cameraFitZoom(viewport);
+    const zoom = fitZoom(CAMERA_OWNED_BOUNDS, viewport);
     const scroll = clampScroll(0, 0, zoom, CAMERA_WORLD_BOUNDS, viewport);
     return { zoom, scrollX: scroll.scrollX, scrollY: scroll.scrollY };
   }
@@ -2212,7 +2242,8 @@ export class FarmScene extends Phaser.Scene {
       for (let row = GRASS_GRID_MIN; row <= GRASS_GRID_MAX; row++) {
         const { x, y } = gridToIso(col, row);
         if (y < FIELD_MIN_Y || y > FIELD_MAX_Y) continue;
-        if (x < -TILE_WIDTH / 2 || x > DESIGN_WIDTH + TILE_WIDTH / 2) continue;
+        if (x < WORLD_MIN_X - TILE_WIDTH / 2 || x > WORLD_MIN_X + WORLD_WIDTH + TILE_WIDTH / 2)
+          continue;
         this.groundTiles.push(
           this.add
             .image(x, y, ATLAS_KEY, frame)
@@ -2234,7 +2265,7 @@ export class FarmScene extends Phaser.Scene {
     const tileScale =
       mode === 'texture_a' ? GROUND_TEXTURE_A_TILE_SCALE : GROUND_TEXTURE_B_TILE_SCALE;
     this.groundTexture = this.add
-      .tileSprite(0, FIELD_MIN_Y, DESIGN_WIDTH, FIELD_MAX_Y - FIELD_MIN_Y, key)
+      .tileSprite(WORLD_MIN_X, FIELD_MIN_Y, WORLD_WIDTH, FIELD_MAX_Y - FIELD_MIN_Y, key)
       .setOrigin(0, 0)
       .setTileScale(tileScale, tileScale)
       .setDepth(GROUND_LAYER_DEPTH);
@@ -2490,8 +2521,23 @@ export class FarmScene extends Phaser.Scene {
    * convention as the notice board's `Hud.toggleOrderBoard`. Explicitly
    * un-elevates the shop's depth (`setElevated(false)`) in case it was last
    * opened from arrange mode - see `openDecorShopFromArrange`.
+   *
+   * T3.3a-r2y: while ARRANGING, this routes to the elevated
+   * `openDecorShopFromArrange` path instead - identical to the arrange
+   * row's Shop button - so the shop can never open BEHIND the arrange
+   * control rows. The farmhouse is normally swept inert during arrange,
+   * but the dressing editor's own hitbox sweep can resurrect it mid-mode
+   * (its off-toggle blindly restores everything it cataloged, including
+   * objects the arrange sweep had disabled - the two sweeps assume they
+   * never interleave, but the DOM dev overlay stays clickable through
+   * both). Routing by `arrangeModeActive` HERE makes the depth choice
+   * self-correcting for every current and future caller.
    */
   private openDecorShop(): void {
+    if (this.arrangeModeActive) {
+      this.openDecorShopFromArrange();
+      return;
+    }
     this.audio.sfx('tap');
     this.hud.closePanels();
     this.decorShop.setElevated(false);
@@ -3937,6 +3983,21 @@ export class FarmScene extends Phaser.Scene {
    * player-facing panel). Turning it off clears the selection highlight too.
    */
   private setDressingEditActive(enabled: boolean): void {
+    // T3.3a-r2w (PM ruling): dressing edit and arrange mode must never
+    // coexist - their hitbox sweeps share `setOtherHitboxesEnabled`, whose
+    // restore pass assumes one mode at a time; interleaving them
+    // resurrected arrange-swept objects mid-arrange (root-caused in
+    // T3.3a-r2y). Dev-facing refusal: the DOM overlay stays clickable
+    // through the arrange sweep, so the guard lives here at the scene
+    // entry point. (The overlay's own button label may briefly read "on"
+    // after a refused click - cosmetic, dev-only, self-heals on the next
+    // click.)
+    if (this.arrangeModeActive) {
+      console.log(
+        'Edit dressing refused: arrange mode is active (the two modes share the hitbox sweep and must not interleave - leave arrange mode first).',
+      );
+      return;
+    }
     this.dressingEditActive = enabled;
     for (const sprite of this.dressingSprites) {
       if (enabled) sprite.setInteractive({ draggable: true });
