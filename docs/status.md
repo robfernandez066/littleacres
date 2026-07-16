@@ -13,7 +13,7 @@
 
 ## Queue
 
-1. T3.3a placeable plots WITH CODER (v16 schema; legacy expansion converts to the grant flow - owner veto window open until pasted)
+1. T3.3a: user-tested, commit pending (works as built) -> then T3.3a-r placement-freedom rework (whole-scene grid, chain placing, no locked previews; owner confirm pending on grid-as-snap) -> then T3.3a2 fences + sizing
 2. Then T3.3a plots -> T3.3a2 fence snap (spec grown: fence width = 1 plot; decor-cap rework rides along - owner picks flat raise vs separate fence budget at prompt time; candidate rider: per-item max-scale sanity) -> T3.3b R1 + owner checkpoint -> T3.3c
 4. Owner (parallel, anytime): land-era art batch - composite mere parts, overgrowth tiles, region sign, dock stage-0
 5. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)

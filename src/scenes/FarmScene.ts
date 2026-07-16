@@ -30,7 +30,7 @@ import {
 } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import { DECOR_ITEMS, DECOR_SCALE_MAX, TROPHY_ITEMS } from '../data/decor';
-import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, FARM_COLS } from '../data/farm';
+import { FARM_COLS, FARM_MAX_ROWS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
@@ -56,10 +56,15 @@ import {
   registerHitboxToggle,
   registerSceneLayersProbe,
 } from '../systems/dev';
-import { gameState, type DecorationPlacement } from '../systems/gameState';
+import {
+  gameState,
+  ownedPlotTiles,
+  type DecorationPlacement,
+  type PlotState,
+} from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
-import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
+import { gridToIso, isoToGrid, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
 import { isModalOpen, setPanelOpen } from '../systems/modalPanels';
 import { plotIndexAtScreen, PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
@@ -77,6 +82,7 @@ import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
 import { OnboardingGuide } from '../ui/OnboardingGuide';
 import { CropCountdown } from '../ui/CropCountdown';
 import { ParticleBurst } from '../ui/ParticleBurst';
+import { PlotGrantPopup } from '../ui/PlotGrantPopup';
 import { QuestBoard } from '../ui/QuestBoard';
 import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
 import { SeedBar } from '../ui/SeedBar';
@@ -150,10 +156,27 @@ const HAPTIC_LIGHT_MS = 12;
 /** Medium haptic pulse on a successful farm expansion. */
 const HAPTIC_MEDIUM_MS = 25;
 
-/** Delay before each new plot's tile fade-in starts when the farm expands. */
-const EXPAND_REVEAL_STAGGER_MS = 1200;
-/** Duration of each new plot's tile fade-in when the farm expands. */
-const EXPAND_REVEAL_FADE_MS = 2400;
+/**
+ * Plot-tile hit area for arrange mode (T3.3a): the tile diamond itself, in
+ * FRAME-relative units per the hit-area rule (0,0 at the frame's own
+ * top-left) - the diamond IS the visible art's opaque footprint, so a
+ * polygon beats any rectangle here (the frame's corners are transparent and
+ * a rectangle would steal taps from diagonal neighbors). The frame is
+ * TILE_WIDTH wide with the diamond's center at TILE_DIAMOND_CENTER_Y; the
+ * lip below the diamond is deliberately excluded - it overlaps the tile in
+ * front. No pad: adjacent diamonds tessellate edge-to-edge, so any pad
+ * would overlap neighbors.
+ */
+const PLOT_TILE_HIT_AREA = new Phaser.Geom.Polygon([
+  new Phaser.Geom.Point(TILE_WIDTH / 2, TILE_DIAMOND_CENTER_Y - TILE_HEIGHT / 2),
+  new Phaser.Geom.Point(TILE_WIDTH, TILE_DIAMOND_CENTER_Y),
+  new Phaser.Geom.Point(TILE_WIDTH / 2, TILE_DIAMOND_CENTER_Y + TILE_HEIGHT / 2),
+  new Phaser.Geom.Point(0, TILE_DIAMOND_CENTER_Y),
+]);
+
+/** Locked-plot refusal shake (T3.3a): a growing crop's plot does not lift. */
+const PLOT_LOCKED_SHAKE_DISTANCE = 8;
+const PLOT_LOCKED_SHAKE_STEP_MS = 40;
 
 /** Where the floating xp label spawns relative to a plot's tile center. */
 const XP_LABEL_OFFSET_Y = -70;
@@ -626,14 +649,17 @@ interface WarehouseRow {
 }
 
 /**
- * The main farm scene: a FARM_COLS x FARM_ROWS grid of plots in the middle of
- * a grass field, rendered live from `gameState`, plus the seed bar. One
- * unified field gesture: tapping or sweeping harvests every ready crop the
- * pointer enters, and (with a seed selected) paint-plants empty plots.
+ * The main farm scene: plots on the frozen FARM_COLS x FARM_MAX_ROWS iso
+ * grid in the middle of a grass field, rendered live from `gameState`, plus
+ * the seed bar. One unified field gesture: tapping or sweeping harvests
+ * every ready crop the pointer enters, and (with a seed selected)
+ * paint-plants empty plots.
  *
- * Plot index convention (matches `gameState.plots`): index = row * FARM_COLS
- * + col. Any future code mapping a tile tap to a plot must use the same
- * formula (see `indexToGrid` below).
+ * Plot positions (T3.3a): every plot carries explicit `col`/`row` in the
+ * save - array index means nothing spatially. Anything mapping a tap to a
+ * plot goes through `plotIndexAtScreen` (a coordinate lookup against the
+ * plots' actual tiles); anything mapping a plot to the screen goes through
+ * `gridToIso(plot.col, plot.row)` in the frozen frame.
  */
 export class FarmScene extends Phaser.Scene {
   /**
@@ -655,11 +681,15 @@ export class FarmScene extends Phaser.Scene {
   /** One reusable crop sprite per plot, indexed like `gameState.plots`. */
   private cropSprites: Phaser.GameObjects.Image[] = [];
   /**
-   * One tile image per plot, indexed like `gameState.plots`. Kept so the
-   * onboarding highlight can breathe the TILE - never the crop sprite, which
-   * owns its own ready bounce.
+   * One tile image per MAXIMAL-grid tile (T3.3a), indexed
+   * `row * FARM_COLS + col` over the frozen FARM_COLS x FARM_MAX_ROWS frame -
+   * the full 4x4 always draws: 'plot'/'plot_occupied' under a plot, visible
+   * 'grass' on plotless tiles (owned-but-empty land and the unowned
+   * pre-expansion 4th row alike). Also what the onboarding highlight breathes
+   * and what arrange mode lifts - never the crop sprite, which owns its own
+   * ready bounce.
    */
-  private readonly plotTiles: Phaser.GameObjects.Image[] = [];
+  private readonly fieldTiles: Phaser.GameObjects.Image[] = [];
   /** Whether the ready-state bounce/glow is currently active, per plot. */
   private readyActive: boolean[] = [];
   /**
@@ -713,6 +743,21 @@ export class FarmScene extends Phaser.Scene {
   private arrangeModeActive = false;
   /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
   private selectedDecorationIndex: number | null = null;
+  /**
+   * Index into `gameState.plots` of the selected plot (T3.3a), or null.
+   * Mutually exclusive with `selectedDecorationIndex` - selecting either
+   * clears the other. Only empty plots are ever selected.
+   */
+  private selectedPlotIndex: number | null = null;
+  /** The plot being drag-moved right now (T3.3a), or null outside a lift. */
+  private plotDragIndex: number | null = null;
+  /** The live snap tile of the in-flight plot drag - always owned and free. */
+  private plotDragCol = 0;
+  private plotDragRow = 0;
+  /** The plot-grant popup (T3.3a) - see `create` and the update() drain. */
+  private plotGrantPopup!: PlotGrantPopup;
+  /** The Shed panel's "Farm Plot xN" row (T3.3a), separate from the decor rows. */
+  private plotShedRow!: WarehouseRow;
   /** T3.27 dev-only decor sizing probe flag - see `setDecorSizingEnabled`. Off by default. */
   private decorSizingEnabled = false;
   private arrangeDoneButton!: Phaser.GameObjects.NineSlice;
@@ -897,6 +942,7 @@ export class FarmScene extends Phaser.Scene {
     this.createGroundLayer(this.groundMode);
     this.createDirtPath();
     this.createSceneDressing();
+    this.createFieldTiles();
     this.buildPlotVisuals();
     // Audio is background-loaded (T3.21): the playlist + ambient bed are
     // queued on this scene's own loader rather than blocking Preload, so the
@@ -1011,6 +1057,11 @@ export class FarmScene extends Phaser.Scene {
     // Weekly rollover notice (T3.19): drained in update(), where it defers
     // behind the offline summary (via isModalOpen) and the celebrations.
     this.weeklyNoticePanel = this.inUiLayer(() => new WeeklyNoticePanel(this, this.audio));
+    // Plot-grant popup (T3.3a): drained in update() exactly like the weekly
+    // notice; Place Now hands off to arrange mode with a shed plot spawned.
+    this.plotGrantPopup = this.inUiLayer(
+      () => new PlotGrantPopup(this, this.audio, () => this.handlePlaceNow()),
+    );
 
     // Coin arcs are not wired to gameplay until the HUD/sell task; expose a
     // console hook so curved flights can be verified now.
@@ -1184,6 +1235,32 @@ export class FarmScene extends Phaser.Scene {
       const notices = gameState.consumeWeeklyNotices();
       if (notices.length > 0) this.weeklyNoticePanel.show(notices[0]!);
     }
+    // Plot-grant popup (T3.3a): same deferral as the weekly notice. Unlike
+    // it, multiple queued grants merge into one truthful total rather than
+    // dropping the extras (dev.grantPlots can queue several between ticks).
+    // Also deferred out of arrange mode - a grant landing mid-arrange shows
+    // its popup once the player is done arranging.
+    if (
+      !this.levelUpCelebration.isActive() &&
+      !this.chestCeremony.isActive() &&
+      !isModalOpen() &&
+      !this.arrangeModeActive
+    ) {
+      const grants = gameState.consumePlotGrantEvents();
+      if (grants.length > 0) {
+        this.plotGrantPopup.show(grants.reduce((sum, grant) => sum + grant.count, 0));
+      }
+    }
+    // Edit Layout flash (T3.3a): pulses while plots wait in the shed, paused
+    // while the grant popup is up and during arrange mode itself (leaving
+    // arrange mode with plots still unplaced resumes it here next tick).
+    const flashState = gameState.getState();
+    this.hud.setArrangeFlash(
+      flashState.onboarding.completed &&
+        flashState.unplacedPlots > 0 &&
+        !this.plotGrantPopup.isVisible() &&
+        !this.arrangeModeActive,
+    );
     // Chest events (T2.23a) are deferred behind the level-up celebration: a
     // fulfillment that both levels up and earns a chest must show the level
     // celebration first, chest ceremony after - so while it's active, this
@@ -1292,7 +1369,7 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     const world = this.fieldPointerWorld(pointer);
-    const plotIndex = plotIndexAtScreen(world.x, world.y, this.rowCount());
+    const plotIndex = plotIndexAtScreen(world.x, world.y, gameState.getState().plots);
     if (!this.arrangeModeActive && plotIndex !== null && this.plotActionable(plotIndex)) {
       // T3.4c: ARM the plot, do not process it - a pinch's first finger
       // landing on a ready crop must zoom, never harvest. Confirmation
@@ -1320,7 +1397,7 @@ export class FarmScene extends Phaser.Scene {
   private beginFarmGesture(pointer: Phaser.Input.Pointer): void {
     this.gestureMode = null;
     const world = this.fieldPointerWorld(pointer);
-    const plotIndex = this.plotTracker.begin(world.x, world.y, this.rowCount());
+    const plotIndex = this.plotTracker.begin(world.x, world.y, gameState.getState().plots);
     this.maybeShowCountdown(plotIndex);
     this.handlePlotEntered(plotIndex);
   }
@@ -1357,7 +1434,7 @@ export class FarmScene extends Phaser.Scene {
     const plotIndex = this.plotTracker.begin(
       this.armedFarmWorldX,
       this.armedFarmWorldY,
-      this.rowCount(),
+      gameState.getState().plots,
     );
     this.handlePlotEntered(plotIndex);
   }
@@ -1408,7 +1485,7 @@ export class FarmScene extends Phaser.Scene {
         this.fieldGesture = 'farm';
         this.confirmArmedPlot();
         const world = this.fieldPointerWorld(pointer);
-        this.handlePlotEntered(this.plotTracker.move(world.x, world.y, this.rowCount()));
+        this.handlePlotEntered(this.plotTracker.move(world.x, world.y, gameState.getState().plots));
       }
       return;
     }
@@ -1432,7 +1509,7 @@ export class FarmScene extends Phaser.Scene {
     }
     if (this.fieldGesture === 'farm' && !this.farmingSuppressed) {
       const world = this.fieldPointerWorld(pointer);
-      this.handlePlotEntered(this.plotTracker.move(world.x, world.y, this.rowCount()));
+      this.handlePlotEntered(this.plotTracker.move(world.x, world.y, gameState.getState().plots));
     }
   }
 
@@ -1834,11 +1911,6 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
-  /** Current row count (3 base, 4 once expanded), derived from saved plot count. */
-  private rowCount(): number {
-    return gameState.getState().plots.length / FARM_COLS;
-  }
-
   /**
    * Open the crop info card from a seed bar "i" tap: closes the bag/orders/
    * settings panels first, the established panel-exclusivity behavior (see
@@ -1850,13 +1922,14 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Attempt the farm expansion purchase. On success, builds the new row's
-   * tiles/sprites (state updates instantly - planting on a still-fading plot
-   * is allowed), then fades each new plot's tile in from alpha 0 on a
-   * staggered timer - a calm reveal with no particle bursts, timed to the
-   * expand fanfare which ducks everything else while it plays; on failure
-   * (insufficient coins - the sign is hidden once already expanded, so that
-   * is the only failure reachable from a tap) nudges the sign instead.
+   * Attempt the farm expansion purchase (T3.3a rework): on success the 4 new
+   * plots land in the SHED (`grantPlots` inside `expandFarm`), not on fixed
+   * tiles - so there is no new-row reveal here anymore. The fanfare and buzz
+   * play, the sign hides, and the grant popup (queued by the store) follows
+   * on the next refresh tick; the 4th row's grass tiles were already visible
+   * as the unowned-land preview. On failure (insufficient coins - the sign
+   * is hidden once already expanded, so that is the only failure reachable
+   * from a tap) nudges the sign instead.
    */
   private tryExpand(): void {
     if (!gameState.expandFarm()) {
@@ -1864,24 +1937,6 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     this.audio.expandFanfare();
-    // Expansion adds a row, which recenters the iso origin - reposition every
-    // existing plot before building the new row's visuals at the new origin.
-    const rowCount = this.rowCount();
-    for (let index = 0; index < BASE_PLOT_COUNT; index++) {
-      this.repositionPlotVisuals(index, rowCount);
-    }
-    for (let index = BASE_PLOT_COUNT; index < EXPANDED_PLOT_COUNT; index++) {
-      this.createPlotVisuals(index, rowCount);
-      const tile = this.plotTiles[index];
-      if (tile === undefined) continue;
-      tile.setAlpha(0);
-      this.tweens.add({
-        targets: tile,
-        alpha: 1,
-        delay: (index - BASE_PLOT_COUNT) * EXPAND_REVEAL_STAGGER_MS,
-        duration: EXPAND_REVEAL_FADE_MS,
-      });
-    }
     buzz(HAPTIC_MEDIUM_MS);
     this.expandSign.refresh(gameState.getState());
   }
@@ -2149,36 +2204,51 @@ export class FarmScene extends Phaser.Scene {
     return next;
   }
 
+  /** Maximal-grid tile index for (col, row) - `fieldTiles`' own indexing. */
+  private tileIndex(col: number, row: number): number {
+    return row * FARM_COLS + col;
+  }
+
+  /** The index into `gameState.plots` of the plot on maximal tile `tileIndex`, or null. */
+  private plotIndexOnTile(tileIndex: number): number | null {
+    const plots = gameState.getState().plots;
+    for (let index = 0; index < plots.length; index++) {
+      const plot = plots[index]!;
+      if (this.tileIndex(plot.col, plot.row) === tileIndex) return index;
+    }
+    return null;
+  }
+
   /**
-   * Build the plot tile + crop sprite for every saved plot (12 on a fresh or
-   * unexpanded save, 16 on an expanded one) - so a 16-plot save renders its
-   * 4th row, correctly recentered, immediately on load. Also called (per new
-   * index) at runtime when `tryExpand` succeeds, so the new row appears
-   * without a scene reload.
+   * Build the full maximal-grid tile field once (T3.3a): all
+   * FARM_COLS x FARM_MAX_ROWS tiles, in the frozen frame, frames re-derived
+   * from state every refresh tick ('grass' where no plot sits - see
+   * `refreshFieldTiles`). Inert in normal play; arrange mode makes
+   * plot-hosting tiles interactive (`refreshArrangePlotInteractivity`) for
+   * select/lift, wired here once - the same "always wired, only listens
+   * while the mode flag is on" pattern as `createDecorationSprite`.
    */
-  private buildPlotVisuals(): void {
-    const plotCount = gameState.getState().plots.length;
-    const rowCount = plotCount / FARM_COLS;
-    for (let index = 0; index < plotCount; index++) {
-      this.createPlotVisuals(index, rowCount);
+  private createFieldTiles(): void {
+    for (let row = 0; row < FARM_MAX_ROWS; row++) {
+      for (let col = 0; col < FARM_COLS; col++) {
+        const { x, y } = gridToIso(col, row);
+        const tile = this.add.image(x, y, ATLAS_KEY, 'grass').setOrigin(0.5, TILE_ORIGIN_Y);
+        this.wirePlotTileInput(tile, this.tileIndex(col, row));
+        this.fieldTiles.push(tile);
+      }
     }
   }
 
-  /** (col, row) for a plot index, inverse of `index = row * FARM_COLS + col`. */
-  private indexToGrid(index: number): { col: number; row: number } {
-    return { col: index % FARM_COLS, row: Math.floor(index / FARM_COLS) };
-  }
-
   /**
-   * Create one plot's tile and crop sprite, positioned on the iso grid (for
-   * the given current row count) with the crop's baseline anchoring, hidden
-   * until the plot has a growing crop. Sprites are reused for the life of the
-   * scene - no per-frame allocation.
+   * Create one plot's crop sprite at its saved tile, with the crop's
+   * baseline anchoring, hidden until the plot has a growing crop. Sprites
+   * are reused for the life of the scene - no per-frame allocation. (The
+   * tile under it is one of the 16 permanent `fieldTiles` now, not a
+   * per-plot image.)
    */
-  private createPlotVisuals(index: number, rowCount: number): void {
-    const { col, row } = this.indexToGrid(index);
-    const { x, y } = gridToIso(col, row, rowCount);
-    this.plotTiles[index] = this.add.image(x, y, ATLAS_KEY, 'plot').setOrigin(0.5, TILE_ORIGIN_Y);
+  private createPlotVisuals(index: number): void {
+    const plot = gameState.getState().plots[index];
+    const { x, y } = plot === undefined ? gridToIso(0, 0) : gridToIso(plot.col, plot.row);
     const sprite = this.add
       .image(x, y, ATLAS_KEY, CROPS.sunwheat.stageFrames[0])
       .setOrigin(0.5, CROP_BASELINE_Y / CROP_FRAME_SIZE)
@@ -2190,32 +2260,23 @@ export class FarmScene extends Phaser.Scene {
     this.popActive[index] = false;
   }
 
-  /**
-   * Reposition an already-built plot's tile/sprite for a new row count - used
-   * when expansion recenters the whole grid. Depth is re-derived from the new
-   * y like at creation, so draw order stays correct after the shift.
-   */
-  private repositionPlotVisuals(index: number, rowCount: number): void {
-    const { col, row } = this.indexToGrid(index);
-    const { x, y } = gridToIso(col, row, rowCount);
-    this.plotTiles[index]?.setPosition(x, y);
-    this.cropSprites[index]?.setPosition(x, y).setDepth(y);
-    this.plotPositions[index] = { x, y };
+  /** One crop sprite per saved plot, at each plot's own saved tile. */
+  private buildPlotVisuals(): void {
+    const plotCount = gameState.getState().plots.length;
+    for (let index = 0; index < plotCount; index++) {
+      this.createPlotVisuals(index);
+    }
   }
 
   /**
-   * Keep the built tile/sprite set in step with `plots.length`, so a plot
-   * count change outside `tryExpand` (a dev reset of an expanded save back
-   * to 12 plots, or importing a 16-plot save) renders correctly without a
-   * reload: extras are destroyed, missing ones are created, and everything
-   * remaining is repositioned for the new grid origin. A cheap length check
-   * on the refresh tick; a no-op after `tryExpand`, which builds its own.
+   * Keep the crop-sprite set in step with state (T3.3a): counts AND
+   * coordinates - a placed plot (append), a dev import/reset (shrink), and a
+   * moved plot (same count, new tile) all re-render correctly without a
+   * reload. Cheap on the refresh tick: a length compare plus one position
+   * compare per plot.
    */
-  private syncPlotVisuals(plotCount: number): void {
-    if (this.plotTiles.length === plotCount) return;
-    const rowCount = plotCount / FARM_COLS;
-    while (this.plotTiles.length > plotCount) {
-      this.plotTiles.pop()?.destroy();
+  private syncPlotVisuals(plots: readonly PlotState[]): void {
+    while (this.cropSprites.length > plots.length) {
       const sprite = this.cropSprites.pop();
       if (sprite !== undefined) {
         this.tweens.killTweensOf(sprite);
@@ -2225,11 +2286,40 @@ export class FarmScene extends Phaser.Scene {
       this.readyActive.pop();
       this.popActive.pop();
     }
-    for (let index = 0; index < this.plotTiles.length; index++) {
-      this.repositionPlotVisuals(index, rowCount);
+    while (this.cropSprites.length < plots.length) {
+      this.createPlotVisuals(this.cropSprites.length);
     }
-    while (this.plotTiles.length < plotCount) {
-      this.createPlotVisuals(this.plotTiles.length, rowCount);
+    for (let index = 0; index < plots.length; index++) {
+      const plot = plots[index]!;
+      const { x, y } = gridToIso(plot.col, plot.row);
+      const pos = this.plotPositions[index];
+      if (pos === undefined || pos.x !== x || pos.y !== y) {
+        this.plotPositions[index] = { x, y };
+        this.cropSprites[index]?.setPosition(x, y).setDepth(y);
+      }
+    }
+  }
+
+  /**
+   * Re-derive every maximal-grid tile's frame from state (T3.3a):
+   * 'plot'/'plot_occupied' under a plot, visible 'grass' otherwise (owned
+   * empty land and the unowned pre-expansion 4th row alike - the grass
+   * diamond is the "placeable land" read either way, with the ExpandSign
+   * selling the unowned version). Skipped while a plot drag is in flight -
+   * the drag owns the tile frames live until its commit.
+   */
+  private refreshFieldTiles(plots: readonly PlotState[]): void {
+    if (this.plotDragIndex !== null) return;
+    for (let index = 0; index < this.fieldTiles.length; index++) {
+      const tile = this.fieldTiles[index]!;
+      const plotIndex = this.plotIndexOnTile(index);
+      const frame =
+        plotIndex === null
+          ? 'grass'
+          : plots[plotIndex]!.state === 'growing'
+            ? 'plot_occupied'
+            : 'plot';
+      if (tile.frame.name !== frame) tile.setFrame(frame);
     }
   }
 
@@ -2241,18 +2331,15 @@ export class FarmScene extends Phaser.Scene {
    */
   private refreshCrops(): void {
     const plots = gameState.getState().plots;
-    this.syncPlotVisuals(plots.length);
+    this.syncPlotVisuals(plots);
+    // Tile frames live on the maximal-grid field now (T3.3a) - re-derived
+    // per tile ('grass'/'plot'/'plot_occupied'), not per plot index.
+    this.refreshFieldTiles(plots);
     const nowMs = now();
     for (let index = 0; index < plots.length; index++) {
       const plot = plots[index];
       const sprite = this.cropSprites[index];
       if (plot === undefined || sprite === undefined) continue;
-
-      // Occupied plots show the planted-soil tile; frame set only on change,
-      // same pattern as the crop sprite frames below.
-      const tile = this.plotTiles[index];
-      const tileFrame = plot.state === 'growing' ? 'plot_occupied' : 'plot';
-      if (tile !== undefined && tile.frame.name !== tileFrame) tile.setFrame(tileFrame);
 
       if (plot.state === 'empty') {
         // A mid-pop sprite is already reset-and-hidden by the pop's own
@@ -2312,7 +2399,7 @@ export class FarmScene extends Phaser.Scene {
     for (let index = 0; index < plots.length; index++) {
       const plot = plots[index];
       const pos = this.plotPositions[index];
-      const tile = this.plotTiles[index];
+      const tile = this.fieldTiles[this.tileIndex(plot?.col ?? 0, plot?.row ?? 0)];
       if (plot === undefined || pos === undefined || tile === undefined) continue;
       const matches =
         kind === 'empty'
@@ -2672,11 +2759,13 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Highlights the tapped decoration with a tint; clears the previous
-   * selection's tint first - mirrors `setDressingSelection`. Also
-   * re-derives the Store button's enabled/dim state (T3.9b), since that
-   * button always acts on whatever is currently selected.
+   * selection's tint first - mirrors `setDressingSelection`. Selecting a
+   * decoration also deselects any selected plot (T3.3a - one selection at a
+   * time across both kinds). Also re-derives the per-item buttons'
+   * enabled/dim states, since they always act on whatever is selected.
    */
   private setDecorationSelection(index: number | null): void {
+    if (index !== null) this.clearPlotSelectionTint();
     if (this.selectedDecorationIndex !== null) {
       this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
     }
@@ -2685,7 +2774,42 @@ export class FarmScene extends Phaser.Scene {
       this.decorationSprites[index]?.setTint(DRESSING_SELECTED_TINT);
       if (this.decorSizingEnabled) this.logDecorSizing(index);
     }
-    this.updateArrangeStoreButtonState();
+    this.updateArrangeItemButtonsState();
+  }
+
+  /**
+   * Select a plot (T3.3a): tints its tile, deselecting any decoration (and
+   * the previous plot) first - the plot-side mirror of
+   * `setDecorationSelection`, driving the same per-item button re-derive.
+   */
+  private setPlotSelection(index: number | null): void {
+    if (index !== null && this.selectedDecorationIndex !== null) {
+      this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
+      this.selectedDecorationIndex = null;
+    }
+    this.clearPlotSelectionTint();
+    this.selectedPlotIndex = index;
+    this.applyPlotSelectionTint();
+    this.updateArrangeItemButtonsState();
+  }
+
+  /** Clear the selected plot's tile tint and forget the selection index. */
+  private clearPlotSelectionTint(): void {
+    if (this.selectedPlotIndex === null) return;
+    const plot = gameState.getState().plots[this.selectedPlotIndex];
+    if (plot !== undefined) {
+      this.fieldTiles[this.tileIndex(plot.col, plot.row)]?.clearTint();
+    }
+    this.selectedPlotIndex = null;
+  }
+
+  /** (Re-)tint the selected plot's CURRENT tile - called after a move commit too. */
+  private applyPlotSelectionTint(): void {
+    if (this.selectedPlotIndex === null) return;
+    const plot = gameState.getState().plots[this.selectedPlotIndex];
+    if (plot !== undefined) {
+      this.fieldTiles[this.tileIndex(plot.col, plot.row)]?.setTint(DRESSING_SELECTED_TINT);
+    }
   }
 
   /**
@@ -2878,10 +3002,11 @@ export class FarmScene extends Phaser.Scene {
   /**
    * Show/hide + enable/disable the arrange-mode controls together, so a
    * hidden control is never still tappable. The Store button is EXCLUDED
-   * from the blanket interactive toggle - `updateArrangeStoreButtonState`
+   * from the blanket interactive toggle - `updateArrangeItemButtonsState`
    * owns its enabled/dim state (it must stay dim/disabled while shown
-   * whenever nothing is selected), called right after this on both
-   * `enterArrangeMode` and `exitArrangeMode`.
+   * whenever nothing is selected), called right after this on
+   * `enterArrangeMode`; it also re-derives Scale/Flip, which the blanket
+   * enable below may have just turned on despite a selected plot (T3.3a).
    */
   private setArrangeControlsVisible(visible: boolean): void {
     const controls: readonly [Phaser.GameObjects.NineSlice, Phaser.GameObjects.Text][] = [
@@ -2907,33 +3032,42 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Store button (T3.9b): enabled only while a decoration is selected, dim
-   * and inert otherwise - same enabled/dim convention as DecorShop's Buy
-   * button. Called whenever the selection changes (`setDecorationSelection`)
-   * and whenever the row's visibility changes (`enterArrangeMode`/
-   * `exitArrangeMode`).
+   * Per-item arrange buttons (T3.9b, plot rules added in T3.3a): the Put
+   * Away button is enabled only while a DECORATION is selected (grants are
+   * one-way - no put-away for plots), dim and inert otherwise - same
+   * enabled/dim convention as DecorShop's Buy button. Scale +/- and Flip
+   * disable while a PLOT is selected (plots snap to the grid - they never
+   * scale or flip); with a decoration or nothing selected they stay enabled
+   * as before (a no-selection tap is a no-op). Called whenever the selection
+   * changes and whenever the rows' visibility changes.
    */
-  private updateArrangeStoreButtonState(): void {
-    const enabled = this.selectedDecorationIndex !== null;
+  private updateArrangeItemButtonsState(): void {
+    const storeEnabled = this.selectedDecorationIndex !== null;
     this.arrangeStoreButton.setAlpha(
-      enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
+      storeEnabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
     );
-    if (enabled) {
+    if (storeEnabled) {
       this.arrangeStoreButton.setInteractive({ useHandCursor: true });
     } else {
       this.arrangeStoreButton.disableInteractive();
     }
+    const scaleFlipEnabled = this.selectedPlotIndex === null;
+    for (const button of [
+      this.arrangeScaleDownButton,
+      this.arrangeScaleUpButton,
+      this.arrangeFlipButton,
+    ]) {
+      button.setAlpha(
+        scaleFlipEnabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
+      );
+      if (scaleFlipEnabled && this.arrangeModeActive) {
+        button.setInteractive({ useHandCursor: true });
+      } else {
+        button.disableInteractive();
+      }
+    }
   }
 
-  /**
-   * Enter arrange mode (T3.9a): called by the Decor Shop's "Arrange Farm"
-   * button (already closed by then). Makes every placed decoration
-   * draggable + tap-selectable, hides the seed bar and shows the floating
-   * control row in its band (T3.9b), and suppresses every other interactive
-   * object in the scene (field gestures are gated separately, in
-   * `handlePlotEntered`/`maybeShowCountdown` - mirrors `setDressingEditActive`
-   * exactly, just player-facing.
-   */
   /**
    * The HUD's "Edit Layout" button (T3.25): a single control that opens
    * arrange mode from the farm and closes it while arranging (the button is
@@ -2947,18 +3081,32 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
+  /**
+   * Enter arrange mode (T3.9a): called by the Decor Shop's "Arrange Farm"
+   * button (already closed by then). Makes every placed decoration
+   * draggable + tap-selectable (and every plot-hosting tile lift-testable -
+   * T3.3a, see `refreshArrangePlotInteractivity`), hides the seed bar and
+   * shows the floating control row in its band (T3.9b), and suppresses every
+   * other interactive object in the scene (field gestures are gated
+   * separately, in `handlePlotEntered`/`maybeShowCountdown` - mirrors
+   * `setDressingEditActive` exactly, just player-facing.
+   */
   private enterArrangeMode(): void {
     this.arrangeModeActive = true;
     this.selectedDecorationIndex = null;
+    this.selectedPlotIndex = null;
     this.seedBar.setVisible(false);
     for (const sprite of this.decorationSprites) sprite.setInteractive({ draggable: true });
     this.setArrangeControlsVisible(true);
-    this.updateArrangeStoreButtonState();
+    this.updateArrangeItemButtonsState();
     this.setOtherHitboxesEnabled(
       false,
       this.arrangeExemptObjects(),
       this.arrangeModeDisabledObjects,
     );
+    // AFTER the hitbox sweep, so the tiles are never swept into its disabled
+    // list (they were inert when it snapshotted the interactive set).
+    this.refreshArrangePlotInteractivity();
   }
 
   /**
@@ -2972,7 +3120,17 @@ export class FarmScene extends Phaser.Scene {
     this.hideWarehousePanel();
     this.arrangeModeActive = false;
     this.setDecorationSelection(null);
+    this.setPlotSelection(null);
+    this.plotDragIndex = null;
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
+    // Field tiles go inert again (T3.3a). They are exempt from the enter
+    // sweep (see `arrangeExemptObjects`), so the restore pass below can
+    // never re-enable them behind this - root-caused live: a once-arranged
+    // tile stays in Phaser's interactive `_list` even while disabled, so a
+    // SECOND arrange session's sweep would otherwise catalog it as
+    // "disabled by the sweep" and wrongly restore it on exit, leaving
+    // invisible tile hitboxes that eat every field tap.
+    for (const tile of this.fieldTiles) tile.disableInteractive();
     this.setArrangeControlsVisible(false);
     this.seedBar.setVisible(true);
     this.setOtherHitboxesEnabled(true, [], this.arrangeModeDisabledObjects);
@@ -2983,6 +3141,10 @@ export class FarmScene extends Phaser.Scene {
   private arrangeExemptObjects(): Phaser.GameObjects.GameObject[] {
     return [
       ...this.decorationSprites,
+      // Owned entirely by refreshArrangePlotInteractivity/exitArrangeMode
+      // (T3.3a) - the sweep must neither disable nor, crucially, RESTORE
+      // them (see exitArrangeMode's comment).
+      ...this.fieldTiles,
       this.arrangeDoneButton,
       this.arrangeScaleDownButton,
       this.arrangeScaleUpButton,
@@ -3034,6 +3196,221 @@ export class FarmScene extends Phaser.Scene {
     this.decorationSprites.push(sprite);
     this.decorationShadowSprites.push(this.createGroundShadow(sprite));
     this.setDecorationSelection(index);
+  }
+
+  /**
+   * Wire one maximal-grid tile for arrange mode (T3.3a), once at creation -
+   * the handlers self-gate on `arrangeModeActive`, and the tile only becomes
+   * interactive at all via `refreshArrangePlotInteractivity`, mirroring
+   * `createDecorationSprite`'s "always wired, only listens in the mode"
+   * pattern. A down on an EMPTY plot's tile selects it; a growing plot
+   * refuses to lift with a brief tile shake (harvest first, then move).
+   * Dragging never moves this image free-form: the lift renders purely as
+   * tile-frame swaps, snapped LIVE to the nearest owned free tile
+   * (`updatePlotDragSnap`), and the release commits through
+   * `gameState.movePlot` - the store stays the sole rule authority.
+   */
+  private wirePlotTileInput(tile: Phaser.GameObjects.Image, tileIndex: number): void {
+    tile.on('pointerdown', () => {
+      if (!this.arrangeModeActive) return;
+      const plotIndex = this.plotIndexOnTile(tileIndex);
+      if (plotIndex === null) return;
+      const plot = gameState.getState().plots[plotIndex];
+      if (plot === undefined) return;
+      if (plot.state === 'growing') {
+        this.shakeLockedPlot(tileIndex);
+        return;
+      }
+      this.setPlotSelection(plotIndex);
+    });
+    tile.on('dragstart', () => {
+      if (!this.arrangeModeActive) return;
+      const plotIndex = this.plotIndexOnTile(tileIndex);
+      if (plotIndex === null) return;
+      const plot = gameState.getState().plots[plotIndex];
+      if (plot?.state !== 'empty') return;
+      this.plotDragIndex = plotIndex;
+      this.plotDragCol = plot.col;
+      this.plotDragRow = plot.row;
+    });
+    tile.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
+      if (!this.arrangeModeActive || this.plotDragIndex === null) return;
+      // dragX/dragY track where the tile's own position would be if it moved
+      // free-form - i.e. the lifted diamond's center - which is exactly the
+      // point to snap to the grid.
+      const { col, row } = isoToGrid(dragX, dragY);
+      this.updatePlotDragSnap(Math.round(col), Math.round(row));
+    });
+    tile.on('dragend', () => {
+      if (this.plotDragIndex === null) return;
+      this.commitPlotDrag();
+    });
+  }
+
+  /**
+   * Live snap of an in-flight plot lift (T3.3a): hovering a NEW tile that is
+   * owned and free (of every plot but the lifted one) moves the plot's
+   * visual there instantly - pure tile-frame swaps ('grass' where it left,
+   * 'plot' + selection tint where it landed), never free-form pixels.
+   * Anything else (unowned, occupied, off-grid) keeps the current snap, so
+   * the plot is always parked somewhere legal.
+   */
+  private updatePlotDragSnap(col: number, row: number): void {
+    if (this.plotDragIndex === null) return;
+    if (col === this.plotDragCol && row === this.plotDragRow) return;
+    if (col < 0 || col >= FARM_COLS || row < 0 || row >= FARM_MAX_ROWS) return;
+    const state = gameState.getState();
+    if (!ownedPlotTiles(state).some((tile) => tile.col === col && tile.row === row)) return;
+    const occupant = state.plots.findIndex((plot) => plot.col === col && plot.row === row);
+    if (occupant !== -1 && occupant !== this.plotDragIndex) return;
+    const previous = this.fieldTiles[this.tileIndex(this.plotDragCol, this.plotDragRow)];
+    previous?.setFrame('grass').clearTint();
+    this.plotDragCol = col;
+    this.plotDragRow = row;
+    const next = this.fieldTiles[this.tileIndex(col, row)];
+    next?.setFrame('plot').setTint(DRESSING_SELECTED_TINT);
+  }
+
+  /**
+   * Commit the lift (T3.3a): `movePlot` validates once more (owned, free,
+   * empty) and persists; the visuals then re-derive from the committed state
+   * - tile frames, crop-sprite positions, selection tint, and which tiles
+   * are liftable - so the render can never drift from the save even if the
+   * commit is refused.
+   */
+  private commitPlotDrag(): void {
+    const index = this.plotDragIndex;
+    if (index === null) return;
+    this.plotDragIndex = null;
+    gameState.movePlot(index, this.plotDragCol, this.plotDragRow);
+    this.setPlotSelection(index);
+    this.refreshCrops();
+    this.applyPlotSelectionTint();
+    this.refreshArrangePlotInteractivity();
+  }
+
+  /**
+   * Make exactly the plot-hosting tiles interactive/draggable (T3.3a),
+   * everything else inert - called on arrange-mode entry and after every
+   * placement/move, since a plot's tile changes under it. The full
+   * interactive config (diamond hit area included) is re-passed each time,
+   * so the "no-arg setInteractive preserves the hit area" rule is moot here.
+   */
+  private refreshArrangePlotInteractivity(): void {
+    if (!this.arrangeModeActive) return;
+    const plots = gameState.getState().plots;
+    const occupied = new Set(plots.map((plot) => this.tileIndex(plot.col, plot.row)));
+    for (let index = 0; index < this.fieldTiles.length; index++) {
+      const tile = this.fieldTiles[index]!;
+      if (occupied.has(index)) {
+        tile.setInteractive({
+          hitArea: PLOT_TILE_HIT_AREA,
+          hitAreaCallback: Phaser.Geom.Polygon.Contains,
+          draggable: true,
+          useHandCursor: true,
+        });
+      } else {
+        tile.disableInteractive();
+      }
+    }
+  }
+
+  /**
+   * Locked-plot refusal feedback (T3.3a): a growing crop pins its plot, so a
+   * lift attempt answers with a brief tile x-wiggle - the ExpandSign's
+   * insufficient-coins nudge, reused. Tiles carry no other tweens, so the
+   * kill-and-reset is safe.
+   */
+  private shakeLockedPlot(tileIndex: number): void {
+    const tile = this.fieldTiles[tileIndex];
+    if (tile === undefined) return;
+    const baseX = tile.x;
+    this.tweens.killTweensOf(tile);
+    tile.setX(baseX);
+    this.tweens.add({
+      targets: tile,
+      x: baseX + PLOT_LOCKED_SHAKE_DISTANCE,
+      duration: PLOT_LOCKED_SHAKE_STEP_MS,
+      yoyo: true,
+      repeat: 3,
+      ease: 'Sine.easeInOut',
+      onComplete: () => tile.setX(baseX),
+    });
+  }
+
+  /**
+   * Place one shed plot on the best free owned tile (T3.3a): nearest (in
+   * screen space) to the existing plots' center of mass, so new land grows
+   * the farm instead of scattering. Returns the new plot's index, or false
+   * when the shed is empty or no owned tile is free - the graceful refusal
+   * path (the Shed row's Place button is already dimmed then, belt and
+   * braces). On success the visuals re-derive immediately so the plot is
+   * visible, selected, and liftable without waiting for the refresh tick.
+   */
+  private placePlotAtBestTile(): number | false {
+    const state = gameState.getState();
+    if (state.unplacedPlots <= 0) return false;
+    const occupied = new Set(state.plots.map((plot) => this.tileIndex(plot.col, plot.row)));
+    const free = ownedPlotTiles(state).filter(
+      (tile) => !occupied.has(this.tileIndex(tile.col, tile.row)),
+    );
+    if (free.length === 0) return false;
+    let centerX = DESIGN_WIDTH / 2;
+    let centerY = DESIGN_HEIGHT / 2;
+    if (state.plots.length > 0) {
+      let sumX = 0;
+      let sumY = 0;
+      for (const plot of state.plots) {
+        const pos = gridToIso(plot.col, plot.row);
+        sumX += pos.x;
+        sumY += pos.y;
+      }
+      centerX = sumX / state.plots.length;
+      centerY = sumY / state.plots.length;
+    }
+    let best = free[0]!;
+    let bestDistSq = Number.POSITIVE_INFINITY;
+    for (const tile of free) {
+      const pos = gridToIso(tile.col, tile.row);
+      const distSq = (pos.x - centerX) ** 2 + (pos.y - centerY) ** 2;
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq;
+        best = tile;
+      }
+    }
+    const index = gameState.placePlot(best.col, best.row);
+    if (index === false) return false;
+    this.refreshCrops();
+    return index;
+  }
+
+  /**
+   * The grant popup's Place Now path (T3.3a): straight into arrange mode
+   * with one plot auto-taken from the shed, spawned selected and liftable.
+   * With no free owned tile (only reachable via dev over-granting), it still
+   * enters arrange mode - the plot stays in the shed and the Edit Layout
+   * flash resumes on exit.
+   */
+  private handlePlaceNow(): void {
+    if (!this.arrangeModeActive) this.enterArrangeMode();
+    const placed = this.placePlotAtBestTile();
+    if (placed === false) return;
+    this.setPlotSelection(placed);
+    this.refreshArrangePlotInteractivity();
+  }
+
+  /**
+   * The Shed panel's "Farm Plot" Place button (T3.3a): same flow as a decor
+   * row's Place - panel closes and the new item arrives selected - except
+   * the plot spawns snapped to the best free owned tile, never free-form.
+   */
+  private placeShedPlot(): void {
+    const placed = this.placePlotAtBestTile();
+    if (placed === false) return;
+    this.audio.sfx('tap');
+    this.hideWarehousePanel();
+    this.setPlotSelection(placed);
+    this.refreshArrangePlotInteractivity();
   }
 
   /**
@@ -3118,14 +3495,39 @@ export class FarmScene extends Phaser.Scene {
       ) => event.stopPropagation(),
     );
 
+    // The "Farm Plot xN" row (T3.3a) leads the panel - counted from
+    // `unplacedPlots`, not the warehouse record, and placing snaps to the
+    // best free owned tile instead of a free-form spawn. Its icon keeps the
+    // plot frame's own wide-diamond aspect (a square would visibly squash it;
+    // decor/trophy frames are square already, so only this row needs it).
+    this.plotShedRow = this.buildWarehouseRow('plot', 'Farm Plot', WAREHOUSE_NAME_STYLE, () =>
+      this.placeShedPlot(),
+    );
+    this.plotShedRow.icon.setDisplaySize(
+      WAREHOUSE_ICON_SIZE,
+      (WAREHOUSE_ICON_SIZE * TILE_FRAME_HEIGHT) / TILE_WIDTH,
+    );
     this.warehouseRows = [
       ...DECOR_ITEMS.map((item) =>
-        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_NAME_STYLE),
+        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_NAME_STYLE, () =>
+          this.placeShedDecoration(item.frame),
+        ),
       ),
       ...TROPHY_ITEMS.map((item) =>
-        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_TROPHY_NAME_STYLE),
+        this.buildWarehouseRow(item.frame, item.name, WAREHOUSE_TROPHY_NAME_STYLE, () =>
+          this.placeShedDecoration(item.frame),
+        ),
       ),
     ];
+  }
+
+  /** A decor/trophy row's Place action (the pre-T3.3a inline handler, unchanged). */
+  private placeShedDecoration(frame: string): void {
+    const newIndex = gameState.placeFromWarehouse(frame);
+    if (newIndex === false) return;
+    this.audio.sfx('tap');
+    this.hideWarehousePanel();
+    this.spawnPlacedDecorationSprite(newIndex);
   }
 
   /**
@@ -3140,6 +3542,7 @@ export class FarmScene extends Phaser.Scene {
     frame: string,
     name: string,
     nameStyle: Phaser.Types.GameObjects.Text.TextStyle,
+    onPlace: () => void,
   ): WarehouseRow {
     const icon = this.add
       .image(0, 0, ATLAS_KEY, frame)
@@ -3171,13 +3574,7 @@ export class FarmScene extends Phaser.Scene {
       .text(0, 0, 'Place', WAREHOUSE_PLACE_STYLE)
       .setOrigin(0.5)
       .setVisible(false);
-    placeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      const newIndex = gameState.placeFromWarehouse(frame);
-      if (newIndex === false) return;
-      this.audio.sfx('tap');
-      this.hideWarehousePanel();
-      this.spawnPlacedDecorationSprite(newIndex);
-    });
+    placeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onPlace);
 
     this.warehouseContainer.add([icon, nameText, countText, placeButton, placeText]);
     return { frame, icon, nameText, countText, placeButton, placeText };
@@ -3225,6 +3622,7 @@ export class FarmScene extends Phaser.Scene {
     this.warehouseBackdropZone.setVisible(false).disableInteractive();
     this.warehouseBg.disableInteractive();
     this.warehouseCloseButton.disableInteractive();
+    this.plotShedRow.placeButton.disableInteractive();
     for (const row of this.warehouseRows) row.placeButton.disableInteractive();
     setPanelOpen('decor-warehouse', false);
   }
@@ -3240,9 +3638,37 @@ export class FarmScene extends Phaser.Scene {
    * only when nothing is owned at all.
    */
   private refreshWarehousePanel(): void {
-    const warehouse = gameState.getState().warehouse;
+    const state = gameState.getState();
+    const warehouse = state.warehouse;
     let anyOwned = false;
     let visibleIndex = 0;
+    // "Farm Plot xN" leads (T3.3a): counted from `unplacedPlots`. Its Place
+    // button dims (Store-button convention) when no owned tile is free -
+    // that is how a granted-but-unplaceable plot communicates the refusal.
+    const plotCount = state.unplacedPlots;
+    const showPlotRow = plotCount > 0;
+    if (showPlotRow) anyOwned = true;
+    const occupied = new Set(state.plots.map((plot) => this.tileIndex(plot.col, plot.row)));
+    const anyFreeTile = ownedPlotTiles(state).some(
+      (tile) => !occupied.has(this.tileIndex(tile.col, tile.row)),
+    );
+    this.plotShedRow.icon.setVisible(showPlotRow);
+    this.plotShedRow.nameText.setVisible(showPlotRow);
+    this.plotShedRow.countText.setVisible(showPlotRow).setText(`x${plotCount}`);
+    this.plotShedRow.placeText.setVisible(showPlotRow);
+    this.plotShedRow.placeButton.setVisible(showPlotRow);
+    if (showPlotRow) {
+      this.positionWarehouseRow(this.plotShedRow, visibleIndex);
+      visibleIndex++;
+    }
+    this.plotShedRow.placeButton.setAlpha(
+      anyFreeTile ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
+    );
+    if (showPlotRow && anyFreeTile) {
+      this.plotShedRow.placeButton.setInteractive({ useHandCursor: true });
+    } else {
+      this.plotShedRow.placeButton.disableInteractive();
+    }
     for (const row of this.warehouseRows) {
       const owned = warehouse[row.frame] ?? 0;
       const has = owned > 0;

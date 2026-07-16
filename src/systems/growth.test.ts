@@ -8,7 +8,8 @@ import { growthFraction, isReady, secondsUntilNextReady, stageIndex } from './gr
 const GROW = CROPS.sunwheat.growMs;
 
 function plot(plantedAt = 0): GrowingPlot {
-  return { state: 'growing', cropId: 'sunwheat', plantedAt };
+  // Growth math never reads col/row (T3.3a) - any legal tile works here.
+  return { state: 'growing', cropId: 'sunwheat', plantedAt, col: 0, row: 0 };
 }
 
 describe('growthFraction', () => {
@@ -33,7 +34,13 @@ describe('growthFraction', () => {
   });
 
   it('uses the growMs of the planted crop', () => {
-    const starcorn: GrowingPlot = { state: 'growing', cropId: 'starcorn', plantedAt: 0 };
+    const starcorn: GrowingPlot = {
+      state: 'growing',
+      cropId: 'starcorn',
+      plantedAt: 0,
+      col: 0,
+      row: 0,
+    };
     expect(growthFraction(starcorn, CROPS.starcorn.growMs / 4)).toBe(0.25);
   });
 });
@@ -79,9 +86,14 @@ describe('stageIndex', () => {
 
 describe('secondsUntilNextReady (onboarding countdown)', () => {
   it('is null when no plot grows the crop', () => {
-    const plots: PlotState[] = [{ state: 'empty' }, { state: 'empty' }];
+    const plots: PlotState[] = [
+      { state: 'empty', col: 0, row: 0 },
+      { state: 'empty', col: 1, row: 0 },
+    ];
     expect(secondsUntilNextReady(plots, 'sunwheat', 0)).toBeNull();
-    const starcornOnly: PlotState[] = [{ state: 'growing', cropId: 'starcorn', plantedAt: 0 }];
+    const starcornOnly: PlotState[] = [
+      { state: 'growing', cropId: 'starcorn', plantedAt: 0, col: 0, row: 0 },
+    ];
     expect(secondsUntilNextReady(starcornOnly, 'sunwheat', 0)).toBeNull();
   });
 
@@ -95,8 +107,9 @@ describe('secondsUntilNextReady (onboarding countdown)', () => {
     const plots: PlotState[] = [
       plot(10_000), // 10s late: ready at GROW + 10_000
       plot(0), // the soonest
-      { state: 'growing', cropId: 'starcorn', plantedAt: -CROPS.starcorn.growMs }, // ready, wrong crop
-      { state: 'empty' },
+      // Ready, but the wrong crop.
+      { state: 'growing', cropId: 'starcorn', plantedAt: -CROPS.starcorn.growMs, col: 1, row: 0 },
+      { state: 'empty', col: 2, row: 0 },
     ];
     expect(secondsUntilNextReady(plots, 'sunwheat', GROW - 5_000)).toBe(5);
   });

@@ -21,7 +21,14 @@ import {
   WAREHOUSE_PLACE_X,
   WAREHOUSE_PLACE_Y,
 } from '../data/decor';
-import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
+import {
+  BASE_PLOT_COUNT,
+  EXPANDED_PLOT_COUNT,
+  EXPANSION_COST,
+  FARM_COLS,
+  FARM_MAX_ROWS,
+  FARM_ROWS,
+} from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
   MOONDUST_PER_LEVEL,
@@ -88,6 +95,9 @@ export const PLOT_COUNT = BASE_PLOT_COUNT;
 
 export interface EmptyPlot {
   state: 'empty';
+  /** Explicit grid tile (T3.3a), in the frozen FARM_COLS x FARM_MAX_ROWS frame. */
+  col: number;
+  row: number;
 }
 
 export interface GrowingPlot {
@@ -95,12 +105,16 @@ export interface GrowingPlot {
   cropId: CropId;
   /** Game-clock timestamp (see systems/time.ts) when the crop was planted. */
   plantedAt: number;
+  /** Explicit grid tile (T3.3a), in the frozen FARM_COLS x FARM_MAX_ROWS frame. */
+  col: number;
+  row: number;
 }
 
 /**
  * Discriminated union over `state`. Only `empty` and `growing` are ever
  * stored - "ready" is derived from `plantedAt + growMs`, never saved, so
- * offline growth is free and cannot desync.
+ * offline growth is free and cannot desync. Since v16 every plot carries its
+ * own explicit `col`/`row` - positions never derive from the array index.
  */
 export type PlotState = EmptyPlot | GrowingPlot;
 
@@ -223,6 +237,17 @@ export interface WeeklyNoticeEvent {
 }
 
 /**
+ * One successful `grantPlots` call (T3.3a), for the scene's PlotGrantPopup.
+ * Queued AFTER the grant is already in state - the popup is pure display,
+ * like `ChestEvent`. Transient - never saved; a grant whose popup is lost to
+ * an app close still flashes the Edit Layout button on the next session,
+ * since that flash derives live from `unplacedPlots`.
+ */
+export interface PlotGrantEvent {
+  count: number;
+}
+
+/**
  * "While you were away" summary, computed once on `load()` from the gap
  * between `lastSavedAt` and the real clock. Transient - never saved, and
  * cleared by `reset`/`importSave` too, since neither represents a return
@@ -306,6 +331,19 @@ export interface GameStateData {
   xp: number;
   level: number;
   plots: PlotState[];
+  /**
+   * Granted-but-unplaced plots (T3.3a): the "shed" count. `grantPlots` fills
+   * it, `placePlot` drains it one plot at a time onto a chosen owned tile.
+   * Grants are one-way - a placed plot can move but never returns here.
+   */
+  unplacedPlots: number;
+  /**
+   * Whether the one-time farm expansion has been purchased (T3.3a). Grows
+   * `ownedPlotTiles` from the base 4x3 to the full 4x4. Before v16 this was
+   * derived from `plots.length === 16`, which stopped working once granted
+   * plots wait in the shed instead of appearing instantly.
+   */
+  expanded: boolean;
   inventory: Partial<Record<CropId, number>>;
   seeds: Partial<Record<CropId, number>>;
   /** Reserved currency slot; nothing earns or spends it yet. */
@@ -605,6 +643,27 @@ const v14ToV15: Migration = (raw) => {
   };
 };
 
+/**
+ * v15 -> v16: placeable plots (T3.3a). Every plot gains the explicit col/row
+ * the historical index formula rendered it at (index = row * FARM_COLS + col,
+ * so col = i % FARM_COLS, row = floor(i / FARM_COLS)) - nobody's layout
+ * changes shape; unexpanded saves keep rows 0-2 (now in the frozen 4-row
+ * frame, a one-time whole-grid shift by the old-vs-new origin delta) and
+ * expanded saves keep all 16 tiles. `unplacedPlots` starts at 0 (nothing was
+ * ever in the shed before this schema) and `expanded` is derived from the
+ * only signal old saves had: a 16-plot array.
+ */
+const v15ToV16: Migration = (raw) => ({
+  ...raw,
+  plots: Array.isArray(raw.plots)
+    ? raw.plots.map((plot, i) =>
+        isRecord(plot) ? { ...plot, col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) } : plot,
+      )
+    : raw.plots,
+  unplacedPlots: 0,
+  expanded: Array.isArray(raw.plots) && raw.plots.length === EXPANDED_PLOT_COUNT,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -621,6 +680,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v12ToV13,
   v13ToV14,
   v14ToV15,
+  v15ToV16,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -630,7 +690,13 @@ export function createDefaultState(version: number): GameStateData {
     coins: 50,
     xp: 0,
     level: 1,
-    plots: Array.from({ length: PLOT_COUNT }, (): PlotState => ({ state: 'empty' })),
+    plots: Array.from({ length: PLOT_COUNT }, (_, i): PlotState => ({
+      state: 'empty',
+      col: i % FARM_COLS,
+      row: Math.floor(i / FARM_COLS),
+    })),
+    unplacedPlots: 0,
+    expanded: false,
     inventory: {},
     seeds: {},
     moondust: 0,
@@ -652,8 +718,33 @@ export function createDefaultState(version: number): GameStateData {
   };
 }
 
+/**
+ * THE owned-land authority (T3.3a): the tiles plots may occupy - the base
+ * 4x3 rows, growing to the full 4x4 once the expansion is purchased. Every
+ * ownership decision (placement, moves, the scene's free-tile search and
+ * unowned-row rendering) goes through this one function; nothing else may
+ * hardcode ownership. T3.3b (regions) will swap its geometry.
+ */
+export function ownedPlotTiles(
+  state: Pick<GameStateData, 'expanded'>,
+): { col: number; row: number }[] {
+  const rows = state.expanded ? FARM_MAX_ROWS : FARM_ROWS;
+  const tiles: { col: number; row: number }[] = [];
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < FARM_COLS; col++) {
+      tiles.push({ col, row });
+    }
+  }
+  return tiles;
+}
+
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+/** An integer grid coordinate within [0, max). */
+function isGridCoord(value: unknown, max: number): value is number {
+  return isFiniteNumber(value) && Number.isInteger(value) && value >= 0 && value < max;
 }
 
 /** A channel volume: a finite number within 0..1. */
@@ -663,6 +754,8 @@ function isVolume(value: unknown): value is number {
 
 function isPlotState(value: unknown): value is PlotState {
   if (!isRecord(value)) return false;
+  // Explicit tile (T3.3a): integers inside the maximal (frozen) grid.
+  if (!isGridCoord(value.col, FARM_COLS) || !isGridCoord(value.row, FARM_MAX_ROWS)) return false;
   if (value.state === 'empty') return true;
   return (
     value.state === 'growing' &&
@@ -670,6 +763,17 @@ function isPlotState(value: unknown): value is PlotState {
     value.cropId in CROPS &&
     isFiniteNumber(value.plantedAt)
   );
+}
+
+/** No two plots on one tile (T3.3a). Entries must already be shape-proven. */
+function plotsTilesDistinct(plots: readonly PlotState[]): boolean {
+  const seen = new Set<number>();
+  for (const plot of plots) {
+    const key = plot.row * FARM_COLS + plot.col;
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
 }
 
 /** Crop-keyed count map, e.g. inventory and seeds. */
@@ -819,8 +923,17 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isFiniteNumber(raw.xp) &&
     isFiniteNumber(raw.level) &&
     Array.isArray(raw.plots) &&
-    (raw.plots.length === BASE_PLOT_COUNT || raw.plots.length === EXPANDED_PLOT_COUNT) &&
     raw.plots.every(isPlotState) &&
+    // Entries are shape-proven above, so their col/row are safe to read here.
+    plotsTilesDistinct(raw.plots as PlotState[]) &&
+    isFiniteNumber(raw.unplacedPlots) &&
+    Number.isInteger(raw.unplacedPlots) &&
+    raw.unplacedPlots >= 0 &&
+    typeof raw.expanded === 'boolean' &&
+    // Total plot entitlement (placed + shed): at least the base grant, at
+    // most the maximal grid (T3.3a - regions raise the ceiling later).
+    raw.plots.length + raw.unplacedPlots >= BASE_PLOT_COUNT &&
+    raw.plots.length + raw.unplacedPlots <= EXPANDED_PLOT_COUNT &&
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
     isFiniteNumber(raw.moondust) &&
@@ -886,6 +999,8 @@ export class GameStateStore {
   private chestQueue: ChestEvent[] = [];
   /** Pending weekly rollover notices (T3.19) for the scene's panel. Transient - never saved. */
   private weeklyNoticeQueue: WeeklyNoticeEvent[] = [];
+  /** Pending plot grants (T3.3a) for the scene's PlotGrantPopup. Transient - never saved. */
+  private plotGrantQueue: PlotGrantEvent[] = [];
   /**
    * One-shot flag for the tutorial-complete celebration. Transient - never
    * saved, and set ONLY by chain completion in `advanceOnboardingStep`, so
@@ -1042,6 +1157,18 @@ export class GameStateStore {
   }
 
   /**
+   * Drain and return queued plot-grant events (T3.3a); the scene polls this
+   * on its refresh tick, deferred behind celebrations and any open modal
+   * exactly like `consumeWeeklyNotices` - the plots are already in the shed
+   * by then, only the popup waits.
+   */
+  consumePlotGrantEvents(): PlotGrantEvent[] {
+    const events = this.plotGrantQueue;
+    this.plotGrantQueue = [];
+    return events;
+  }
+
+  /**
    * Drain the one-shot tutorial-complete event: true exactly once after the
    * chain's final step completes, false forever after (and false for saves
    * whose `completed` arrived any other way). The scene polls this on its
@@ -1110,7 +1237,13 @@ export class GameStateStore {
     if (this.state.level < crop.unlockLevel) return false;
     if (this.state.coins < crop.seedCost) return false;
     this.state.coins -= crop.seedCost;
-    this.state.plots[plotIndex] = { state: 'growing', cropId, plantedAt: now() };
+    this.state.plots[plotIndex] = {
+      state: 'growing',
+      cropId,
+      plantedAt: now(),
+      col: plot.col,
+      row: plot.row,
+    };
     this.trackOnboardingPlant(cropId);
     this.save();
     return true;
@@ -1127,7 +1260,7 @@ export class GameStateStore {
     if (plot === undefined || plot.state !== 'growing') return false;
     if (!isReady(plot, now())) return false;
     if (!this.railsAllow('harvest')) return false;
-    this.state.plots[plotIndex] = { state: 'empty' };
+    this.state.plots[plotIndex] = { state: 'empty', col: plot.col, row: plot.row };
     // Radiant is a rare bonus-yield proc, suppressed during the tutorial so
     // its scripted economy stays deterministic.
     const isRadiant = this.state.onboarding.completed && this.rng() < RADIANT_CHANCE;
@@ -1172,11 +1305,14 @@ export class GameStateStore {
     const totalCost = plantable.reduce((sum, entry) => sum + CROPS[entry.cropId].seedCost, 0);
     if (this.state.coins < totalCost) return 0;
     for (const entry of plantable) {
+      const plot = this.state.plots[entry.plotIndex]!;
       this.state.coins -= CROPS[entry.cropId].seedCost;
       this.state.plots[entry.plotIndex] = {
         state: 'growing',
         cropId: entry.cropId,
         plantedAt: now(),
+        col: plot.col,
+        row: plot.row,
       };
     }
     this.save();
@@ -1184,20 +1320,92 @@ export class GameStateStore {
   }
 
   /**
-   * Purchase the one-time farm expansion (base 12 plots -> 16). Returns
-   * false without mutating anything unless the farm is still at
-   * BASE_PLOT_COUNT and coins cover EXPANSION_COST - in particular, a second
-   * expansion always fails since plots.length no longer matches. Rejected
-   * during the tutorial (belt-and-braces; the sign is already hidden then).
+   * Purchase the one-time farm expansion (T3.3a rework): charges
+   * EXPANSION_COST and flips `expanded` (which grows `ownedPlotTiles` to the
+   * full 4x4), then GRANTS the 4 new plots into the shed via `grantPlots`
+   * instead of pushing them onto fixed tiles - the player places them
+   * wherever they wish. Returns false without mutating anything if already
+   * expanded or coins are insufficient. Rejected during the tutorial
+   * (belt-and-braces; the sign is already hidden then).
    */
   expandFarm(): boolean {
     if (!this.railsAllow('expand')) return false;
-    if (this.state.plots.length !== BASE_PLOT_COUNT) return false;
+    if (this.state.expanded) return false;
     if (this.state.coins < EXPANSION_COST) return false;
     this.state.coins -= EXPANSION_COST;
-    for (let i = BASE_PLOT_COUNT; i < EXPANDED_PLOT_COUNT; i++) {
-      this.state.plots.push({ state: 'empty' });
+    this.state.expanded = true;
+    // grantPlots saves (and queues the popup event); its cap can never fail
+    // here - an unexpanded save's entitlement is at most 12 before this.
+    this.grantPlots(EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Grant `count` plots into the shed (T3.3a): increments `unplacedPlots`
+   * and queues one `PlotGrantEvent` for the scene's popup. Returns false
+   * without mutating anything unless `count` is a positive integer and the
+   * total plot entitlement (placed + shed) stays within the maximal grid
+   * (16 - regions raise this later): plots can never be granted with nowhere
+   * to ever put them. Autosaves, like the decoration mutators.
+   */
+  grantPlots(count: number): boolean {
+    if (!Number.isInteger(count) || count <= 0) return false;
+    if (this.state.plots.length + this.state.unplacedPlots + count > EXPANDED_PLOT_COUNT) {
+      return false;
     }
+    this.state.unplacedPlots += count;
+    this.plotGrantQueue.push({ count });
+    this.save();
+    return true;
+  }
+
+  /** Whether (col, row) is inside the currently owned land (see `ownedPlotTiles`). */
+  private isTileOwned(col: number, row: number): boolean {
+    return ownedPlotTiles(this.state).some((tile) => tile.col === col && tile.row === row);
+  }
+
+  /** The index of the plot occupying (col, row), or -1 when the tile is free. */
+  private plotIndexAtTile(col: number, row: number): number {
+    return this.state.plots.findIndex((plot) => plot.col === col && plot.row === row);
+  }
+
+  /**
+   * Place one shed plot onto (col, row) (T3.3a): consumes an unplaced plot
+   * into a new empty plot at that tile. Returns the new plot's index (always
+   * `plots.length - 1`, placements only ever append - the same contract as
+   * `placeFromWarehouse`) so the caller can select it, or false without
+   * mutating anything if the shed is empty, the coordinates are not integers,
+   * the tile is not owned, or another plot already occupies it. Autosaves.
+   */
+  placePlot(col: number, row: number): number | false {
+    if (this.state.unplacedPlots <= 0) return false;
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+    if (!this.isTileOwned(col, row)) return false;
+    if (this.plotIndexAtTile(col, row) !== -1) return false;
+    this.state.unplacedPlots--;
+    this.state.plots.push({ state: 'empty', col, row });
+    this.save();
+    return this.state.plots.length - 1;
+  }
+
+  /**
+   * Relocate an EXISTING plot to (col, row) (T3.3a - the arrange-mode move).
+   * Returns false without mutating anything if the index is out of range,
+   * the plot is not empty (a growing crop locks its plot in place - harvest
+   * first, then move), the coordinates are not integers, the tile is not
+   * owned, or ANOTHER plot occupies it (a move onto the plot's own tile is a
+   * valid no-op commit). Autosaves.
+   */
+  movePlot(index: number, col: number, row: number): boolean {
+    const plot = this.state.plots[index];
+    if (plot === undefined || plot.state !== 'empty') return false;
+    if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+    if (!this.isTileOwned(col, row)) return false;
+    const occupant = this.plotIndexAtTile(col, row);
+    if (occupant !== -1 && occupant !== index) return false;
+    plot.col = col;
+    plot.row = row;
     this.save();
     return true;
   }
@@ -1885,6 +2093,7 @@ export class GameStateStore {
     this.radiantQueue = [];
     this.chestQueue = [];
     this.weeklyNoticeQueue = [];
+    this.plotGrantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     let raw: string | null;
@@ -2016,6 +2225,7 @@ export class GameStateStore {
     this.radiantQueue = [];
     this.chestQueue = [];
     this.weeklyNoticeQueue = [];
+    this.plotGrantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = createDefaultState(this.currentVersion);
@@ -2042,6 +2252,7 @@ export class GameStateStore {
     this.radiantQueue = [];
     this.chestQueue = [];
     this.weeklyNoticeQueue = [];
+    this.plotGrantQueue = [];
     this.tutorialCompletePending = false;
     this.offlineSummary = null;
     this.state = restored;

@@ -163,7 +163,10 @@ export class SwipeGuide {
     for (let row = 0; row < FARM_ROWS; row++) {
       for (let c = 0; c < FARM_COLS; c++) {
         const col = row % 2 === 0 ? c : FARM_COLS - 1 - c;
-        const { x, y } = gridToIso(col, row, FARM_ROWS);
+        // Frozen frame (T3.3a): default rowCount, so the serpentine lands on
+        // the plots' actual tiles - the old explicit FARM_ROWS origin would
+        // miss them by the origin delta now.
+        const { x, y } = gridToIso(col, row);
         const last = this.pathX.length - 1;
         if (last >= 0) total += Math.hypot(x - this.pathX[last]!, y - this.pathY[last]!);
         this.pathX.push(x);

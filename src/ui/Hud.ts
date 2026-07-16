@@ -308,6 +308,8 @@ export class Hud {
   private arrangeEnabled = true;
   /** Timestamp of the last accepted "Edit Layout" tap - see EDIT_LAYOUT_TOGGLE_GRACE_MS. */
   private lastArrangeToggleAt = 0;
+  /** The "plots waiting in the shed" pulse (T3.3a) - see `setArrangeFlash`. Null while off. */
+  private arrangeFlashTween: Phaser.Tweens.Tween | null = null;
   /**
    * The Quest Board panel (T3.10a): constructed by `FarmScene` (it needs a
    * `Hud` reference for its own claim-reward juice - see `flyQuestReward`)
@@ -666,6 +668,33 @@ export class Hud {
    */
   getArrangeToggleButton(): Phaser.GameObjects.GameObject {
     return this.arrangeButton;
+  }
+
+  /**
+   * Pulse the "Edit Layout" button while plots wait in the shed (T3.3a): a
+   * gentle perpetual alpha breathe on the whole container, the same
+   * yoyo-tween pattern as the ready-crop bounce and badge bobs. FarmScene
+   * drives this from state on its refresh tick (on while `unplacedPlots > 0`
+   * and neither the grant popup nor arrange mode is up); idempotent - repeat
+   * calls with the same value are no-ops. Turning it off restores the
+   * rails-gated resting alpha.
+   */
+  setArrangeFlash(flashing: boolean): void {
+    if (flashing === (this.arrangeFlashTween !== null)) return;
+    if (flashing) {
+      this.arrangeFlashTween = this.scene.tweens.add({
+        targets: this.arrangeContainer,
+        alpha: 0.35,
+        duration: 450,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    } else {
+      this.arrangeFlashTween?.stop();
+      this.arrangeFlashTween = null;
+      this.arrangeContainer.setAlpha(this.arrangeEnabled ? 1 : BUTTON_INERT_ALPHA);
+    }
   }
 
   /**

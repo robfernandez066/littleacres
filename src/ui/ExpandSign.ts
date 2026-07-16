@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY } from '../config';
-import { BASE_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
+import { EXPANSION_COST } from '../data/farm';
 import type { GameStateData } from '../systems/gameState';
 
 /**
@@ -162,10 +162,12 @@ export class ExpandSign {
 
   /**
    * Re-derive visibility from state: only once onboarding has completed and
-   * only before the (one-time) expansion has been purchased.
+   * only before the (one-time) expansion has been purchased. T3.3a: the
+   * purchase is now the explicit `expanded` flag - plot count no longer
+   * signals it, since granted plots wait in the shed.
    */
   refresh(state: GameStateData): void {
-    this.container.setVisible(state.onboarding.completed && state.plots.length === BASE_PLOT_COUNT);
+    this.container.setVisible(state.onboarding.completed && !state.expanded);
   }
 
   /** Gentle insufficient-coins feedback: an x-wiggle + brief red text flash, throttled. */

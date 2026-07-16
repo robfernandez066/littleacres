@@ -48,6 +48,22 @@ Format:
 
 **Addendum (owner, same day): OVERRIDE ACCEPTED - fence fixed scale = 1.20.** The owner eyeballed 1.20 as matching one plot edge visually (the 128-native frame carries padding, so display-frame px and visible art width differ). T3.3a2 therefore normalizes fences TO scale 1.20 and derives the chain-snap pitch from the fence art's actual opaque width at that scale; the gap-free-outline acceptance case remains the truth test - if outlines cannot close flush at 1.20, the coder flags back for an owner re-eyeball instead of silently resizing.
 
+## 2026-07-16 - Owner redesigns placement freedom after hands-on: whole-scene placement, chain placing, no locked-tile previews -> T3.3a-r cut
+
+**Context:** Owner tested T3.3a, confirmed it works as built, and rejected the underlying zoning model: "technically the owned land is the entire farm scene." New direction: (1) plots placeable on ANY free space in the scene - blocked only by other plots, structure footprints, and decor; the 4x4 owned-rect dies as a placement boundary. (2) Snap is an ASSIST, not a restriction. (3) CHAIN PLACEMENT for plots and decor: commit via a Place button, the next shed item auto-appears adjacent (same column preference, then next column, then next row), repeat until the shed empties, then Done. (4) The unowned 4th-row grass preview tiles ("locked plots") are removed entirely - unowned land renders as nothing; the expand sign simply sells 4 plots.
+
+**PM push-back delivered on true free-form:** off-grid pixel plots would break sweep-harvest/tap hit-testing/tile art and make lone plots look crooked. Counter-proposal awaiting owner confirm: the invisible iso grid extends across the WHOLE scene and every placement snaps to the nearest tile - "anywhere" becomes true, alignment is automatic everywhere (the always-on helpful-tool reading of snap), and only half-tile misalignment is lost. 
+
+**Sequencing:** T3.3a commits as built (coordinates/schema/shed/grants all survive; it is the foundation); the freedom rework is T3.3a-r, cut immediately after, then T3.3a2 (fences + sizing). Loosening placement bounds needs no new schema version. Collision spec for T3.3a-r: blocked = occupied tiles, per-structure fixed tile footprints, and any tile whose diamond contains a decor item's ground anchor.
+
+## 2026-07-16 - T3.3a review PASS -> USER TEST; AC6 cap ruling upheld; out-of-manifest touches accepted; Tests 398
+
+**Context:** T3.3a report DONE (398 tests, +19; one live-found-and-fixed bug: exit-sweep re-enabling once-arranged field tiles - root-caused, tiles exempted from the sweep with ownership documented). Full 3,107-line diff reviewed. Verified: v15->v16 migration matches the historical index formula exactly; validators (integer grid coords, distinct tiles, entitlement within [12,16], boolean expanded); ownedPlotTiles as the sole ownership authority; plotPointer rewritten as pure coordinate lookup; permanent 16-tile field with per-tile frame derivation; diamond hit polygon (tessellation-correct, deliberately unpadded); live tile-snap drag with store-side movePlot as final authority; shed row with dim-refusal convention; popup with swallow-only backdrop + setPanelOpen; flash idempotent with rails-alpha restore; frozen-origin docs honest about the one-time visual shift.
+
+**Rulings:** (1) AC6 cap behavior UPHELD as implemented - grants that can never be placeable refuse at grant time; T3.3b raises the entitlement cap in the same stroke it adds region land. (2) The `expanded` schema field accepted - it fixed a real inconsistency between the design's points 1 and 5. (3) Three out-of-manifest touches accepted (ExpandSign visibility off the new flag, SwipeGuide frozen-origin arg, growth.test literals) - mechanical consequences, correctly flagged not blocked. (4) The expandFarm-after-dev-overgrant edge stays as flagged (dev-only; not special-cased).
+
+**Verdict: USER TEST** with a PM-sequenced script avoiding the cap edge (expansion before any dev grant on the test save), then a single commit.
+
 ## 2026-07-15 - T3.3a issued (placeable plots): four PM prompt-time calls, one flagged for owner veto
 
 **Context:** T3.21a + atlas regen pushed; T3.3a placeable-plots prompt issued per the FINAL land/camera design. PM design calls made at prompt time:

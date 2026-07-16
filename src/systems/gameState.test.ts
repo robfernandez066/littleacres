@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CHEST_COINS_MAX, CHEST_COINS_MIN, CHEST_MOONDUST_AMOUNT } from '../data/chests';
 import { type CropId, CROPS } from '../data/crops';
-import { BASE_PLOT_COUNT, EXPANDED_PLOT_COUNT, EXPANSION_COST } from '../data/farm';
+import {
+  BASE_PLOT_COUNT,
+  EXPANDED_PLOT_COUNT,
+  EXPANSION_COST,
+  FARM_COLS,
+  FARM_MAX_ROWS,
+  FARM_ROWS,
+} from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
   MOONDUST_PER_LEVEL,
@@ -41,6 +48,7 @@ import {
   isValidState,
   MIGRATIONS,
   type Migration,
+  ownedPlotTiles,
   type PlotState,
   PLOT_COUNT,
   RECOVERY_KEY,
@@ -79,6 +87,14 @@ function seededRng(seed: number): () => number {
 function stubRng(...values: number[]): () => number {
   let i = 0;
   return () => values[Math.min(i++, values.length - 1)] ?? 0;
+}
+
+/**
+ * The tile the historical index formula assigns plot `index` - exactly what
+ * `createDefaultState` and the v15 -> v16 migration produce (T3.3a).
+ */
+function tileOf(index: number): { col: number; row: number } {
+  return { col: index % FARM_COLS, row: Math.floor(index / FARM_COLS) };
 }
 
 /**
@@ -390,7 +406,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(14);
+    expect(MIGRATIONS).toHaveLength(15);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -401,7 +417,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(15);
+    expect(state.version).toBe(16);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -424,7 +440,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(15);
+    expect(state.version).toBe(16);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -434,8 +450,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(15);
-    expect(store.getState().version).toBe(15);
+    expect(store.currentVersion).toBe(16);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -471,7 +487,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -515,7 +531,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -555,7 +571,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -643,11 +659,21 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(15);
+    expect(state.version).toBe(16);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
-    expect(state.plots[0]).toEqual({ state: 'growing', cropId: 'starcorn', plantedAt: 1_000 });
-    expect(state.plots[1]).toEqual({ state: 'growing', cropId: 'sunwheat', plantedAt: 2_000 });
+    expect(state.plots[0]).toEqual({
+      state: 'growing',
+      cropId: 'starcorn',
+      plantedAt: 1_000,
+      ...tileOf(0),
+    });
+    expect(state.plots[1]).toEqual({
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: 2_000,
+      ...tileOf(1),
+    });
     expect(state.orders[0]).toEqual({
       state: 'open',
       order: {
@@ -673,7 +699,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -707,7 +733,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -748,7 +774,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -763,7 +789,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -1290,7 +1316,7 @@ describe('plantCrop', () => {
     completeOnboarding(store);
     expect(store.plantCrop(0, 'tomato' as CropId)).toBe(false);
     expect(store.getState().coins).toBe(50);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 
   it('fails when coins are insufficient without mutation', () => {
@@ -1300,7 +1326,7 @@ describe('plantCrop', () => {
     const coinsBefore = store.getState().coins;
     expect(store.plantCrop(0, 'sunwheat')).toBe(false);
     expect(store.getState().coins).toBe(coinsBefore);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 
   it('fails when the crop is not unlocked yet without mutation', () => {
@@ -1309,7 +1335,7 @@ describe('plantCrop', () => {
     expect(CROPS.starcorn.unlockLevel).toBeGreaterThan(store.getState().level);
     expect(store.plantCrop(0, 'starcorn')).toBe(false);
     expect(store.getState().coins).toBe(50);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 });
 
@@ -1339,7 +1365,7 @@ describe('harvestPlot', () => {
     advanceTime(CROPS.sunwheat.growMs);
     expect(store.harvestPlot(0)).toBe(true);
     const state = store.getState();
-    expect(state.plots[0]).toEqual({ state: 'empty' });
+    expect(state.plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
     expect(state.inventory.sunwheat).toBe(1);
     expect(state.xp).toBe(CROPS.sunwheat.xp);
     // A second harvest of the now-empty plot fails.
@@ -1478,7 +1504,7 @@ describe('expandFarm', () => {
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 
-  it('deducts exactly EXPANSION_COST, appends 4 empty plots, and persists', () => {
+  it('deducts exactly EXPANSION_COST, flips expanded, grants 4 shed plots, and persists (T3.3a)', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
@@ -1486,14 +1512,22 @@ describe('expandFarm', () => {
     expect(store.expandFarm()).toBe(true);
     const state = store.getState();
     expect(state.coins).toBe(0);
-    expect(state.plots).toHaveLength(EXPANDED_PLOT_COUNT);
-    for (let i = BASE_PLOT_COUNT; i < EXPANDED_PLOT_COUNT; i++) {
-      expect(state.plots[i]).toEqual({ state: 'empty' });
-    }
+    // The new plots land in the SHED, not on fixed tiles.
+    expect(state.plots).toHaveLength(BASE_PLOT_COUNT);
+    expect(state.unplacedPlots).toBe(EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT);
+    expect(state.expanded).toBe(true);
+    // Owned land grew to the full 4x4.
+    expect(ownedPlotTiles(state)).toHaveLength(FARM_COLS * FARM_MAX_ROWS);
+    // The grant queued its popup event.
+    expect(store.consumePlotGrantEvents()).toEqual([
+      { count: EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT },
+    ]);
 
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
-    expect(reloaded.getState().plots).toHaveLength(EXPANDED_PLOT_COUNT);
+    expect(reloaded.getState().plots).toHaveLength(BASE_PLOT_COUNT);
+    expect(reloaded.getState().unplacedPlots).toBe(EXPANDED_PLOT_COUNT - BASE_PLOT_COUNT);
+    expect(reloaded.getState().expanded).toBe(true);
     expect(reloaded.getState().coins).toBe(0);
   });
 
@@ -1610,33 +1644,80 @@ describe('premium order validation', () => {
   });
 });
 
-describe('plot-count validation (BASE_PLOT_COUNT / EXPANDED_PLOT_COUNT)', () => {
-  const emptyPlot: PlotState = { state: 'empty' };
-
-  it('accepts exactly BASE_PLOT_COUNT or EXPANDED_PLOT_COUNT plots', () => {
-    const base = createDefaultState(12);
-    expect(isValidState(base, 12)).toBe(true);
+describe('plot validation (T3.3a: coords, dupes, entitlement range)', () => {
+  it('accepts 12 placed, 16 placed, and mid-placement mixes within the entitlement range', () => {
+    const base = createDefaultState(16);
+    expect(isValidState(base, 16)).toBe(true);
     const expanded = {
       ...base,
-      plots: [...base.plots, ...Array.from({ length: 4 }, () => ({ ...emptyPlot }))],
+      expanded: true,
+      plots: [
+        ...base.plots,
+        ...Array.from({ length: 4 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(12 + i) })),
+      ],
     };
-    expect(isValidState(expanded, 12)).toBe(true);
+    expect(isValidState(expanded, 16)).toBe(true);
+    // Mid-placement: 14 placed + 2 still in the shed = 16 total.
+    const midPlacement = {
+      ...expanded,
+      plots: expanded.plots.slice(0, 14),
+      unplacedPlots: 2,
+    };
+    expect(isValidState(midPlacement, 16)).toBe(true);
   });
 
-  it('rejects 13 or 17 plots', () => {
-    const base = createDefaultState(12);
-    const thirteen = { ...base, plots: [...base.plots, { ...emptyPlot }] };
-    expect(isValidState(thirteen, 12)).toBe(false);
-    const seventeen = {
+  it('rejects a total entitlement below 12 or above 16 (placed + shed)', () => {
+    const base = createDefaultState(16);
+    const eleven = { ...base, plots: base.plots.slice(0, 11) };
+    expect(isValidState(eleven, 16)).toBe(false);
+    const seventeen = { ...base, unplacedPlots: 5 };
+    expect(isValidState(seventeen, 16)).toBe(false);
+    const overPlaced = {
       ...base,
-      plots: [...base.plots, ...Array.from({ length: 5 }, () => ({ ...emptyPlot }))],
+      plots: [
+        ...base.plots,
+        ...Array.from({ length: 5 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(12 + i) })),
+      ],
     };
-    expect(isValidState(seventeen, 12)).toBe(false);
+    // 17 placed also needs a 17th distinct tile, which the maximal grid lacks
+    // - the dupe test below covers that axis; this one keeps tiles legal.
+    overPlaced.plots[16] = { state: 'empty', col: 0, row: 0 };
+    expect(isValidState(overPlaced, 16)).toBe(false);
+  });
+
+  it('rejects two plots on one tile', () => {
+    const base = createDefaultState(16);
+    const doubled = { ...base, plots: [...base.plots] };
+    doubled.plots[5] = { state: 'empty', ...tileOf(4) };
+    expect(isValidState(doubled, 16)).toBe(false);
+  });
+
+  it('rejects non-integer or out-of-grid coordinates', () => {
+    const base = createDefaultState(16);
+    for (const bad of [
+      { col: 0.5, row: 0 },
+      { col: -1, row: 0 },
+      { col: FARM_COLS, row: 0 },
+      { col: 0, row: FARM_MAX_ROWS },
+      { col: Number.NaN, row: 0 },
+    ]) {
+      const state = { ...base, plots: [...base.plots] };
+      state.plots[0] = { state: 'empty', ...bad };
+      expect(isValidState(state, 16)).toBe(false);
+    }
+  });
+
+  it('rejects a negative, fractional, or missing unplacedPlots and a non-boolean expanded', () => {
+    const base = createDefaultState(16);
+    expect(isValidState({ ...base, unplacedPlots: -1 }, 16)).toBe(false);
+    expect(isValidState({ ...base, unplacedPlots: 1.5 }, 16)).toBe(false);
+    expect(isValidState({ ...base, unplacedPlots: undefined }, 16)).toBe(false);
+    expect(isValidState({ ...base, expanded: 'yes' }, 16)).toBe(false);
   });
 });
 
-describe('plantCrop / harvestPlot on an expanded plot', () => {
-  it('plants and harvests on index 13, in the new row', () => {
+describe('plantCrop / harvestPlot on a placed expansion plot (T3.3a)', () => {
+  it('plants and harvests on a plot placed on the 4th row', () => {
     // rng pinned above RADIANT_CHANCE: completeOnboarding marks onboarding
     // completed directly, so harvestPlot's Radiant roll is live here, and an
     // unseeded rng would flakily yield RADIANT_YIELD_MULT instead of 1.
@@ -1644,11 +1725,147 @@ describe('plantCrop / harvestPlot on an expanded plot', () => {
     completeOnboarding(store);
     store.addCoins(EXPANSION_COST);
     expect(store.expandFarm()).toBe(true);
-    expect(store.plantCrop(13, 'sunwheat')).toBe(true);
+    expect(store.placePlot(1, 3)).toBe(12);
+    expect(store.plantCrop(12, 'sunwheat')).toBe(true);
     advanceTime(CROPS.sunwheat.growMs);
-    expect(store.harvestPlot(13)).toBe(true);
-    expect(store.getState().plots[13]).toEqual({ state: 'empty' });
+    expect(store.harvestPlot(12)).toBe(true);
+    expect(store.getState().plots[12]).toEqual({ state: 'empty', col: 1, row: 3 });
     expect(store.getState().inventory.sunwheat).toBe(1);
+  });
+});
+
+describe('ownedPlotTiles (T3.3a owned-land authority)', () => {
+  it('is the 4x3 base rows unexpanded and the full 4x4 once expanded', () => {
+    expect(ownedPlotTiles({ expanded: false })).toHaveLength(FARM_COLS * FARM_ROWS);
+    expect(ownedPlotTiles({ expanded: false })).not.toContainEqual({ col: 0, row: 3 });
+    expect(ownedPlotTiles({ expanded: true })).toHaveLength(FARM_COLS * FARM_MAX_ROWS);
+    expect(ownedPlotTiles({ expanded: true })).toContainEqual({ col: 3, row: 3 });
+  });
+});
+
+describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
+  function expandedStore(): GameStateStore {
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
+    completeOnboarding(store);
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    store.consumePlotGrantEvents();
+    return store;
+  }
+
+  it('grantPlots rejects non-positive or fractional counts, without mutation or events', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.grantPlots(0)).toBe(false);
+    expect(store.grantPlots(-2)).toBe(false);
+    expect(store.grantPlots(1.5)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+    expect(store.consumePlotGrantEvents()).toEqual([]);
+  });
+
+  it('grantPlots enforces the entitlement cap: 12 placed accepts at most 4, a full save accepts none', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    expect(store.grantPlots(5)).toBe(false);
+    expect(store.getState().unplacedPlots).toBe(0);
+    expect(store.grantPlots(4)).toBe(true);
+    expect(store.getState().unplacedPlots).toBe(4);
+    expect(store.grantPlots(1)).toBe(false);
+    expect(store.consumePlotGrantEvents()).toEqual([{ count: 4 }]);
+  });
+
+  it('placePlot consumes one shed plot onto a free owned tile and returns the new index', () => {
+    const store = expandedStore();
+    const index = store.placePlot(2, 3);
+    expect(index).toBe(12);
+    expect(store.getState().plots[12]).toEqual({ state: 'empty', col: 2, row: 3 });
+    expect(store.getState().unplacedPlots).toBe(3);
+  });
+
+  it('placePlot rejects an occupied tile (double occupancy), without mutation', () => {
+    const store = expandedStore();
+    expect(store.placePlot(0, 0)).toBe(false); // the base grid's own corner plot
+    expect(store.placePlot(0, 3)).toBe(12);
+    expect(store.placePlot(0, 3)).toBe(false); // the tile just filled
+    expect(store.getState().unplacedPlots).toBe(3);
+    expect(store.getState().plots).toHaveLength(13);
+  });
+
+  it('placePlot rejects unowned and out-of-grid tiles, and non-integer coords', () => {
+    const unexpanded = new GameStateStore({ storage: null });
+    completeOnboarding(unexpanded);
+    expect(unexpanded.grantPlots(2)).toBe(true);
+    // Row 3 exists on the maximal grid but is not owned before the expansion.
+    expect(unexpanded.placePlot(0, 3)).toBe(false);
+    const store = expandedStore();
+    expect(store.placePlot(4, 0)).toBe(false);
+    expect(store.placePlot(0, 4)).toBe(false);
+    expect(store.placePlot(-1, 0)).toBe(false);
+    expect(store.placePlot(0.5, 3)).toBe(false);
+    expect(store.getState().unplacedPlots).toBe(4);
+  });
+
+  it('placePlot rejects with an empty shed even on a free owned tile', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    const snapshot = JSON.parse(store.exportSave()) as unknown;
+    expect(store.placePlot(0, 0)).toBe(false);
+    expect(JSON.parse(store.exportSave())).toEqual(snapshot);
+  });
+
+  it('movePlot relocates an EMPTY plot to a free owned tile and persists its crops-follow identity', () => {
+    const store = expandedStore();
+    expect(store.movePlot(5, 1, 3)).toBe(true);
+    expect(store.getState().plots[5]).toEqual({ state: 'empty', col: 1, row: 3 });
+    // The vacated tile is placeable again.
+    expect(store.placePlot(...(Object.values(tileOf(5)) as [number, number]))).toBe(12);
+  });
+
+  it('movePlot onto its own tile is a valid no-op commit', () => {
+    const store = expandedStore();
+    const { col, row } = tileOf(5);
+    expect(store.movePlot(5, col, row)).toBe(true);
+    expect(store.getState().plots[5]).toEqual({ state: 'empty', col, row });
+  });
+
+  it('movePlot rejects an occupied target, an unowned tile, and bad coords', () => {
+    const store = expandedStore();
+    expect(store.movePlot(5, ...(Object.values(tileOf(6)) as [number, number]))).toBe(false);
+    const unexpanded = new GameStateStore({ storage: null });
+    completeOnboarding(unexpanded);
+    expect(unexpanded.movePlot(5, 0, 3)).toBe(false);
+    expect(store.movePlot(5, 4, 0)).toBe(false);
+    expect(store.movePlot(5, 1, 3.5)).toBe(false);
+    expect(store.getState().plots[5]).toEqual({ state: 'empty', ...tileOf(5) });
+  });
+
+  it('movePlot refuses a growing plot (harvest first, then move) and an out-of-range index', () => {
+    const store = expandedStore();
+    expect(store.plantCrop(5, 'sunwheat')).toBe(true);
+    expect(store.movePlot(5, 1, 3)).toBe(false);
+    expect(store.getState().plots[5]).toMatchObject({ state: 'growing', ...tileOf(5) });
+    expect(store.movePlot(99, 1, 3)).toBe(false);
+    // Harvested, the same plot moves freely.
+    advanceTime(CROPS.sunwheat.growMs);
+    expect(store.harvestPlot(5)).toBe(true);
+    expect(store.movePlot(5, 1, 3)).toBe(true);
+  });
+
+  it('a placed plot round-trips through save/load at its chosen tile', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    expect(store.placePlot(3, 3)).toBe(12);
+    expect(store.movePlot(0, 0, 3)).toBe(true);
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().plots[12]).toEqual({ state: 'empty', col: 3, row: 3 });
+    expect(reloaded.getState().plots[0]).toEqual({ state: 'empty', col: 0, row: 3 });
+    expect(reloaded.getState().unplacedPlots).toBe(3);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });
 
@@ -2165,7 +2382,7 @@ describe('onboarding', () => {
     // The rails reject a 9th sunwheat outright - no coins spent.
     expect(store.plantCrop(8, 'sunwheat')).toBe(false);
     expect(store.getState().coins).toBe(55);
-    expect(store.getState().plots[8]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[8]).toEqual({ state: 'empty', ...tileOf(8) });
     for (let i = 8; i < 12; i++) expect(store.plantCrop(i, 'starcorn')).toBe(true);
     expect(store.getState().coins).toBe(7);
     expect(store.getState().inventory.sunwheat).toBe(4);
@@ -2238,7 +2455,7 @@ describe('onboarding', () => {
     const store = storeAtStep(stepIndex('harvest-first'), { coins: 100 });
     expect(store.plantCrop(0, 'sunwheat')).toBe(false);
     expect(store.getState().coins).toBe(100);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 
   it('rails: the single-crop plant steps reject everything but sunwheat', () => {
@@ -2250,7 +2467,7 @@ describe('onboarding', () => {
     store.load();
     expect(store.plantCrop(0, 'starcorn')).toBe(false);
     expect(store.getState().coins).toBe(10_000);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
     expect(store.plantCrop(1, 'sunwheat')).toBe(true);
     expect(store.getState().onboarding.progress).toBe(1);
   });
@@ -2261,6 +2478,7 @@ describe('onboarding', () => {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: now() - CROPS.sunwheat.growMs,
+      ...tileOf(0),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -2341,7 +2559,7 @@ describe('onboarding', () => {
 
     // Wrong crop: rejected by the rails, not merely uncounted.
     expect(store.plantCrop(0, 'glowberry')).toBe(false);
-    expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+    expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
     expect(onboarding().progressB).toBe(0);
 
     // Starcorn caps at its 4 goal: the 5th is rejected with no coin spend.
@@ -2623,6 +2841,7 @@ describe('offline growth (app closed during growth)', () => {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: now() - CROPS.sunwheat.growMs - 60_000,
+      ...tileOf(0),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     // rng pinned above RADIANT_CHANCE - see the index-13 test above.
@@ -2644,7 +2863,7 @@ describe('offline growth (app closed during growth)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().plots[0]).toEqual({ state: 'empty' });
+      expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
       expect(console.warn).toHaveBeenCalled();
     }
   });
@@ -2655,8 +2874,18 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
     const pastPlantedAt = Date.now() - 60_000;
     const saved = createDefaultState(12);
     saved.xp = 1; // veteran save skips the tutorial, so a post-load harvest is unblocked.
-    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
-    saved.plots[1] = { state: 'growing', cropId: 'starcorn', plantedAt: pastPlantedAt };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: Date.now() + 60_000,
+      ...tileOf(0),
+    };
+    saved.plots[1] = {
+      state: 'growing',
+      cropId: 'starcorn',
+      plantedAt: pastPlantedAt,
+      ...tileOf(1),
+    };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     const before = Date.now();
@@ -2676,17 +2905,19 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
       state: 'growing',
       cropId: 'starcorn',
       plantedAt: pastPlantedAt,
+      ...tileOf(1),
     });
     expect(console.info).toHaveBeenCalledWith('littleacres: clamped 1 future crop timestamps');
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(15);
+    const saved = createDefaultState(16);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: Date.now() - CROPS.sunwheat.growMs - 1,
+      ...tileOf(0),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -2698,7 +2929,12 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('importSave clamps a future-stamped plot the same way', () => {
     const saved = createDefaultState(12);
     saved.xp = 1;
-    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() + 60_000 };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: Date.now() + 60_000,
+      ...tileOf(0),
+    };
     const store = new GameStateStore({ storage: makeStorage() });
     const before = Date.now();
     expect(store.importSave(JSON.stringify(saved))).toBe(true);
@@ -2743,9 +2979,9 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const saved = completedSave({
       lastSavedAt,
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 10 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(1) },
+        ...Array.from({ length: 10 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 2) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2764,10 +3000,11 @@ describe('consumeOfflineSummary ("while you were away")', () => {
           state: 'growing',
           cropId: 'sunwheat',
           plantedAt: lastSavedAt - CROPS.sunwheat.growMs - 1,
+          ...tileOf(0),
         },
         // This one matures inside the window and should be the only count.
-        { state: 'growing', cropId: 'starcorn', plantedAt: lastSavedAt + 1_000 },
-        ...Array.from({ length: 10 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'starcorn', plantedAt: lastSavedAt + 1_000, ...tileOf(1) },
+        ...Array.from({ length: 10 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 2) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2780,8 +3017,8 @@ describe('consumeOfflineSummary ("while you were away")', () => {
       lastSavedAt,
       plots: [
         // Planted just before load - growMs has not elapsed even now.
-        { state: 'growing', cropId: 'glowberry', plantedAt: Date.now() - 1_000 },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'glowberry', plantedAt: Date.now() - 1_000, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2793,8 +3030,8 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const saved = completedSave({
       lastSavedAt,
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2811,7 +3048,12 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const lastSavedAt = Date.now() - AWAY_MS;
     const saved = createDefaultState(12);
     saved.lastSavedAt = lastSavedAt;
-    saved.plots[0] = { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId: 'sunwheat',
+      plantedAt: lastSavedAt + 1_000,
+      ...tileOf(0),
+    };
     const store = loadedStore(saved);
     expect(store.consumeOfflineSummary()).toBeNull();
   });
@@ -2821,8 +3063,8 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const saved = completedSave({
       lastSavedAt,
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2835,8 +3077,8 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const saved = completedSave({
       lastSavedAt,
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2849,8 +3091,8 @@ describe('consumeOfflineSummary ("while you were away")', () => {
     const saved = completedSave({
       lastSavedAt,
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000 },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt: lastSavedAt + 1_000, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2889,8 +3131,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const plantedAt = hiddenAt + 5_000; // matures inside the gap
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2912,8 +3154,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const plantedAt = hiddenAt + 5_000;
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2938,8 +3180,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const hiddenAt = Date.now() - (OFFLINE_SUMMARY_MIN_MS - 5_000);
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt: hiddenAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt: hiddenAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -2983,8 +3225,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const plantedAt = hiddenAt + 5_000;
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -3003,8 +3245,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const plantedAt = hiddenAt + 5_000;
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -3025,8 +3267,8 @@ describe('handleBackgrounded / handleForegroundReturn (T3.20a hiddenAt anchor)',
     const plantedAt = hiddenAt + 5_000;
     const saved = completedSave({
       plots: [
-        { state: 'growing', cropId: 'sunwheat', plantedAt },
-        ...Array.from({ length: 11 }, (): PlotState => ({ state: 'empty' })),
+        { state: 'growing', cropId: 'sunwheat', plantedAt, ...tileOf(0) },
+        ...Array.from({ length: 11 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(i + 1) })),
       ],
     });
     const store = loadedStore(saved);
@@ -3129,6 +3371,7 @@ describe('Radiant harvest proc', () => {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: now() - CROPS.sunwheat.growMs,
+      ...tileOf(0),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage, rng: stubRng(0, 0) });
@@ -3174,7 +3417,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(15);
+    expect(state.version).toBe(16);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -3201,7 +3444,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3230,7 +3473,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3261,7 +3504,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -3275,7 +3518,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -3291,12 +3534,12 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a full-chain migration from v10 (no quests field at all) lands valid at 15 with a level-matched target', () => {
+  it('a full-chain migration from v10 (no quests field at all) lands valid at current with a level-matched target', () => {
     const saved = createDefaultState(15) as unknown as Record<string, unknown>;
     saved.version = 10;
     saved.level = 3;
@@ -3306,8 +3549,62 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(15);
+    expect(store.getState().version).toBe(16);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
+  /** A genuine v15 save: plots have no col/row, no unplacedPlots/expanded fields. */
+  function v15Save(plotCount: number): Record<string, unknown> {
+    const saved = createDefaultState(16) as unknown as Record<string, unknown>;
+    saved.version = 15;
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.plots = Array.from({ length: plotCount }, (_, i) =>
+      i === 1
+        ? { state: 'growing', cropId: 'sunwheat', plantedAt: Date.now() - 1_000 }
+        : { state: 'empty' },
+    );
+    delete saved.unplacedPlots;
+    delete saved.expanded;
+    return saved;
+  }
+
+  it('maps a 12-plot save: exact col/row per index, unplacedPlots 0, unexpanded', () => {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v15Save(12)) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(16);
+    expect(state.plots).toHaveLength(12);
+    for (let i = 0; i < 12; i++) {
+      expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
+    }
+    // The growing plot kept its crop and timestamp alongside its new tile.
+    expect(state.plots[1]).toMatchObject({ state: 'growing', cropId: 'sunwheat' });
+    expect(state.unplacedPlots).toBe(0);
+    expect(state.expanded).toBe(false);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('maps a 16-plot save: all 16 tiles in index order, unplacedPlots 0, expanded', () => {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v15Save(16)) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const state = store.getState();
+    expect(state.version).toBe(16);
+    expect(state.plots).toHaveLength(16);
+    for (let i = 0; i < 16; i++) {
+      expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
+    }
+    expect(state.unplacedPlots).toBe(0);
+    expect(state.expanded).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
 });
@@ -3427,7 +3724,12 @@ describe('quest counters from harvestPlot', () => {
       progress: 0,
       progressB: 0,
     };
-    saved.plots[0] = { state: 'growing', cropId, plantedAt: now() - CROPS[cropId].growMs };
+    saved.plots[0] = {
+      state: 'growing',
+      cropId,
+      plantedAt: now() - CROPS[cropId].growMs,
+      ...tileOf(0),
+    };
     return saved;
   }
 
@@ -3456,6 +3758,7 @@ describe('quest counters from harvestPlot', () => {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: now() - CROPS.sunwheat.growMs,
+      ...tileOf(0),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage, rng: () => 1 });
@@ -3479,11 +3782,13 @@ describe('quest counters from harvestPlot', () => {
       state: 'growing',
       cropId: 'sunwheat',
       plantedAt: now() - CROPS.sunwheat.growMs,
+      ...tileOf(0),
     };
     saved.plots[1] = {
       state: 'growing',
       cropId: 'starcorn',
       plantedAt: now() - CROPS.starcorn.growMs,
+      ...tileOf(1),
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage, rng: () => 1 });

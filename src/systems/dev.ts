@@ -16,6 +16,13 @@ export interface DevTools {
   getTimeOffsetMs(): number;
   plant(plotIndex: number, cropId: CropId): boolean;
   harvest(plotIndex: number): boolean;
+  /**
+   * Grant n plots into the shed (T3.3a) - a straight pipe to
+   * `gameState.grantPlots`, same validation (positive integer, total
+   * entitlement capped at the maximal grid). Returns whether the grant
+   * was accepted.
+   */
+  grantPlots(n: number): boolean;
   /** Overwrite every order slot with a fresh forced-premium order (T2.27). */
   fillBoardPremium(): void;
   /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
@@ -111,6 +118,7 @@ export function installDevTools(store: GameStateStore): void {
     getTimeOffsetMs: () => getTimeOffsetMs(),
     plant: (plotIndex, cropId) => store.plantCrop(plotIndex, cropId),
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
+    grantPlots: (n) => store.grantPlots(n),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };
 }
@@ -177,11 +185,6 @@ export function registerSceneLayersProbe(
 }
 
 /**
- * Late-bind the dressing editor's five hooks once the Farm scene exists, same
- * pattern as `registerCoinArcTest` - bundled into one call since the overlay
- * always wires all five together for the "Edit dressing" feature.
- */
-/**
  * Late-bind `dev.decorSizing` once the Farm scene exists, same pattern as
  * `registerCoinArcTest`.
  */
@@ -189,6 +192,11 @@ export function registerDecorSizingToggle(toggle: (enabled: boolean) => void): v
   if (window.dev !== undefined) window.dev.decorSizing = toggle;
 }
 
+/**
+ * Late-bind the dressing editor's five hooks once the Farm scene exists, same
+ * pattern as `registerCoinArcTest` - bundled into one call since the overlay
+ * always wires all five together for the "Edit dressing" feature.
+ */
 export function registerDressingEditorHooks(hooks: {
   toggle: (enabled: boolean) => void;
   spawn: (frame: string) => void;
