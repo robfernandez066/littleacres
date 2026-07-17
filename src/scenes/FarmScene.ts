@@ -14,16 +14,13 @@ import {
   GROUND_MODE,
   GROUND_TEXTURE_A_KEY,
   GROUND_TEXTURE_A_TILE_SCALE,
-  GROUND_TEXTURE_B_KEY,
-  GROUND_TEXTURE_B_TILE_SCALE,
   type GroundMode,
   PANEL_SLICE,
+  STRUCTURE_FOOTPRINT_OFFSETS,
   STRUCTURE_RENDER_OFFSETS,
   type StructureId,
-  SHADOW_ALPHA,
-  SHADOW_BASE_RAISE,
-  SHADOW_HEIGHT_RATIO,
-  SHADOW_WIDTH_RATIO,
+  SHADOW_CANVAS_PAD,
+  SHADOW_TUCK_RATIO,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
   WORLD_HEIGHT,
@@ -67,6 +64,7 @@ import {
   registerCoinArcTest,
   registerDecorSizingToggle,
   registerDressingEditorHooks,
+  registerFootprintsToggle,
   registerGroundModeCycle,
   registerHitboxToggle,
   registerSceneLayersProbe,
@@ -78,6 +76,7 @@ import {
   isStructureAnchorFree,
   nextChainPlotTile,
   placeablePlotTiles,
+  structureFootprintTiles,
   structureRenderPosition,
   type DecorationPlacement,
   type PlotState,
@@ -249,14 +248,18 @@ const RADIANT_SECOND_BURST_DELAY_MS = 150;
  * and depth-sorted by their own y like a crop sprite - see `createNoticeBoard`
  * and `createFarmhouse`. T2.22a grew the farmhouse to its own, taller display
  * height (FARMHOUSE_DISPLAY_HEIGHT) when it swapped spots with the notice
- * board, which keeps the original STRUCTURE_DISPLAY_HEIGHT.
+ * board, which kept the original shared 240 - so the "shared" constant was
+ * board-only in practice, and T3.3s-r2 renamed it NOTICE_BOARD_DISPLAY_HEIGHT
+ * (a brief 216 experiment in that task was reversed by the owner in
+ * T3.3s-r2b - the rename stays, the size is back to 240). Badge and hit-pad
+ * math derive from NOTICE_BOARD_SCALE, so they follow the size automatically.
  */
 const STRUCTURE_FRAME_SIZE = 256;
-const STRUCTURE_DISPLAY_HEIGHT = 240;
-const STRUCTURE_SCALE = STRUCTURE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+const NOTICE_BOARD_DISPLAY_HEIGHT = 240;
+const NOTICE_BOARD_SCALE = NOTICE_BOARD_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 /** T2.22a: the farmhouse alone grew to this height when it moved to the board's old, more
  *  prominent top-right spot - see FARMHOUSE_POSITION's comment in config.ts. */
-const FARMHOUSE_DISPLAY_HEIGHT = 300;
+const FARMHOUSE_DISPLAY_HEIGHT = 420;
 const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 
 /**
@@ -273,6 +276,26 @@ const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 const EXPAND_SIGN_X = 540;
 const EXPAND_SIGN_Y = 1300;
 const EXPAND_SIGN_DISPLAY_SIZE = 240;
+/** The packed 'sign' frame's square size - MUST MATCH tools/pack-atlas.mjs
+ *  SIGN_SIZE; the silhouette shadow needs it to reproduce the sign's scale. */
+const EXPAND_SIGN_FRAME_SIZE = 192;
+
+/**
+ * The expand sign's blocked hidden-grid tiles, for the T3.3s-r2 overlays
+ * (live footprint preview + dev.footprints()). MUST MATCH gameState.ts's
+ * private EXPAND_SIGN_BLOCKED_TILES (the placement authority) - mirrored
+ * here like the EXPAND_SIGN_* geometry above, since the store keeps its set
+ * private and this file only reads it for overlay rendering.
+ */
+const EXPAND_SIGN_BLOCKED_TILES: readonly { col: number; row: number }[] = [
+  { col: 3, row: 3 },
+  { col: 4, row: 3 },
+  { col: 3, row: 4 },
+  { col: 4, row: 4 },
+  { col: 5, row: 4 },
+  { col: 4, row: 5 },
+  { col: 5, row: 5 },
+];
 
 /**
  * Decor Shop (T3.9): opened by tapping the farmhouse, which becomes
@@ -536,11 +559,11 @@ const NOTICE_BOARD_HIT_PAD_DISPLAY_PX = 20;
 /**
  * The notice board's full displayed structure bounds, padded (T3.14) - the
  * same size `createNoticeBoard`'s hitArea effectively covers in display
- * space (STRUCTURE_FRAME_SIZE * STRUCTURE_SCALE + the pad on both sides).
+ * space (STRUCTURE_FRAME_SIZE * NOTICE_BOARD_SCALE + the pad on both sides).
  * The 'orders-button' pulse target uses this so the tutorial ring wraps the
- * whole structure, not just its bare STRUCTURE_DISPLAY_HEIGHT footprint.
+ * whole structure, not just its bare NOTICE_BOARD_DISPLAY_HEIGHT footprint.
  */
-const NOTICE_BOARD_PULSE_SIZE = STRUCTURE_DISPLAY_HEIGHT + NOTICE_BOARD_HIT_PAD_DISPLAY_PX * 2;
+const NOTICE_BOARD_PULSE_SIZE = NOTICE_BOARD_DISPLAY_HEIGHT + NOTICE_BOARD_HIT_PAD_DISPLAY_PX * 2;
 
 /**
  * The "!" badge on the notice board, shown when an open order is fully
@@ -652,6 +675,49 @@ const LIFT_PULSE_SCALE = 1.1;
 const LIFT_PULSE_MS = 90;
 /** Haptic lift cue duration - see `buzzOnLift` (feature-checked; iOS Safari has no vibrate). */
 const LIFT_VIBRATE_MS = 30;
+/**
+ * Free-follow structure drop (T3.3s-r2): on release, the lifted structure
+ * commits to the NEAREST legal anchor whose ideal anchor-tile center lies
+ * within this many design px of the drop point's; with none in range it
+ * wiggles and snaps back to the saved anchor. (Anchor centers are 128px
+ * apart in x and 64 in y, so the +/-4-tile search window below always
+ * covers the radius.)
+ */
+const STRUCTURE_SNAP_RADIUS = 192;
+const STRUCTURE_SNAP_SEARCH = 4;
+/**
+ * Lift-time ground overlays (T3.3s-r2): the faint placement grid (change 5)
+ * and the dev.footprints() restrictions overlay render in the band directly
+ * above the ground layer and strictly below every y-depth-sorted sprite
+ * (the lowest possible sprite depth is a plot tile's y - 1 with
+ * y >= WORLD_MIN_Y, far above GROUND_LAYER_DEPTH = WORLD_MIN_Y - 2). The
+ * lifted structure's green/red footprint preview does NOT live here: since
+ * T3.3s-r2c it renders at FOOTPRINT_PREVIEW_DEPTH_OFFSET below the lifted
+ * structure's own live depth - above plot tiles, crops, and decor, so a
+ * blocked tile reads as red shading OVER the crop standing on it - see
+ * `rebuildStructureFootprintPreview`.
+ */
+const PLACEMENT_GRID_DEPTH = GROUND_LAYER_DEPTH + 1;
+const DEV_FOOTPRINTS_DEPTH = GROUND_LAYER_DEPTH + 3;
+/**
+ * The live green/red footprint preview's depth relative to the LIFTED
+ * structure's own (its y): -2 keeps it under the structure's silhouette
+ * shadow (which rides at -1), while still above every ground-level sprite
+ * standing north of the lifted piece.
+ */
+const FOOTPRINT_PREVIEW_DEPTH_OFFSET = -2;
+/** Faint diamond grid over the placeable domain during plot/structure lifts. */
+const PLACEMENT_GRID_LINE_WIDTH = 2;
+const PLACEMENT_GRID_LINE_COLOR = 0xffffff;
+const PLACEMENT_GRID_LINE_ALPHA = 0.2;
+/** Live footprint preview tints: green = that tile is free, red = blocked. */
+const FOOTPRINT_FREE_COLOR = 0x2ecc40;
+const FOOTPRINT_BLOCKED_COLOR = 0xe03131;
+const FOOTPRINT_FILL_ALPHA = 0.35;
+/** dev.footprints() overlay: blocked-tile fill and the beyond-domain dim wash. */
+const DEV_FOOTPRINT_BLOCKED_ALPHA = 0.4;
+const DEV_DOMAIN_WASH_COLOR = 0x1a2333;
+const DEV_DOMAIN_WASH_ALPHA = 0.25;
 /** Recenter glide duration (task-specified ~250ms, Sine.easeOut). */
 const RECENTER_GLIDE_MS = 250;
 /** Off-default detection thresholds - a finished tween lands exactly, these absorb float noise. */
@@ -824,9 +890,22 @@ export class FarmScene extends Phaser.Scene {
   private selectedStructureId: StructureId | null = null;
   /** The structure being drag-moved right now (T3.3s), or null outside a lift. */
   private structureDragId: StructureId | null = null;
-  /** The live snap anchor of the in-flight structure drag - always legal. */
+  /** The anchor NEAREST the in-flight free-form drag position (T3.3s-r2) -
+   *  legal or not; it drives the live green/red footprint preview, and the
+   *  COMMIT independently searches for the nearest LEGAL anchor. */
   private structureDragCol = 0;
   private structureDragRow = 0;
+  /** Faint placement grid (T3.3s-r2 change 5), alive only during a plot or
+   *  structure lift - see `showPlacementGrid`. */
+  private placementGridGraphics: Phaser.GameObjects.Graphics | null = null;
+  /** The lifted structure's live green/red footprint (T3.3s-r2) - rebuilt
+   *  when the nearest anchor changes, destroyed when the lift ends. */
+  private structureFootprintGraphics: Phaser.GameObjects.Graphics | null = null;
+  /** dev.footprints() overlay state (T3.3s-r2) - see `toggleDevFootprints`. */
+  private devFootprintsEnabled = false;
+  private devFootprintsGraphics: Phaser.GameObjects.Graphics | null = null;
+  /** "col,row" keys of the placeable hidden-grid tile set, built on first use. */
+  private placeableTileKeys: Set<string> | null = null;
   /** Last-rendered structure anchors, serialized - `refreshStructures`
    *  repositions only on change (so it never fights a live drag, whose
    *  moves are sprite-only until the commit). */
@@ -1081,7 +1160,8 @@ export class FarmScene extends Phaser.Scene {
   private groundMode: GroundMode = GROUND_MODE;
   /** The grass diamond tile images, kept only so 'tiles' mode can be torn down live. */
   private groundTiles: Phaser.GameObjects.Image[] = [];
-  /** The field-band TileSprite in 'texture_a'/'texture_b' mode; null in 'tiles'/'tiles_flat' mode. */
+  /** The whole-world meadow TileSprite in 'texture_a' mode (the default since
+   *  T3.3s-r2b); null in the dev-only 'tiles'/'tiles_flat' comparison modes. */
   private groundTexture: Phaser.GameObjects.TileSprite | null = null;
   /**
    * Live, mutable dressing layout (T2.28a dev editor) - starts as a clone of
@@ -1282,6 +1362,8 @@ export class FarmScene extends Phaser.Scene {
       copyLayoutJson: () => JSON.stringify(this.dressingState, null, 2),
     });
     registerDecorSizingToggle((enabled) => this.setDecorSizingEnabled(enabled));
+    // T3.3s-r2 dev restrictions overlay - see `toggleDevFootprints`.
+    registerFootprintsToggle(() => this.toggleDevFootprints());
   }
 
   /**
@@ -1395,6 +1477,9 @@ export class FarmScene extends Phaser.Scene {
     // when a saved anchor changed (dev import/reset) - a cheap string
     // compare otherwise, and inert during a live drag by construction.
     this.refreshStructures();
+    // dev.footprints() overlay (T3.3s-r2): re-derive from live state on the
+    // same tick so it tracks structure moves and the expansion purchase.
+    if (this.devFootprintsEnabled) this.rebuildDevFootprints();
     // Chain placement (T3.3a-r): keep the Place Next button truthful on the
     // tick too - grants and put-aways can change its count mid-arrange.
     if (this.arrangeModeActive) this.updatePlaceNextButton();
@@ -1795,18 +1880,30 @@ export class FarmScene extends Phaser.Scene {
       this.plotDragRow = plot.row;
     } else if (kind === 'structure') {
       // Structures are always liftable in arrange mode (T3.3s) - move only,
-      // no locked state; the drag anchor starts at the saved anchor.
+      // no locked state; the nearest-anchor tracker starts at the saved
+      // anchor (the sprite has not moved yet).
       if (structureId === undefined) return false;
       const anchor = gameState.getState().structures[structureId];
       this.setStructureSelection(structureId);
       this.structureDragId = structureId;
       this.structureDragCol = anchor.col;
       this.structureDragRow = anchor.row;
+      // The badge follows the free-form drag directly (T3.3s-r2); its
+      // absolute-y bounce tween would fight that, so it dies for the
+      // lift's duration - the commit's placeNoticeBoardBadge rebuilds it.
+      if (structureId === 'noticeBoard') {
+        this.noticeBoardBadgeTween?.remove();
+        this.noticeBoardBadgeTween = null;
+      }
+      this.rebuildStructureFootprintPreview(structureId);
     } else {
       const index = this.decorationSprites.indexOf(target);
       if (index === -1) return false;
       this.setDecorationSelection(index);
     }
+    // Grid-snapped lifts (plot/structure) get the faint placement grid
+    // (T3.3s-r2 change 5); free-form decor/fence lifts deliberately do not.
+    if (kind !== 'decor') this.showPlacementGrid();
     this.activeLift = { kind, target, grabOffsetX, grabOffsetY };
     this.fieldGesture = 'lift';
     this.playLiftPulse(target);
@@ -1884,15 +1981,29 @@ export class FarmScene extends Phaser.Scene {
       const shadow = index === -1 ? undefined : this.decorationShadowSprites[index];
       if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, lift.target);
     } else if (lift.kind === 'structure') {
-      // Structures snap by ANCHOR (T3.3s): the would-be free-form sprite
-      // position maps back to an anchor candidate by undoing the fixed
-      // render offset, then the same live-grid-snap rule as plots - only
-      // LEGAL anchors preview (`updateStructureDragSnap`).
+      // Structures follow the finger FREE-FORM (T3.3s-r2 feel fix) - no
+      // more mid-drag anchor snapping; the sprite (+ shadow, + the board's
+      // badge) moves like a decoration, while the live green/red footprint
+      // for the NEAREST anchor (free position minus the fixed render
+      // offset) explains legality underneath. The release commits to the
+      // nearest LEGAL anchor within STRUCTURE_SNAP_RADIUS - see
+      // `commitStructureDrag`.
       const id = this.structureDragId;
       if (id !== null) {
+        this.moveStructureSpriteFree(id, freeX, freeY);
+        // The preview's depth tracks the lifted structure's every move
+        // (T3.3s-r2c) - it must stay just under the structure wherever the
+        // drag takes it, above whatever ground-level sprites it crosses.
+        this.structureFootprintGraphics?.setDepth(freeY + FOOTPRINT_PREVIEW_DEPTH_OFFSET);
         const offset = STRUCTURE_RENDER_OFFSETS[id];
-        const { col, row } = isoToGrid(freeX - offset.x, freeY - offset.y);
-        this.updateStructureDragSnap(Math.round(col), Math.round(row));
+        const grid = isoToGrid(freeX - offset.x, freeY - offset.y);
+        const col = Math.round(grid.col);
+        const row = Math.round(grid.row);
+        if (col !== this.structureDragCol || row !== this.structureDragRow) {
+          this.structureDragCol = col;
+          this.structureDragRow = row;
+          this.rebuildStructureFootprintPreview(id);
+        }
       }
     } else {
       const { col, row } = isoToGrid(freeX, freeY);
@@ -1976,6 +2087,9 @@ export class FarmScene extends Phaser.Scene {
     const lift = this.activeLift;
     this.activeLift = null;
     this.settleLiftPulse();
+    // The faint placement grid lives exactly as long as the lift (T3.3s-r2
+    // change 5) - a no-op for decor lifts, which never showed one.
+    this.hidePlacementGrid();
     if (lift === null) return;
     if (lift.kind === 'decor') {
       if (!this.arrangeModeActive) return;
@@ -2810,7 +2924,7 @@ export class FarmScene extends Phaser.Scene {
     if (mode === 'tiles' || mode === 'tiles_flat') {
       this.layGrassField(mode === 'tiles_flat' ? 'grass_flat' : 'grass');
     } else {
-      this.layGroundTexture(mode);
+      this.layGroundTexture();
     }
   }
 
@@ -2847,25 +2961,30 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Ground texture experiment (T2.28): one TileSprite spans the full-width
-   * field band, replacing the grass diamond tiles entirely (plot tiles are
-   * untouched either way). See GROUND_LAYER_DEPTH for why it renders
-   * beneath everything else.
+   * The meadow ground (T2.28 experiment, promoted to the player-facing
+   * default in T3.3s-r2b): ONE TileSprite tiling the seamless 512x512
+   * meadow master across the ENTIRE world rect (FIELD_MIN/MAX_Y are the
+   * world rect since T3.3a-r2), replacing the diamond grass tiles (plot
+   * tiles are untouched either way). See GROUND_LAYER_DEPTH for why it
+   * renders beneath everything else.
    */
-  private layGroundTexture(mode: 'texture_a' | 'texture_b'): void {
-    const key = mode === 'texture_a' ? GROUND_TEXTURE_A_KEY : GROUND_TEXTURE_B_KEY;
-    const tileScale =
-      mode === 'texture_a' ? GROUND_TEXTURE_A_TILE_SCALE : GROUND_TEXTURE_B_TILE_SCALE;
+  private layGroundTexture(): void {
     this.groundTexture = this.add
-      .tileSprite(WORLD_MIN_X, FIELD_MIN_Y, WORLD_WIDTH, FIELD_MAX_Y - FIELD_MIN_Y, key)
+      .tileSprite(
+        WORLD_MIN_X,
+        FIELD_MIN_Y,
+        WORLD_WIDTH,
+        FIELD_MAX_Y - FIELD_MIN_Y,
+        GROUND_TEXTURE_A_KEY,
+      )
       .setOrigin(0, 0)
-      .setTileScale(tileScale, tileScale)
+      .setTileScale(GROUND_TEXTURE_A_TILE_SCALE, GROUND_TEXTURE_A_TILE_SCALE)
       .setDepth(GROUND_LAYER_DEPTH);
   }
 
-  /** Cycle tiles -> tiles_flat -> texture_a -> texture_b -> tiles (dev button); returns the new mode. */
+  /** Cycle texture_a -> tiles -> tiles_flat -> texture_a (dev comparison button); returns the new mode. */
   private cycleGroundMode(): GroundMode {
-    const order: GroundMode[] = ['tiles', 'tiles_flat', 'texture_a', 'texture_b'];
+    const order: GroundMode[] = ['texture_a', 'tiles', 'tiles_flat'];
     const next = order[(order.indexOf(this.groundMode) + 1) % order.length]!;
     this.createGroundLayer(next);
     return next;
@@ -3180,64 +3299,105 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Ground shadow (T3.9): an auto-rendered `ground_shadow` image under a
-   * standing object, sized/positioned from the object's OWN rendered display
-   * bounds (so it works for any object regardless of native frame size or
-   * scale) - width = SHADOW_WIDTH_RATIO x the object's display width, height
-   * = width x SHADOW_HEIGHT_RATIO (the frame is already 2:1), positioned at
-   * the object's visual base (the bottom of its display bounds, raised
-   * SHADOW_BASE_RAISE), one depth below the object's own.
+   * Directional cast shadow (T3.3s-r2d, superseding the r2c runtime
+   * mirror): renders the object's pack-time `<frame>_shadow` companion
+   * (tools/pack-atlas.mjs generateCastShadow - the object's own silhouette
+   * squashed, sheared toward the LOWER-LEFT away from the fixed top-right
+   * sun, blurred soft, and alpha-baked pure black, so the runtime applies
+   * no tint or alpha of its own). All geometry (position/scale/flip/depth)
+   * tracks the object through `applyGroundShadowGeometry`.
    */
   private createGroundShadow(object: Phaser.GameObjects.Image): Phaser.GameObjects.Image {
-    const shadow = this.add.image(0, 0, ATLAS_KEY, 'ground_shadow').setAlpha(SHADOW_ALPHA);
+    const shadow = this.add.image(0, 0, ATLAS_KEY, `${object.frame.name}_shadow`);
     this.applyGroundShadowGeometry(shadow, object);
     return shadow;
   }
 
   /**
-   * Re-derive an EXISTING shadow's size/position/depth from its object's
-   * CURRENT display bounds (T3.9a) - the live-follow half of
-   * `createGroundShadow`'s geometry, used while a decoration is being
-   * dragged in arrange mode (every drag-move frame) and after a scale tap,
-   * so the shadow tracks the object continuously instead of only at create
-   * time. Since T3.3s the farmhouse/notice board move too - their shadows
-   * re-derive through here on every anchor snap (`placeStructureSprite`).
+   * Re-derive an EXISTING cast shadow's geometry from its object's CURRENT
+   * transform - the single tracker, called at creation and from every path
+   * that moves/scales/flips a shadowed object: decor free-form drags,
+   * commits, scale taps and flips, and structure free-follow drags,
+   * commits, and snap-backs. Delegates to `placeCastShadow` with the
+   * object's live values; a flipped decoration flips its shadow (the
+   * mirrored shear direction is accepted - imperceptible at the baked
+   * alpha and blur; structures never flip).
    */
   private applyGroundShadowGeometry(
     shadow: Phaser.GameObjects.Image,
     object: Phaser.GameObjects.Image,
   ): void {
-    const width = object.displayWidth * SHADOW_WIDTH_RATIO;
-    const height = width * SHADOW_HEIGHT_RATIO;
-    const baseY = object.y + object.displayHeight * (1 - object.originY) - SHADOW_BASE_RAISE;
-    shadow
-      .setPosition(object.x, baseY)
-      .setDisplaySize(width, height)
-      .setDepth(object.depth - 1);
+    this.placeCastShadow(shadow, {
+      x: object.x,
+      baseY: object.y + object.displayHeight * (1 - object.originY),
+      sourceFrameWidth: object.frame.realWidth,
+      scaleX: object.scaleX,
+      scaleY: object.scaleY,
+      flipX: object.flipX,
+      depth: object.depth - 1,
+    });
   }
 
   /**
-   * The expand sign's generated ground shadow (T3.art-2): the same
-   * `ground_shadow` frame and geometry rule as `createGroundShadow`
-   * (SHADOW_WIDTH_RATIO of display width, 2:1 squash, base raised
-   * SHADOW_BASE_RAISE), computed from the mirrored EXPAND_SIGN_* constants
-   * since the sign owns its sprite privately (ui/ExpandSign.ts) and renders
-   * at the floating-text depth tier - see the constants' comment for the
-   * depth reasoning. Starts hidden; `refreshExpandSign` owns visibility.
+   * Position a `<frame>_shadow` image relative to its object's base
+   * (T3.3s-r2d). The shadow's logical frame is the generator's full
+   * untrimmed canvas (restored by the atlas trim metadata):
+   * x = [PAD][shear band][base span = source frame width][PAD], y =
+   * [PAD][squashed mask][PAD] - so the un-sheared base edge's CENTER sits
+   * at fraction (canvasW - PAD - srcW/2) / canvasW horizontally and PAD /
+   * canvasH vertically. Anchoring the image there and placing that anchor
+   * at the object's base center aligns the shadow's base edge under the
+   * object's base; the whole shadow is then tucked upward by
+   * SHADOW_TUCK_RATIO of its height so the sprite draws over the overlap
+   * and the shadow emerges from beneath, attached. A flipped object
+   * mirrors the anchor fraction so the (mirrored) base span stays aligned.
+   */
+  private placeCastShadow(
+    shadow: Phaser.GameObjects.Image,
+    opts: {
+      x: number;
+      baseY: number;
+      sourceFrameWidth: number;
+      scaleX: number;
+      scaleY: number;
+      flipX: boolean;
+      depth: number;
+    },
+  ): void {
+    const canvasW = shadow.frame.realWidth;
+    const canvasH = shadow.frame.realHeight;
+    const originX = (canvasW - SHADOW_CANVAS_PAD - opts.sourceFrameWidth / 2) / canvasW;
+    shadow
+      .setOrigin(opts.flipX ? 1 - originX : originX, SHADOW_CANVAS_PAD / canvasH)
+      .setPosition(opts.x, opts.baseY - canvasH * opts.scaleY * SHADOW_TUCK_RATIO)
+      .setScale(opts.scaleX, opts.scaleY)
+      .setFlipX(opts.flipX)
+      .setDepth(opts.depth);
+  }
+
+  /**
+   * The expand sign's cast shadow (T3.art-2 shadow, directional form since
+   * T3.3s-r2d): the generated 'sign_shadow' companion, placed by the same
+   * `placeCastShadow` rule from the mirrored EXPAND_SIGN_* constants since
+   * the sign owns its sprite privately (ui/ExpandSign.ts, center origin at
+   * EXPAND_SIGN_DISPLAY_SIZE on an EXPAND_SIGN_FRAME_SIZE source) and
+   * renders at the floating-text depth tier - see the constants' comment
+   * for why the shadow grounds at EXPAND_SIGN_Y - 1 instead of depth - 1.
+   * Starts hidden; `refreshExpandSign` owns visibility.
    */
   private createExpandSignShadow(): Phaser.GameObjects.Image {
-    const width = EXPAND_SIGN_DISPLAY_SIZE * SHADOW_WIDTH_RATIO;
-    return this.add
-      .image(
-        EXPAND_SIGN_X,
-        EXPAND_SIGN_Y + EXPAND_SIGN_DISPLAY_SIZE / 2 - SHADOW_BASE_RAISE,
-        ATLAS_KEY,
-        'ground_shadow',
-      )
-      .setAlpha(SHADOW_ALPHA)
-      .setDisplaySize(width, width * SHADOW_HEIGHT_RATIO)
-      .setDepth(EXPAND_SIGN_Y - 1)
-      .setVisible(false);
+    const scale = EXPAND_SIGN_DISPLAY_SIZE / EXPAND_SIGN_FRAME_SIZE;
+    const shadow = this.add.image(0, 0, ATLAS_KEY, 'sign_shadow').setVisible(false);
+    this.placeCastShadow(shadow, {
+      x: EXPAND_SIGN_X,
+      baseY: EXPAND_SIGN_Y + EXPAND_SIGN_DISPLAY_SIZE / 2,
+      sourceFrameWidth: EXPAND_SIGN_FRAME_SIZE,
+      scaleX: scale,
+      scaleY: scale,
+      flipX: false,
+      depth: EXPAND_SIGN_Y - 1,
+    });
+    return shadow;
   }
 
   /**
@@ -3435,8 +3595,8 @@ export class FarmScene extends Phaser.Scene {
    * Flip button (T3.15): mirrors the selected decoration's facing
    * (`setFlipX`), persisted through the same transform setter as scale
    * changes - a no-op with nothing selected, matching the scale buttons.
-   * Ground shadows are symmetric ellipses, so unlike a scale change there is
-   * no shadow geometry to re-derive.
+   * Silhouette shadows (T3.3s-r2c) mirror the art itself, so the shadow's
+   * geometry re-derives here too - its flipX must track the sprite's.
    */
   private toggleSelectedDecorationFlip(): void {
     if (this.selectedDecorationIndex === null) return;
@@ -3457,6 +3617,8 @@ export class FarmScene extends Phaser.Scene {
     const updated = gameState.getState().decorations[index];
     if (updated === undefined) return;
     sprite.setFlipX(updated.flip);
+    const shadow = this.decorationShadowSprites[index];
+    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
   }
 
   /**
@@ -3885,6 +4047,10 @@ export class FarmScene extends Phaser.Scene {
     this.cancelPendingLift();
     this.activeLift = null;
     this.settleLiftPulse();
+    // Lift-time overlays die with the mode (T3.3s-r2) - both are no-ops
+    // when no lift was in flight at exit.
+    this.hidePlacementGrid();
+    this.destroyStructureFootprintPreview();
     // A structure lift abandoned mid-exit never committed: snap both
     // structures back to their saved anchors (a no-op when nothing moved -
     // the state-change refresh can't catch this, state never changed).
@@ -4025,38 +4191,257 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Live snap of an in-flight structure lift (T3.3s), the exact plot-tile
-   * pattern by ANCHOR: hovering a NEW anchor whose whole footprint is legal
-   * (`isStructureAnchorFree`) jumps the structure sprite (and its shadow,
-   * and the board's badge) there instantly; an illegal candidate does not
-   * snap - the piece stays on the last legal preview, so it is always
-   * parked somewhere committable.
+   * Free-follow structure drag (T3.3s-r2): the lifted structure's sprite
+   * (+ shadow, + the board's badge) tracks the finger exactly like a
+   * decoration - position, y-derived depth, and shadow geometry re-derive
+   * every move. The badge repositions WITHOUT its bounce tween (killed at
+   * lift start; the commit's `placeNoticeBoardBadge` rebuilds it) so the
+   * absolute-y yoyo cannot fight the drag.
    */
-  private updateStructureDragSnap(col: number, row: number): void {
-    const id = this.structureDragId;
-    if (id === null) return;
-    if (col === this.structureDragCol && row === this.structureDragRow) return;
-    if (!isStructureAnchorFree(gameState.getState(), id, col, row)) return;
-    this.structureDragCol = col;
-    this.structureDragRow = row;
-    this.placeStructureSprite(id, { col, row });
+  private moveStructureSpriteFree(id: StructureId, x: number, y: number): void {
+    const image = this.structureImage(id);
+    image.setPosition(x, y).setDepth(y);
+    this.applyGroundShadowGeometry(this.structureShadow(id), image);
+    if (id === 'noticeBoard') {
+      const { x: badgeX, y: badgeY } = this.noticeBoardBadgeBase();
+      this.noticeBoardBadge.setPosition(badgeX, badgeY).setDepth(y + 1);
+    }
   }
 
   /**
-   * Commit the structure lift (T3.3s): `moveStructure` validates once more
-   * and persists; the visuals then re-derive from the committed state, so a
-   * refused commit (state unchanged) snaps the sprite back to its origin -
-   * with the locked-plot wiggle as the refusal cue. The dropped structure
+   * Commit the structure lift (T3.3s-r2 free-follow): the nearest LEGAL
+   * anchor within STRUCTURE_SNAP_RADIUS of the drop point wins
+   * (`moveStructure` validates once more and persists); no anchor in range -
+   * or a refused commit - wiggles the sprite and snaps it home, since the
+   * visuals always re-derive from committed state. The dropped structure
    * stays selected, so it regrabs instantly (the plot convention).
    */
   private commitStructureDrag(): void {
     const id = this.structureDragId;
     if (id === null) return;
     this.structureDragId = null;
-    const moved = gameState.moveStructure(id, this.structureDragCol, this.structureDragRow);
+    this.destroyStructureFootprintPreview();
+    const image = this.structureImage(id);
+    const target = this.nearestLegalAnchor(id, image.x, image.y);
+    const moved = target !== null && gameState.moveStructure(id, target.col, target.row);
     this.applyStructureStatePosition(id);
-    if (!moved) this.shakeLockedPlot(this.structureImage(id));
+    if (!moved) this.shakeLockedPlot(image);
     this.setStructureSelection(id);
+  }
+
+  /**
+   * The legal anchor nearest the drop point (T3.3s-r2), or null when none
+   * lies within STRUCTURE_SNAP_RADIUS. Distance is measured between the
+   * drop's IDEAL anchor-tile center (drop position minus the fixed render
+   * offset) and each candidate anchor's tile center - identical to "anchor
+   * render position vs drop position", just offset-free. Candidates come
+   * from a fixed window around the ideal center (STRUCTURE_SNAP_SEARCH
+   * always covers the radius); `isStructureAnchorFree` stays the one
+   * legality authority.
+   */
+  private nearestLegalAnchor(
+    id: StructureId,
+    x: number,
+    y: number,
+  ): { col: number; row: number } | null {
+    const offset = STRUCTURE_RENDER_OFFSETS[id];
+    const idealX = x - offset.x;
+    const idealY = y - offset.y;
+    const center = isoToGrid(idealX, idealY);
+    const centerCol = Math.round(center.col);
+    const centerRow = Math.round(center.row);
+    const state = gameState.getState();
+    let best: { col: number; row: number } | null = null;
+    let bestDistSq = STRUCTURE_SNAP_RADIUS * STRUCTURE_SNAP_RADIUS;
+    for (
+      let col = centerCol - STRUCTURE_SNAP_SEARCH;
+      col <= centerCol + STRUCTURE_SNAP_SEARCH;
+      col++
+    ) {
+      for (
+        let row = centerRow - STRUCTURE_SNAP_SEARCH;
+        row <= centerRow + STRUCTURE_SNAP_SEARCH;
+        row++
+      ) {
+        const c = gridToIso(col, row);
+        const distSq = (c.x - idealX) ** 2 + (c.y - idealY) ** 2;
+        if (distSq > bestDistSq) continue;
+        if (!isStructureAnchorFree(state, id, col, row)) continue;
+        bestDistSq = distSq;
+        best = { col, row };
+      }
+    }
+    return best;
+  }
+
+  /** The placeable hidden-grid tile set as "col,row" keys, built once. */
+  private getPlaceableTileKeys(): Set<string> {
+    if (this.placeableTileKeys === null) {
+      this.placeableTileKeys = new Set(
+        placeablePlotTiles().map((tile) => `${tile.col},${tile.row}`),
+      );
+    }
+    return this.placeableTileKeys;
+  }
+
+  /**
+   * Whether ONE footprint tile of structure `id` is legal ground
+   * (T3.3s-r2): the per-tile half of `isStructureAnchorFree`, so the live
+   * drag preview can show WHICH tile refuses. MUST MATCH that function's
+   * rules (placeable domain, plots, the OTHER structure's live footprint,
+   * the expand sign while it stands; decor never blocks structures) - an
+   * anchor is legal exactly when every footprint tile passes this.
+   */
+  private structureTileFree(id: StructureId, col: number, row: number): boolean {
+    const state = gameState.getState();
+    if (!this.getPlaceableTileKeys().has(`${col},${row}`)) return false;
+    for (const plot of state.plots) {
+      if (plot.col === col && plot.row === row) return false;
+    }
+    const otherId: StructureId = id === 'farmhouse' ? 'noticeBoard' : 'farmhouse';
+    const otherAnchor = state.structures[otherId];
+    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[otherId]) {
+      if (otherAnchor.col + offset.col === col && otherAnchor.row + offset.row === row) {
+        return false;
+      }
+    }
+    if (!state.expanded) {
+      for (const tile of EXPAND_SIGN_BLOCKED_TILES) {
+        if (tile.col === col && tile.row === row) return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Live footprint preview (T3.3s-r2; raised above ground-level sprites in
+   * T3.3s-r2c): for the anchor nearest the lifted structure's current
+   * position (`structureDragCol/Row`), fill each footprint tile's diamond
+   * green (free) or red (blocked). Depth rides FOOTPRINT_PREVIEW_DEPTH_OFFSET
+   * below the lifted structure's own live depth - above plot tiles, crops,
+   * and decor, below the structure and its shadow - so a blocked tile reads
+   * as red shading over whatever stands on it, never hidden underneath
+   * (`updateLiftDrag` re-tracks the depth every move). Rebuilt only when
+   * the nearest anchor changes; destroyed when the lift ends.
+   */
+  private rebuildStructureFootprintPreview(id: StructureId): void {
+    this.structureFootprintGraphics?.destroy();
+    const graphics = this.add
+      .graphics()
+      .setDepth(this.structureImage(id).depth + FOOTPRINT_PREVIEW_DEPTH_OFFSET);
+    this.structureFootprintGraphics = graphics;
+    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
+      const col = this.structureDragCol + offset.col;
+      const row = this.structureDragRow + offset.row;
+      const free = this.structureTileFree(id, col, row);
+      graphics.fillStyle(
+        free ? FOOTPRINT_FREE_COLOR : FOOTPRINT_BLOCKED_COLOR,
+        FOOTPRINT_FILL_ALPHA,
+      );
+      this.fillTileDiamond(graphics, col, row);
+    }
+  }
+
+  /** Destroy the live footprint preview (no-op when none is showing). */
+  private destroyStructureFootprintPreview(): void {
+    this.structureFootprintGraphics?.destroy();
+    this.structureFootprintGraphics = null;
+  }
+
+  /** Fill tile (col, row)'s diamond into `graphics` (fill style pre-set). */
+  private fillTileDiamond(graphics: Phaser.GameObjects.Graphics, col: number, row: number): void {
+    const { x, y } = gridToIso(col, row);
+    graphics.beginPath();
+    graphics.moveTo(x - TILE_WIDTH / 2, y);
+    graphics.lineTo(x, y - TILE_HEIGHT / 2);
+    graphics.lineTo(x + TILE_WIDTH / 2, y);
+    graphics.lineTo(x, y + TILE_HEIGHT / 2);
+    graphics.closePath();
+    graphics.fillPath();
+  }
+
+  /**
+   * Faint placement grid (T3.3s-r2 change 5): thin diamond outlines over
+   * EXACTLY the placeable tile set (never a tile the object cannot go to),
+   * shown only while a grid-snapped object - a plot or a structure - is
+   * lifted; free-form decor/fence lifts get no grid (owner rule: a grid
+   * only helps when the lifted object lands flush on it). One Graphics
+   * built at lift start (the domain is static), destroyed on release.
+   */
+  private showPlacementGrid(): void {
+    if (this.placementGridGraphics !== null) return;
+    const graphics = this.add.graphics().setDepth(PLACEMENT_GRID_DEPTH);
+    graphics.lineStyle(
+      PLACEMENT_GRID_LINE_WIDTH,
+      PLACEMENT_GRID_LINE_COLOR,
+      PLACEMENT_GRID_LINE_ALPHA,
+    );
+    for (const tile of placeablePlotTiles()) {
+      const { x, y } = gridToIso(tile.col, tile.row);
+      graphics.beginPath();
+      graphics.moveTo(x - TILE_WIDTH / 2, y);
+      graphics.lineTo(x, y - TILE_HEIGHT / 2);
+      graphics.lineTo(x + TILE_WIDTH / 2, y);
+      graphics.lineTo(x, y + TILE_HEIGHT / 2);
+      graphics.closePath();
+      graphics.strokePath();
+    }
+    this.placementGridGraphics = graphics;
+  }
+
+  /** Destroy the placement grid (no-op when none is showing). */
+  private hidePlacementGrid(): void {
+    this.placementGridGraphics?.destroy();
+    this.placementGridGraphics = null;
+  }
+
+  /**
+   * dev.footprints() (T3.3s-r2): toggle a persistent overlay of the FULL
+   * restriction map - red diamonds on both structures' footprints at their
+   * LIVE anchors and on the expand sign's while it stands, plus a dim wash
+   * on every scanned tile beyond the placeable domain (the wash's inner
+   * edge IS the domain boundary). While enabled it rebuilds on the scene's
+   * 250ms refresh tick, so it tracks structure moves and the expansion
+   * purchase live. Console-logs its state like the other probes.
+   */
+  private toggleDevFootprints(): void {
+    this.devFootprintsEnabled = !this.devFootprintsEnabled;
+    if (this.devFootprintsEnabled) {
+      console.log(
+        'dev.footprints: restrictions overlay ON (red = blocked tiles at live anchors, dim wash = beyond the placeable domain; tracks moves live)',
+      );
+      this.rebuildDevFootprints();
+    } else {
+      console.log('dev.footprints: restrictions overlay OFF');
+      this.devFootprintsGraphics?.destroy();
+      this.devFootprintsGraphics = null;
+    }
+  }
+
+  /** Rebuild the dev restrictions overlay from live state - see `toggleDevFootprints`. */
+  private rebuildDevFootprints(): void {
+    this.devFootprintsGraphics?.destroy();
+    const graphics = this.add.graphics().setDepth(DEV_FOOTPRINTS_DEPTH);
+    this.devFootprintsGraphics = graphics;
+    const state = gameState.getState();
+    const placeable = this.getPlaceableTileKeys();
+    graphics.fillStyle(DEV_DOMAIN_WASH_COLOR, DEV_DOMAIN_WASH_ALPHA);
+    for (let col = GRASS_GRID_MIN; col <= GRASS_GRID_MAX; col++) {
+      for (let row = GRASS_GRID_MIN; row <= GRASS_GRID_MAX; row++) {
+        if (!placeable.has(`${col},${row}`)) this.fillTileDiamond(graphics, col, row);
+      }
+    }
+    graphics.fillStyle(FOOTPRINT_BLOCKED_COLOR, DEV_FOOTPRINT_BLOCKED_ALPHA);
+    for (const id of ['farmhouse', 'noticeBoard'] as const) {
+      for (const tile of structureFootprintTiles(id, state.structures[id])) {
+        this.fillTileDiamond(graphics, tile.col, tile.row);
+      }
+    }
+    if (!state.expanded) {
+      for (const tile of EXPAND_SIGN_BLOCKED_TILES) {
+        this.fillTileDiamond(graphics, tile.col, tile.row);
+      }
+    }
   }
 
   /** The structure's sprite (T3.3s) - reference lookup, the fixed pair. */
@@ -4854,10 +5239,10 @@ export class FarmScene extends Phaser.Scene {
       'noticeBoard',
       gameState.getState().structures.noticeBoard,
     );
-    const pad = NOTICE_BOARD_HIT_PAD_DISPLAY_PX / STRUCTURE_SCALE;
+    const pad = NOTICE_BOARD_HIT_PAD_DISPLAY_PX / NOTICE_BOARD_SCALE;
     this.noticeBoardImage = this.add
       .image(position.x, position.y, ATLAS_KEY, 'notice_board')
-      .setScale(STRUCTURE_SCALE)
+      .setScale(NOTICE_BOARD_SCALE)
       .setDepth(position.y)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
@@ -4894,14 +5279,7 @@ export class FarmScene extends Phaser.Scene {
    * killed and rebuilt here because its yoyo target is an absolute y.
    */
   private placeNoticeBoardBadge(): void {
-    const badgeX =
-      this.noticeBoardImage.x +
-      (NOTICE_BOARD_CONTENT_RIGHT_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE +
-      BADGE_CORNER_NUDGE;
-    const badgeY =
-      this.noticeBoardImage.y +
-      (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE -
-      BADGE_CORNER_NUDGE;
+    const { x: badgeX, y: badgeY } = this.noticeBoardBadgeBase();
     this.noticeBoardBadgeTween?.remove();
     this.noticeBoardBadge.setPosition(badgeX, badgeY).setDepth(this.noticeBoardImage.depth + 1);
     this.noticeBoardBadgeTween = this.tweens.add({
@@ -4912,6 +5290,24 @@ export class FarmScene extends Phaser.Scene {
       repeat: -1,
       ease: 'Sine.easeInOut',
     });
+  }
+
+  /**
+   * The badge's base position for the board's CURRENT sprite position - the
+   * eave-tip anchor math shared by `placeNoticeBoardBadge` (settled, with
+   * the bounce tween) and `moveStructureSpriteFree` (mid-drag, tween-free).
+   */
+  private noticeBoardBadgeBase(): { x: number; y: number } {
+    return {
+      x:
+        this.noticeBoardImage.x +
+        (NOTICE_BOARD_CONTENT_RIGHT_NATIVE - STRUCTURE_FRAME_SIZE / 2) * NOTICE_BOARD_SCALE +
+        BADGE_CORNER_NUDGE,
+      y:
+        this.noticeBoardImage.y +
+        (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - STRUCTURE_FRAME_SIZE / 2) * NOTICE_BOARD_SCALE -
+        BADGE_CORNER_NUDGE,
+    };
   }
 
   /**

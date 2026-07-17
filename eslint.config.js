@@ -4,7 +4,9 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['dist', 'node_modules'] },
+  // tools/art-studio and private are OWNER-PRIVATE sandboxes (untracked /
+  // local-only): lint must stay green regardless of what lives there.
+  { ignores: ['dist', 'node_modules', 'tools/art-studio', 'private'] },
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {

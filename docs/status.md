@@ -5,12 +5,11 @@ rules: private/misc/pm-process.md (PM/owner loop) and CLAUDE.md (canonical coder
 AGENTS.md is a pointer stub for non-Claude agents).
 
 **Updated:** 2026-07-17
-**Header facts (change ONLY on an owner-confirmed commit):** Schema v18 · Tests 474 · Live: robfernandez066.github.io/littleacres/ · Last confirmed hash: 3054160 (T3.3a2+r3c+r1); T3.3s+r1+r1b pushed after it, hash unrecorded - next git log paste fills it
+**Header facts (change ONLY on an owner-confirmed commit):** Schema v18 · Tests 474 · Live: robfernandez066.github.io/littleacres/ · Last confirmed hash: a4d1399 (docs cleanup, 2026-07-17)
 
 ## Active (not yet committed+pushed)
 
-- ERA BUNDLE T3.3s-r2..r2e: free-follow structure drag + footprint preview, meadow ground, pack-time cast shadows, placement grid, dev.footprints(), Art Studio structure sync (farmhouse 2x2 footprint + render offsets, board single-tile footprint). Owner phone pass PASSED 2026-07-17. Awaiting: r2e follow-up coder report (board footprint restore), PM diff review, then ONE combined commit. Working tree tests 476. See decisions.md 2026-07-17.
-- Documentation cleanup pass delivered; awaiting owner review of the report, then its own docs-only commit (commands in the report).
+- ERA BUNDLE T3.3s-r2..r2e: free-follow structure drag + footprint preview, meadow ground, pack-time cast shadows, placement grid, dev.footprints(), Art Studio structure sync (farmhouse 2x2 footprint + render offsets, board single-tile footprint). Owner phone pass PASSED 2026-07-17; r2e reviews PASS (both rounds). Awaiting: owner 2-minute on-device look at the re-positioned structure art, then ONE combined commit. Working tree tests 477. See decisions.md 2026-07-17.
 
 ## Queue
 
@@ -28,8 +27,7 @@ AGENTS.md is a pointer stub for non-Claude agents).
 
 ## Waiting on owner
 
-- r2e follow-up coder run + the review diff (private\to_delete\t33s-r2e-review.diff).
-- Era-bundle commit + git log paste (fills the header hash).
+- 2-minute look at the moved farmhouse/board art, then the era-bundle commit + git log paste (fills the header hash).
 - Fence-snap Art Studio mockup (queue item 2).
 - Local cleanup at leisure: old review copy in the .codex folder; private\to_delete\ purge.
 

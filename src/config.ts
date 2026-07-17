@@ -20,37 +20,37 @@ export const WORLD_HEIGHT = 2560;
 export const ATLAS_KEY = 'atlas';
 
 /**
- * Loader/texture keys for the two experimental ground textures (T2.28),
- * loaded as standalone images (not atlas frames) - see ASSETS.md "Ground
- * textures (standalone, not atlas frames)".
+ * Loader/texture keys for the standalone ground textures (not atlas frames)
+ * - see ASSETS.md "Ground textures (standalone, not atlas frames)".
+ * `grass_texture_a` is the LIVE meadow ground since T3.3s-r2b (a 512x512
+ * seamless full-bleed master in the new art style; the pack pipeline
+ * verified it passes through untrimmed). `grass_texture_b` retired from the
+ * render path in the same task - its staged file and key remain, unused.
  */
 export const GROUND_TEXTURE_A_KEY = 'grass_texture_a';
 export const GROUND_TEXTURE_B_KEY = 'grass_texture_b';
 
 /**
- * Ground rendering mode (T2.28 experiment): 'tiles' draws the grass diamond
- * tiles (the shipping default - safe, unchanged look); 'tiles_flat' (T2.28a)
- * draws the same grid using `grass_flat` (a flat-fill variant with the
- * scalloped tile-edge fringe removed - see tools/pack-atlas.mjs
- * `processTileFlat`), which visibly reduces the grid-line seams 'tiles'
- * shows at each tile boundary; 'texture_a'/'texture_b' instead tile one of
- * the two candidate ground textures across the field band. A dev-overlay
- * button cycles through all four live for the owner's verdict; this
- * constant only controls the BOOT default, which stays 'tiles' until a
- * verdict picks a winner (a one-line follow-up - see ASSETS.md).
+ * Ground rendering mode (T2.28 experiment; meadow promoted in T3.3s-r2b):
+ * 'texture_a' - the DEFAULT - tiles the seamless meadow texture across the
+ * ENTIRE world rect; 'tiles'/'tiles_flat' draw the old two-tone diamond
+ * grass grid ('tiles_flat' being the T2.28a seam-reduced variant that was
+ * the default of the previous art era) and stay reachable through the
+ * dev-overlay cycle button for comparison only. 'texture_b' left the render
+ * path entirely (T3.3s-r2b). This constant only controls the BOOT default.
  */
-export type GroundMode = 'tiles' | 'tiles_flat' | 'texture_a' | 'texture_b';
-// 'tiles_flat' (derived seamless-face tile) promoted to default 2026-07-12
-// after the owner's verdict, once its over-plots depth bug was fixed.
-export const GROUND_MODE: GroundMode = 'tiles_flat';
+export type GroundMode = 'tiles' | 'tiles_flat' | 'texture_a';
+// 'texture_a' (seamless meadow, new art era) promoted to default in
+// T3.3s-r2b - the diamond grass tiles clashed with the regenerated art.
+export const GROUND_MODE: GroundMode = 'texture_a';
 
 /**
- * TileSprite tileScale for each ground texture (T2.28), chosen by screenshot
- * comparison at 0.5 and 1.0 in FarmScene's field band - see ASSETS.md "Ground
- * textures (standalone, not atlas frames)" for the screenshots/reasoning.
+ * TileSprite tileScale for the meadow ground texture: 1.0 = one repeat per
+ * 512 design px (the master's native size). Verified crisp and seam-free
+ * across the full zoom range (0.75 fit-world to 1.6 max pinch) in
+ * T3.3s-r2b; no visible repeat rhythm at 0.75.
  */
 export const GROUND_TEXTURE_A_TILE_SCALE = 1.0;
-export const GROUND_TEXTURE_B_TILE_SCALE = 0.5;
 
 /**
  * Tile frame geometry (see ASSETS.md and tools/pack-atlas.mjs). The tile art
@@ -128,10 +128,16 @@ export const QUEST_ICON_POSITION = { x: 700, y: 86 } as const;
  * 120px. Its right edge (~x978) clears the screen edge by 102px.
  *
  * T3.3s: the board is MOVABLE now - this constant is only the DEFAULT
- * render position (anchor (5,3) + STRUCTURE_RENDER_OFFSETS.noticeBoard,
- * pinned identical by test); live positions derive from state.structures.
+ * render position (anchor (5,3) + STRUCTURE_RENDER_OFFSETS.noticeBoard);
+ * live positions derive from state.structures. This is NOT a frozen
+ * historical value: the 2026-07-17 Art Studio ruling nudged the board art
+ * (render offset (104,30) -> (116,-11), re-centering the art onto one tile),
+ * so this canonical default-anchor position moved with it (the T2.22a
+ * MEASURED clearances above describe the pre-nudge position; the footprint
+ * was reduced to a single tile by the same ruling). Its derivation is pinned
+ * by test.
  */
-export const NOTICE_BOARD_POSITION = { x: 900, y: 1310 } as const;
+export const NOTICE_BOARD_POSITION = { x: 912, y: 1269 } as const;
 
 /**
  * Screen position (design space) of the decorative farmhouse structure.
@@ -146,10 +152,14 @@ export const NOTICE_BOARD_POSITION = { x: 900, y: 1310 } as const;
  * and its right edge (x~1014) clears the screen edge by 66px.
  *
  * T3.3s: the farmhouse is MOVABLE now - this constant is only the DEFAULT
- * render position (anchor (-1,-3) + STRUCTURE_RENDER_OFFSETS.farmhouse,
- * pinned identical by test); live positions derive from state.structures.
+ * render position (anchor (-1,-3) + STRUCTURE_RENDER_OFFSETS.farmhouse);
+ * live positions derive from state.structures. This is NOT a frozen
+ * historical value: the 2026-07-17 Art Studio ruling nudged the farmhouse
+ * art (render offset (84,8) -> (137,9)), so this canonical default-anchor
+ * position moved with it (the T2.22a MEASURED clearances above describe the
+ * pre-nudge position). Its derivation is pinned by test.
  */
-export const FARMHOUSE_POSITION = { x: 880, y: 520 } as const;
+export const FARMHOUSE_POSITION = { x: 933, y: 521 } as const;
 
 /**
  * Movable structures (T3.3s, schema v18): the farmhouse and the notice board
@@ -161,16 +171,28 @@ export const FARMHOUSE_POSITION = { x: 880, y: 520 } as const;
  *
  * - STRUCTURE_DEFAULT_ANCHORS: the anchor tiles a migrated (or fresh) save
  *   starts with. Chosen as the (0,0)-offset member of each structure's
- *   historical blocked-tile set, so the default footprint and render position
- *   reproduce the pre-v18 hardcoded values EXACTLY.
+ *   historical blocked-tile set, so the default render position reproduces
+ *   the pre-v18 hardcoded value EXACTLY (pinned by test).
  * - STRUCTURE_FOOTPRINT_OFFSETS: each structure's blocked tiles RELATIVE to
- *   its anchor. At the default anchors these reproduce the historical
- *   FARMHOUSE_BLOCKED_TILES / NOTICE_BOARD_BLOCKED_TILES sets (v16/v17
- *   gameState.ts) tile for tile.
+ *   its anchor. The farmhouse's is DESIGN-CHOSEN (Art Studio owner ruling
+ *   2026-07-17, tuned visually against the live game): an Art-Studio-tuned
+ *   2x2 block (4 tiles) at offsets (1,0),(2,0),(1,1),(2,1) - this supersedes
+ *   the T3.3s-r2c symmetric 3x3, which in turn superseded the T3.3s-r2
+ *   measured-opaque-bounds staircase; the owner refines footprints via Art
+ *   Studio change requests from here. NOTE the anchor tile (offset (0,0)) is
+ *   deliberately NOT part of the farmhouse footprint - the anchor is a pure
+ *   reference point (it positions the art and the footprint but is itself
+ *   placeable). The notice board is ALSO DESIGN-CHOSEN (same 2026-07-17 owner
+ *   ruling): a SINGLE-tile footprint at offset (1,0) - the board art was
+ *   re-centered onto one tile (that is what the (116,-11) render offset is
+ *   tuned for) and its blocked set was reduced to that same tile, superseding
+ *   the old 4-tile measured set (opaque rect x [823, 978], y [1190, 1430] -
+ *   no longer used). Like the farmhouse, the board's anchor tile (offset
+ *   (0,0)) is deliberately NOT in the footprint (anchor as pure reference).
  * - STRUCTURE_RENDER_OFFSETS: pixel delta from the anchor tile's CENTER to
  *   the structure sprite's position. At the default anchors:
- *   farmhouse: gridToIso(-1,-3) = (796, 512), +(84, 8) = FARMHOUSE_POSITION;
- *   noticeBoard: gridToIso(5,3) = (796, 1280), +(104, 30) = NOTICE_BOARD_POSITION.
+ *   farmhouse: gridToIso(-1,-3) = (796, 512), +(137, 9) = FARMHOUSE_POSITION;
+ *   noticeBoard: gridToIso(5,3) = (796, 1280), +(116, -11) = NOTICE_BOARD_POSITION.
  */
 export type StructureId = 'farmhouse' | 'noticeBoard';
 
@@ -184,25 +206,17 @@ export const STRUCTURE_FOOTPRINT_OFFSETS: Record<
   readonly { col: number; row: number }[]
 > = {
   farmhouse: [
-    { col: -1, row: -1 },
-    { col: 0, row: -1 },
-    { col: -1, row: 0 },
-    { col: 0, row: 0 },
     { col: 1, row: 0 },
-    { col: 0, row: 1 },
+    { col: 2, row: 0 },
     { col: 1, row: 1 },
+    { col: 2, row: 1 },
   ],
-  noticeBoard: [
-    { col: 0, row: -1 },
-    { col: 0, row: 0 },
-    { col: 1, row: 0 },
-    { col: 1, row: 1 },
-  ],
+  noticeBoard: [{ col: 1, row: 0 }],
 };
 
 export const STRUCTURE_RENDER_OFFSETS: Record<StructureId, { x: number; y: number }> = {
-  farmhouse: { x: 84, y: 8 },
-  noticeBoard: { x: 104, y: 30 },
+  farmhouse: { x: 137, y: 9 },
+  noticeBoard: { x: 116, y: -11 },
 };
 
 /**
@@ -262,18 +276,23 @@ export const DRESSING_PALETTE_FRAMES = [
 ] as const;
 
 /**
- * Ground shadows (T3.9): a scene-wide `ground_shadow` image (see
- * tools/pack-atlas.mjs `generateGroundShadow`) rendered under every standing
- * object - the farmhouse, the notice board, and every decoration - the fix
- * for standing sprites reading as "taped on" instead of resting on the
- * ground. Width is this fraction of the object's own display width; height
- * is width x 0.5 (the frame is already 2:1, so this keeps the shadow's own
- * aspect). Not applied to dressing decals - ground-hugging art that never
- * needed rooting.
+ * Directional cast shadows (T3.3s-r2d, superseding the T3.3s-r2c runtime
+ * mirror silhouettes - owner picked this from PM mocks): light comes from
+ * a fixed sun at TOP-RIGHT; every shadowed object (the farmhouse, the
+ * notice board, the expand sign, every decoration) renders its pack-time
+ * `<frame>_shadow` companion (tools/pack-atlas.mjs generateCastShadow -
+ * squashed, sheared lower-left, blurred, alpha-baked black), positioned so
+ * the shadow's un-sheared base edge sits under the object's base and the
+ * shadow emerges from beneath the sprite. Crops, plot tiles, and dressing
+ * decals stay shadowless, as always.
+ * - SHADOW_TUCK_RATIO: the fraction of the shadow's height it is tucked
+ *   upward under the sprite (the sprite draws over the overlap, so the
+ *   shadow reads as attached, never a detached patch).
+ * - SHADOW_CANVAS_PAD: the transparent padding the packer adds around the
+ *   shadow canvas before blurring - MUST MATCH tools/pack-atlas.mjs
+ *   SHADOW_BLUR_PAD. The runtime's x-alignment constant: together with the
+ *   object frame's own width it locates the un-sheared base edge inside
+ *   the shadow's (trim-metadata-restored) canvas.
  */
-export const SHADOW_WIDTH_RATIO = 0.8;
-export const SHADOW_HEIGHT_RATIO = 0.5;
-/** Shadow opacity. */
-export const SHADOW_ALPHA = 0.3;
-/** Nudges the shadow up from the object's exact display-bounds base, in design px. */
-export const SHADOW_BASE_RAISE = 8;
+export const SHADOW_TUCK_RATIO = 0.45;
+export const SHADOW_CANVAS_PAD = 12;

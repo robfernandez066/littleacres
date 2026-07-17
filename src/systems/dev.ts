@@ -35,10 +35,11 @@ export interface DevTools {
    */
   toggleHitboxes?(enabled: boolean): void;
   /**
-   * Cycle the ground rendering mode tiles -> tiles_flat -> texture_a ->
-   * texture_b -> tiles (T2.28/T2.28a dev experiment), rebuilding only the
-   * ground layer. Registered by FarmScene. Returns the new mode so the
-   * caller (the overlay button) can update its own label.
+   * Cycle the ground rendering mode texture_a -> tiles -> tiles_flat ->
+   * texture_a (T2.28 dev experiment; meadow texture_a is the shipping
+   * default since T3.3s-r2b, the tile modes remain for comparison),
+   * rebuilding only the ground layer. Registered by FarmScene. Returns the
+   * new mode so the caller (the overlay button) can update its own label.
    */
   cycleGroundMode?(): GroundMode;
   /**
@@ -88,6 +89,14 @@ export interface DevTools {
    * left above the normal cap. Registered by FarmScene.
    */
   decorSizing?(enabled: boolean): void;
+  /**
+   * T3.3s-r2 dev restrictions overlay: toggles a persistent overlay of ALL
+   * blocked tiles - both structures' footprints at their LIVE anchors (red
+   * diamonds, tracking moves as they commit), the expand sign's while it
+   * still stands, and the placeable-domain boundary (a dim wash beyond it).
+   * Console-logs its state like the other probes. Registered by FarmScene.
+   */
+  footprints?(): void;
 }
 
 declare global {
@@ -190,6 +199,14 @@ export function registerSceneLayersProbe(
  */
 export function registerDecorSizingToggle(toggle: (enabled: boolean) => void): void {
   if (window.dev !== undefined) window.dev.decorSizing = toggle;
+}
+
+/**
+ * Late-bind `dev.footprints` once the Farm scene exists, same pattern as
+ * `registerCoinArcTest`.
+ */
+export function registerFootprintsToggle(toggle: () => void): void {
+  if (window.dev !== undefined) window.dev.footprints = toggle;
 }
 
 /**

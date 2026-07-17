@@ -1945,14 +1945,20 @@ describe('isPlotTileFree (T3.3a-r collision rules)', () => {
 
   it('rejects structure footprint tiles: farmhouse and notice board, always', () => {
     const state = slice([], { expanded: true });
-    // Farmhouse footprint (position 880, 520 - see the hardcoded set's derivation).
-    expect(isPlotTileFree(state, 0, -2)).toBe(false);
-    expect(isPlotTileFree(state, -1, -3)).toBe(false);
-    // Notice board footprint (position 900, 1310).
-    expect(isPlotTileFree(state, 5, 2)).toBe(false);
+    // Farmhouse 2x2 footprint (default anchor (-1,-3), render position 933,
+    // 521): tiles (0,-3),(1,-3),(0,-2),(1,-2).
+    expect(isPlotTileFree(state, 0, -3)).toBe(false);
+    expect(isPlotTileFree(state, 1, -2)).toBe(false);
+    // Notice board single-tile footprint (position 912, 1269): tile (6,3)
+    // only (offset (1,0) at anchor (5,3)).
     expect(isPlotTileFree(state, 6, 3)).toBe(false);
-    // Neighbors just outside the footprints stay free.
-    expect(isPlotTileFree(state, 1, -1)).toBe(true);
+    // Neighbors just outside the footprints stay free - including BOTH anchor
+    // tiles, which are NOT part of their footprints (2026-07-17 owner ruling:
+    // the anchor is a pure reference point). Farmhouse anchor (-1,-3); notice
+    // board anchor (5,3) and its former footprint tile (5,2).
+    expect(isPlotTileFree(state, -1, -3)).toBe(true);
+    expect(isPlotTileFree(state, 5, 3)).toBe(true);
+    expect(isPlotTileFree(state, 5, 2)).toBe(true);
     expect(isPlotTileFree(state, 4, 2)).toBe(true);
   });
 
@@ -2047,6 +2053,8 @@ describe('nextChainPlotTile (T3.3a-r chain adjacency preference)', () => {
   });
 
   it('continues a run UPWARD or LEFTWARD too - direction comes from the history, not a fixed axis', () => {
+    // (0, -1) is free: the farmhouse 2x2 footprint (2026-07-17) covers only
+    // tiles (0,-3),(1,-3),(0,-2),(1,-2) - rows -3..-2 - so row -1 is clear.
     const upward = [
       { col: 0, row: 1 },
       { col: 0, row: 0 },
@@ -2199,6 +2207,8 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
     // left on its LAST (partial-face disqualification).
     const right = slice(blockPlots(), [decorOn(0, 3), decorOn(-1, 2)]);
     expect(bestBatchStartTile(right, 3)).toEqual({ col: 3, row: 0 });
+    // No farmhouse override needed: the 2x2 footprint (2026-07-17, rows
+    // -3..-2) leaves the whole row -1 top face free.
     const top = slice(blockPlots(), [decorOn(0, 3), decorOn(-1, 2), decorOn(3, 1)]);
     expect(bestBatchStartTile(top, 3)).toEqual({ col: 0, row: -1 });
   });
@@ -2348,7 +2358,7 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.placePlot(5, 0)).toBe(false); // diamond off the world's east edge
     expect(store.placePlot(0, 4)).toBe(false); // west mere reserve (x < 20)
     expect(store.placePlot(0, -2)).toBe(false); // farmhouse footprint
-    expect(store.placePlot(5, 2)).toBe(false); // notice-board footprint
+    expect(store.placePlot(6, 3)).toBe(false); // notice-board footprint (single tile)
     expect(store.placePlot(0.5, 3)).toBe(false);
     expect(store.getState().unplacedPlots).toBe(4);
   });
@@ -4294,7 +4304,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('PIXEL IDENTITY: the default anchors reproduce the historical render positions exactly', () => {
+  it('PIXEL IDENTITY: the default anchors reproduce the canonical render positions exactly', () => {
     expect(structureRenderPosition('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual({
       x: FARMHOUSE_POSITION.x,
       y: FARMHOUSE_POSITION.y,
@@ -4305,23 +4315,24 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     });
   });
 
-  it('the default anchors reproduce the historical blocked-tile sets tile for tile', () => {
-    // The exact FARMHOUSE_BLOCKED_TILES / NOTICE_BOARD_BLOCKED_TILES sets
-    // hardcoded in v16..v17 gameState.ts, in the same order.
+  it('the default anchors reproduce the pinned blocked-tile sets tile for tile', () => {
+    // DELIBERATE RE-PIN (Art Studio owner ruling 2026-07-17): the farmhouse
+    // footprint is DESIGN-CHOSEN - an Art-Studio-tuned 2x2 block (offsets
+    // (1,0),(2,0),(1,1),(2,1)), superseding the T3.3s-r2c symmetric 3x3. At
+    // the default anchor (-1,-3) that is tiles (0,-3),(1,-3),(0,-2),(1,-2),
+    // in offset order. The notice board is ALSO DESIGN-CHOSEN by the same
+    // ruling: a SINGLE-tile footprint at offset (1,0) -> tile (6,3) at anchor
+    // (5,3), superseding the old 4-tile measured set. For BOTH structures the
+    // anchor tile is deliberately OUTSIDE the footprint (a pure reference
+    // point). See STRUCTURE_FOOTPRINT_OFFSETS in config.ts.
     expect(structureFootprintTiles('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual([
-      { col: -2, row: -4 },
-      { col: -1, row: -4 },
-      { col: -2, row: -3 },
-      { col: -1, row: -3 },
       { col: 0, row: -3 },
-      { col: -1, row: -2 },
+      { col: 1, row: -3 },
       { col: 0, row: -2 },
+      { col: 1, row: -2 },
     ]);
     expect(structureFootprintTiles('noticeBoard', STRUCTURE_DEFAULT_ANCHORS.noticeBoard)).toEqual([
-      { col: 5, row: 2 },
-      { col: 5, row: 3 },
       { col: 6, row: 3 },
-      { col: 6, row: 4 },
     ]);
   });
 
@@ -4368,11 +4379,13 @@ describe('moveStructure (T3.3s legality matrix)', () => {
   it('happy path: the farmhouse moves to an open legal anchor and the move persists', () => {
     const storage = makeStorage();
     const store = makeStore(storage);
-    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
-    expect(store.getState().structures.farmhouse).toEqual({ col: 8, row: 5 });
+    // (6, 7): the 2x2 footprint - tiles (7,7),(8,7),(7,8),(8,8) - sits in the
+    // open south field, clear of plots, the board, the sign, and the domain edge.
+    expect(store.moveStructure('farmhouse', 6, 7)).toBe(true);
+    expect(store.getState().structures.farmhouse).toEqual({ col: 6, row: 7 });
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
-    expect(reloaded.getState().structures.farmhouse).toEqual({ col: 8, row: 5 });
+    expect(reloaded.getState().structures.farmhouse).toEqual({ col: 6, row: 7 });
   });
 
   it('a move onto its own current anchor is a valid no-op commit', () => {
@@ -4383,36 +4396,47 @@ describe('moveStructure (T3.3s legality matrix)', () => {
 
   it('refuses an anchor whose footprint overlaps a plot', () => {
     const store = makeStore();
-    // Default plots fill cols 0..3, rows 0..2 - anchor (2, 1) puts the whole
-    // farmhouse footprint on top of them.
+    // Default plots fill cols 0..3, rows 0..2. Anchor (2, 1) puts the 2x2
+    // footprint (3,1),(4,1),(3,2),(4,2) partly onto them - (3,1) and (3,2)
+    // are plots (the col-4 tiles clear the plot block).
     expect(store.moveStructure('farmhouse', 2, 1)).toBe(false);
-    // A single-tile graze refuses too: anchor (2, 3) reaches (1, 2) and (2, 2).
-    expect(store.moveStructure('farmhouse', 2, 3)).toBe(false);
+    // A single-tile graze refuses too: anchor (-2, -1) reaches plot (0, 0)
+    // via footprint tile (0,0); its other three tiles ((-1,-1),(0,-1),(-1,0))
+    // are clear of plots, the sign, the board, and the domain edge.
+    expect(store.moveStructure('farmhouse', -2, -1)).toBe(false);
   });
 
   it("refuses an anchor overlapping the OTHER structure's footprint - tracked at its LIVE anchor", () => {
     const store = makeStore();
-    // Expanded, so the sign footprint (which also overlaps anchor (5, 4) -
-    // covered by its own test) cannot mask the structure-structure rule.
+    // Expanded, so the sign footprint can never mask the structure-structure
+    // rule (keeps the board collision the sole isolated refusal cause).
     markExpanded(store);
-    // Farmhouse anchor (5, 4) reaches (5, 3) and (6, 4) - the notice board's
-    // default footprint.
-    expect(store.moveStructure('farmhouse', 5, 4)).toBe(false);
-    // Move the board away; its old footprint stops blocking...
+    // Farmhouse anchor (5, 3): its 2x2 footprint (6,3),(7,3),(6,4),(7,4)
+    // reaches (6, 3) - the notice board's SINGLE default footprint tile. All
+    // four farmhouse tiles are in-domain, so the board is the sole refusal.
+    expect(store.moveStructure('farmhouse', 5, 3)).toBe(false);
+    // Move the board away; its old footprint tile (6,3) stops blocking...
     expect(store.moveStructure('noticeBoard', 8, 6)).toBe(true);
-    expect(store.moveStructure('farmhouse', 5, 4)).toBe(true);
-    // ...and its new footprint blocks instead: farmhouse (8, 5) reaches
-    // (8, 5)/(8, 6)/(9, 6), all under the board at (8, 6).
-    expect(store.moveStructure('farmhouse', 8, 5)).toBe(false);
+    expect(store.moveStructure('farmhouse', 5, 3)).toBe(true);
+    // ...and its new footprint blocks instead: farmhouse (7, 6) footprint
+    // (8,6),(9,6),(8,7),(9,7) reaches (9, 6) - the board's single tile now at
+    // anchor (8, 6). All four farmhouse tiles are in-domain.
+    expect(store.moveStructure('farmhouse', 7, 6)).toBe(false);
   });
 
   it('refuses anchors whose footprint leaves the placeable domain, and non-integer coordinates', () => {
     const store = makeStore();
-    // Board at (11, 10): footprint tile (12, 10) is past the placeable
-    // domain's max col (11 - pinned by the placeablePlotTiles bounds test).
+    // Board at (11, 10): its single footprint tile (12, 10) is past the
+    // placeable domain (col 12 is never placeable - the placeablePlotTiles
+    // bounds test pins max placeable col at 11).
     expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false);
+    // The farmhouse 2x2 footprint reaches col+2 / row+1 from the anchor
+    // (2026-07-17), so anchor (10, 0) pushes footprint tile (12, 0) past the
+    // placeable domain's east edge (max placeable col 11) - refused. (Note
+    // anchor (-8,-8) is now LEGAL: its footprint (-7,-8)..(-6,-7) shifted
+    // down-right and stays in-domain, unlike the old symmetric 3x3.)
+    expect(store.moveStructure('farmhouse', 10, 0)).toBe(false);
     // Deep off-grid.
-    expect(store.moveStructure('farmhouse', -8, -8)).toBe(false);
     expect(store.moveStructure('farmhouse', 99, 99)).toBe(false);
     expect(store.moveStructure('farmhouse', 0.5, 5)).toBe(false);
     expect(store.moveStructure('farmhouse', Number.NaN, 5)).toBe(false);
@@ -4422,7 +4446,7 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     const store = makeStore();
     const before = store.exportSave();
     expect(store.moveStructure('farmhouse', 2, 1)).toBe(false); // plots
-    expect(store.moveStructure('farmhouse', 5, 4)).toBe(false); // other structure
+    expect(store.moveStructure('farmhouse', 5, 3)).toBe(false); // other structure (board tile (6,3))
     expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false); // out of domain
     expect(store.moveStructure('farmhouse', 0.5, 5)).toBe(false); // non-integer
     expect(store.exportSave()).toBe(before);
@@ -4431,53 +4455,97 @@ describe('moveStructure (T3.3s legality matrix)', () => {
   it('isPlotTileFree derives footprints dynamically: old tiles free, new tiles blocked after a move', () => {
     const store = makeStore();
     expect(isPlotTileFree(store.getState(), 0, -2)).toBe(false);
-    expect(isPlotTileFree(store.getState(), -1, -3)).toBe(false);
-    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
+    expect(isPlotTileFree(store.getState(), 1, -3)).toBe(false);
+    expect(store.moveStructure('farmhouse', 6, 7)).toBe(true);
     // The vacated default footprint frees up...
     expect(isPlotTileFree(store.getState(), 0, -2)).toBe(true);
-    expect(isPlotTileFree(store.getState(), -1, -3)).toBe(true);
-    // ...and the new footprint blocks, anchor tile and offset tile alike.
-    expect(isPlotTileFree(store.getState(), 8, 5)).toBe(false);
-    expect(isPlotTileFree(store.getState(), 7, 4)).toBe(false);
+    expect(isPlotTileFree(store.getState(), 1, -3)).toBe(true);
+    // ...and the new 2x2 footprint (7,7),(8,7),(7,8),(8,8) blocks instead.
+    // The anchor tile (6,7) itself stays FREE (2026-07-17: the anchor is not
+    // part of the footprint).
+    expect(isPlotTileFree(store.getState(), 7, 7)).toBe(false);
+    expect(isPlotTileFree(store.getState(), 8, 8)).toBe(false);
+    expect(isPlotTileFree(store.getState(), 6, 7)).toBe(true);
   });
 
   it('placePlot respects MOVED footprints: plots go where the farmhouse was, never where it now is', () => {
     const store = makeStore();
     expect(store.grantPlots(1)).toBe(true);
     store.consumePlotGrantEvents();
-    expect(store.placePlot(-1, -3)).toBe(false); // still under the farmhouse
-    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
-    expect(store.placePlot(-1, -3)).toBe(BASE_PLOT_COUNT); // vacated - appends as plot 12
+    expect(store.placePlot(0, -2)).toBe(false); // still under the farmhouse footprint
+    expect(store.moveStructure('farmhouse', 6, 7)).toBe(true);
+    expect(store.placePlot(0, -2)).toBe(BASE_PLOT_COUNT); // vacated - appends as plot 12
     expect(store.grantPlots(1)).toBe(true);
-    expect(store.placePlot(8, 5)).toBe(false); // under the moved farmhouse
+    expect(store.placePlot(7, 7)).toBe(false); // under the moved farmhouse footprint
   });
 
   it('isStructureAnchorFree matches moveStructure verdicts (the scene preview shares the rule)', () => {
     const store = makeStore();
     const state = store.getState();
-    expect(isStructureAnchorFree(state, 'farmhouse', 8, 5)).toBe(true);
+    expect(isStructureAnchorFree(state, 'farmhouse', 6, 7)).toBe(true);
     expect(isStructureAnchorFree(state, 'farmhouse', 2, 1)).toBe(false);
-    expect(isStructureAnchorFree(state, 'farmhouse', 5, 4)).toBe(false);
+    // (5,3): farmhouse footprint (6,3),(7,3),(6,4),(7,4) hits the board tile (6,3).
+    expect(isStructureAnchorFree(state, 'farmhouse', 5, 3)).toBe(false);
     expect(isStructureAnchorFree(state, 'noticeBoard', 11, 10)).toBe(false);
     // The current anchor is always a legal preview (snap-back home).
     expect(isStructureAnchorFree(state, 'farmhouse', -1, -3)).toBe(true);
   });
 
   it('refuses anchors overlapping the expand sign footprint pre-expansion; the same anchors are legal once expanded (T3.3s-r1)', () => {
-    // Anchor (4, 4) is clear of plots (rows 0..2), the farmhouse footprint
-    // there ((3,3)..(5,5)) is clear of the board's default footprint, and
-    // the board footprint there ((4,3)/(4,4)/(5,4)/(5,5)) is clear of the
-    // farmhouse's - so pre-expansion the SIGN is the only refusal cause.
+    // Sign-gating isolation under the 2026-07-17 footprints: both anchors
+    // touch the sign but are otherwise clear (plots, the other structure at
+    // its default, the domain edge), so the SIGN is the sole pre-expansion
+    // refusal cause and each turns legal once the sign retires.
+    //   Farmhouse anchor (4, 5): 2x2 footprint (5,5),(6,5),(5,6),(6,6); only
+    //   (5,5) is a sign tile. (With the board now a single tile at (6,3), the
+    //   farmhouse no longer collides with the board here.)
+    //   Notice board anchor (4, 4): single footprint tile (5,4), which is a
+    //   sign tile (see EXPAND_SIGN_BLOCKED_TILES in gameState.ts); clear of the
+    //   farmhouse's default footprint and the domain, so post-expansion legal.
     const farmhouseStore = makeStore();
-    expect(farmhouseStore.moveStructure('farmhouse', 4, 4)).toBe(false);
+    expect(farmhouseStore.moveStructure('farmhouse', 4, 5)).toBe(false);
     expect(farmhouseStore.moveStructure('noticeBoard', 4, 4)).toBe(false);
     markExpanded(farmhouseStore);
-    expect(farmhouseStore.moveStructure('farmhouse', 4, 4)).toBe(true);
-    expect(farmhouseStore.getState().structures.farmhouse).toEqual({ col: 4, row: 4 });
+    expect(farmhouseStore.moveStructure('farmhouse', 4, 5)).toBe(true);
+    expect(farmhouseStore.getState().structures.farmhouse).toEqual({ col: 4, row: 5 });
     const boardStore = makeStore();
     markExpanded(boardStore);
     expect(boardStore.moveStructure('noticeBoard', 4, 4)).toBe(true);
     expect(boardStore.getState().structures.noticeBoard).toEqual({ col: 4, row: 4 });
+  });
+
+  it('the farmhouse anchor tile itself is placeable (2026-07-17: the anchor is not a footprint tile)', () => {
+    const store = makeStore();
+    expect(store.grantPlots(1)).toBe(true);
+    store.consumePlotGrantEvents();
+    // (-1,-3) is the farmhouse DEFAULT anchor; its 2x2 footprint is
+    // (0,-3),(1,-3),(0,-2),(1,-2), so the anchor tile itself is free ground -
+    // a plot places there and appends as plot 12.
+    expect(store.placePlot(-1, -3)).toBe(BASE_PLOT_COUNT);
+  });
+
+  it('the notice board anchor tile itself is placeable (2026-07-17: the single-tile footprint excludes its anchor)', () => {
+    const store = makeStore();
+    expect(store.grantPlots(1)).toBe(true);
+    store.consumePlotGrantEvents();
+    // (5,3) is the board DEFAULT anchor; its single footprint tile is (6,3),
+    // so the anchor tile itself is free ground - a plot places there.
+    expect(store.placePlot(5, 3)).toBe(BASE_PLOT_COUNT);
+  });
+
+  it('isStructureAnchorFree ignores the anchor tile occupancy (2026-07-17): a plot on the anchor does not block', () => {
+    const store = makeStore();
+    markExpanded(store);
+    const state = store.getState();
+    // Put a plot on the tile the farmhouse would anchor to at (6,7), leaving
+    // its four footprint tiles ((7,7),(8,7),(7,8),(8,8)) clear.
+    state.plots.push({ state: 'empty', col: 6, row: 7 });
+    // isStructureAnchorFree inspects only the footprint, never the anchor, so
+    // the plot on the anchor tile does not make the anchor illegal.
+    expect(isStructureAnchorFree(state, 'farmhouse', 6, 7)).toBe(true);
+    // Sanity: a plot ON a footprint tile DOES block.
+    state.plots.push({ state: 'empty', col: 7, row: 7 });
+    expect(isStructureAnchorFree(state, 'farmhouse', 6, 7)).toBe(false);
   });
 });
 
@@ -4495,12 +4563,15 @@ describe('setDecorationTransform vs permanent objects (T3.3s-r1 mutual exclusion
   it('refuses a commit whose anchor lands inside a farmhouse/board/sign footprint tile diamond - mutating nothing', () => {
     const store = makeStoreWithDecor();
     const before = store.exportSave();
-    // Farmhouse default anchor tile (-1,-3): center (796, 512), and the
-    // diamond's edge midpoint (860, 480) - both inside.
-    expect(store.setDecorationTransform(0, 796, 512, 0.55, false)).toBe(false);
-    expect(store.setDecorationTransform(0, 860, 480, 0.55, false)).toBe(false);
-    // Notice board default anchor tile (5, 3): center (796, 1280).
-    expect(store.setDecorationTransform(0, 796, 1280, 0.55, false)).toBe(false);
+    // Farmhouse footprint tile (0,-2): center (796, 640), and that diamond's
+    // edge midpoint (860, 608) - both inside. (The anchor tile (-1,-3) is NOT
+    // a footprint tile since 2026-07-17, so it is deliberately not used here.)
+    expect(store.setDecorationTransform(0, 796, 640, 0.55, false)).toBe(false);
+    expect(store.setDecorationTransform(0, 860, 608, 0.55, false)).toBe(false);
+    // Notice board single footprint tile (6, 3): center (924, 1344). (Its
+    // anchor tile (5,3), center (796,1280), is NOT a footprint tile since
+    // 2026-07-17, so it is deliberately not used here.)
+    expect(store.setDecorationTransform(0, 924, 1344, 0.55, false)).toBe(false);
     // Expand sign tile (4, 4): center (540, 1280), pre-expansion.
     expect(store.setDecorationTransform(0, 540, 1280, 0.55, false)).toBe(false);
     expect(store.getState().decorations[0]).toEqual({
@@ -4515,10 +4586,13 @@ describe('setDecorationTransform vs permanent objects (T3.3s-r1 mutual exclusion
 
   it('accepts an anchor just outside the footprint diamonds', () => {
     const store = makeStoreWithDecor();
-    // (926, 512) sits inside tile (0,-4)'s diamond - a NON-footprint
-    // neighbor 2px past the shared corner of three footprint diamonds.
-    expect(store.setDecorationTransform(0, 926, 512, 0.55, false)).toBe(true);
-    expect(store.getState().decorations[0]).toMatchObject({ x: 926, y: 512 });
+    // (666, 640) sits inside tile (-1,-1)'s diamond - a NON-footprint
+    // neighbor just outside the farmhouse 2x2 footprint. Its nearest
+    // footprint tile (0,-2) has center (796,640) and thus a west corner at
+    // (668,640); (666,640) is 2px past that corner, so it clears every
+    // footprint diamond (2026-07-17 re-pin).
+    expect(store.setDecorationTransform(0, 666, 640, 0.55, false)).toBe(true);
+    expect(store.getState().decorations[0]).toMatchObject({ x: 666, y: 640 });
   });
 
   it('accepts anchors on sign tiles post-expansion (the sign is gone)', () => {
@@ -4531,12 +4605,14 @@ describe('setDecorationTransform vs permanent objects (T3.3s-r1 mutual exclusion
   it('tracks structure footprints at their LIVE anchors: a moved farmhouse blocks its new tiles and frees its old ones', () => {
     const store = makeStoreWithDecor();
     markExpanded(store);
-    expect(store.moveStructure('farmhouse', 3, 5)).toBe(true);
-    // New anchor tile (3, 5): center (284, 1280) - refused.
-    expect(store.setDecorationTransform(0, 284, 1280, 0.55, false)).toBe(false);
-    // The vacated default tile center (796, 512) - accepted now.
-    expect(store.setDecorationTransform(0, 796, 512, 0.55, false)).toBe(true);
-    expect(store.getState().decorations[0]).toMatchObject({ x: 796, y: 512 });
+    expect(store.moveStructure('farmhouse', 4, 5)).toBe(true);
+    // New footprint tile (5, 5): center (540, 1408) - refused. (The new
+    // anchor tile (4,5) itself would NOT be refused - it is not a footprint
+    // tile since 2026-07-17.)
+    expect(store.setDecorationTransform(0, 540, 1408, 0.55, false)).toBe(false);
+    // A vacated default footprint tile (0,-2), center (796, 640) - accepted now.
+    expect(store.setDecorationTransform(0, 796, 640, 0.55, false)).toBe(true);
+    expect(store.getState().decorations[0]).toMatchObject({ x: 796, y: 640 });
   });
 });
 

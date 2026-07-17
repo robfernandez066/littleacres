@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 
-import { DRESSING_PALETTE_FRAMES, DRESSING_SCALE_STEP } from '../config';
+import { DRESSING_PALETTE_FRAMES, DRESSING_SCALE_STEP, GROUND_MODE } from '../config';
 import { MAX_LEVEL } from '../data/levels';
 import { gameState } from '../systems/gameState';
 import { getPoolStatsRegistry } from '../systems/pool';
@@ -155,12 +155,13 @@ export class DevOverlay {
       window.dev?.toggleHitboxes?.(hitboxesOn);
     });
 
-    // T2.28/T2.28a: cycles the ground rendering mode live (tiles -> tiles_flat
-    // -> texture_a -> texture_b -> tiles) so the owner can compare in-game.
-    // Label carries the current mode; the button owns its own text since the
-    // ground mode isn't part of the JSON state dump below.
+    // T2.28: cycles the ground rendering mode live (texture_a -> tiles ->
+    // tiles_flat -> texture_a; the meadow texture is the shipping default
+    // since T3.3s-r2b) so the owner can compare in-game. Label carries the
+    // current mode; the button owns its own text since the ground mode isn't
+    // part of the JSON state dump below.
     const groundButton = document.createElement('button');
-    groundButton.textContent = 'Ground: tiles';
+    groundButton.textContent = `Ground: ${GROUND_MODE}`;
     groundButton.style.cssText = 'font-family: monospace; font-size: 12px; padding: 4px 8px;';
     groundButton.addEventListener('click', () => {
       const mode = window.dev?.cycleGroundMode?.();

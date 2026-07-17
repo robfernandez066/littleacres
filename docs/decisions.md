@@ -23,6 +23,14 @@ one sentence of verdict plus the ruling is enough, the diff is the record):
 
 ---
 
+## 2026-07-17 - T3.3s-r2e review PASS (both rounds) -> USER TEST (2-minute look), then the era-bundle commit
+
+**Context:** Art Studio structure sync applied per the 2026-07-17 owner ruling: farmhouse 2x2 footprint + (137,9) render offset, board single-tile footprint + (116,-11) offset, positions re-derived to (933,521)/(912,1269); anchor tiles now deliberately outside both footprints. Mid-task incident: the coder "repaired" the owner's deliberate single-tile board edit as corruption - owner hand-edits must reach the PM or arrive as change requests (rule recorded in pm-process.md).
+
+**Decision:** Diff verified tile by tile across both rounds; anchor-outside-footprint pinned with new tests. Verdict: USER TEST - a quick on-device look at the re-positioned art - then ONE commit ships T3.3s-r2..r2e (tests 477).
+
+**Trigger:** T3.3s-r2e coder reports, 2026-07-17.
+
 ## 2026-07-17 - Per-task workload diet ADOPTED (standing conventions; full text in private/misc/pm-process.md)
 
 **Context:** Owner directive to cut per-task documentation overhead without weakening coder isolation or losing decision history.

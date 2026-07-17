@@ -69,11 +69,17 @@
  *   square treatment at 128x128. trophy_starbanner at 192x192,
  *   trophy_ancientoak at 256x256 - both taller/more detailed art that reads
  *   too small at 128.
- * - ground_shadow (T3.9): NOT staged - generated directly by this script (see
- *   generateGroundShadow): a 128x64 radial-gradient ellipse, black, alpha
- *   0.35 at center falling to 0 at the edge. FarmScene renders one under every
- *   standing object (farmhouse, notice board, decorations) to root it to the
- *   ground.
+ * - <frame>_shadow companions (T3.3s-r2d): NOT staged - generated directly
+ *   by this script (see generateCastShadow) for every SHADOWED_FRAME_NAMES
+ *   entry (all decor + trophies, farmhouse, notice_board, sign): a soft
+ *   directional cast shadow derived from the packed frame's own alpha mask
+ *   (sun fixed at TOP-RIGHT, shadow falls LOWER-LEFT), squashed, sheared,
+ *   blurred, and alpha-baked pure black, then trimmed and packed with
+ *   proper trim metadata (spriteSourceSize/sourceSize) so the runtime can
+ *   align the un-sheared base edge under its object without per-frame
+ *   tables. Replaces the retired generated ground_shadow ellipse (T3.9 -
+ *   removed from the pack in T3.3s-r2d) and the T3.3s-r2c runtime mirror
+ *   silhouettes.
  *
  * Layout is deterministic (fixed frame list, sorted packing order, fixed
  * shelf width), so reruns are byte-stable given identical inputs. Staged
@@ -593,36 +599,114 @@ function processPanel(image, name) {
   return image;
 }
 
-/** Generated ground_shadow frame geometry/appearance (T3.9) - see the
- *  top-of-file note. Not staged; produced entirely by generateGroundShadow. */
-const GROUND_SHADOW_WIDTH = 128;
-const GROUND_SHADOW_HEIGHT = 64;
-const GROUND_SHADOW_CENTER_ALPHA = 0.35;
+/**
+ * Directional cast shadows (T3.3s-r2d) - the four owner-approved shape
+ * numbers. Every SHADOWED_FRAME_NAMES entry gets a generated
+ * `<frame>_shadow` companion built from the packed frame's own alpha mask:
+ * light comes from a fixed sun at TOP-RIGHT, so the shadow emerges from
+ * under the object's base and stretches to the LOWER-LEFT.
+ * - SHADOW_SQUASH: the shadow's height as a fraction of the source frame's.
+ * - SHADOW_SHEAR: horizontal displacement per px of distance from the base
+ *   edge (the row N px from the base displaces SHADOW_SHEAR * N leftward;
+ *   the base row is undisplaced).
+ * - SHADOW_BLUR_PX: soft-edge blur radius (Jimp's fast `blur` - its
+ *   box-blur approximation of a Gaussian; `gaussian` is an order of
+ *   magnitude slower for no visible difference at this alpha).
+ * - SHADOW_BAKED_ALPHA: baked into the frame's own alpha (pure black
+ *   pixels) - the runtime renders the frame with no tint/alpha of its own.
+ * SHADOW_BLUR_PAD is transparent canvas padding around the mask before
+ * blurring, so blur never clips at an edge - config.ts SHADOW_CANVAS_PAD
+ * MUST MATCH it (the runtime uses it to locate the un-sheared base edge
+ * inside the trimmed frame).
+ */
+const SHADOW_SQUASH = 0.27;
+const SHADOW_SHEAR = 0.4;
+const SHADOW_BLUR_PX = 6;
+const SHADOW_BAKED_ALPHA = 0.3;
+const SHADOW_BLUR_PAD = SHADOW_BLUR_PX * 2;
+
+/** Every frame that gets a generated `<frame>_shadow` companion (T3.3s-r2d):
+ *  all decor + trophy frames, the two structures, and the expand sign. Crops
+ *  and tiles stay shadowless, as always. */
+const SHADOWED_FRAME_NAMES = [
+  'decor_bench',
+  'decor_flowerbed',
+  'decor_fence',
+  'decor_barrels',
+  'decor_scarecrow',
+  'decor_birdbath',
+  'decor_well',
+  'decor_mushrooms',
+  'decor_gnome',
+  'decor_lantern',
+  'trophy_goldscarecrow',
+  'trophy_starbanner',
+  'trophy_moonwell',
+  'trophy_traderscart',
+  'trophy_ancientoak',
+  'farmhouse',
+  'notice_board',
+  'sign',
+];
 
 /**
- * Generate the `ground_shadow` frame: a black radial-gradient ellipse at
- * GROUND_SHADOW_CENTER_ALPHA opacity at its center, fading linearly to fully
- * transparent at the ellipse boundary. Distance is measured in normalized
- * elliptical space (x scaled by the half-width, y by the half-height) so the
- * gradient's iso-contours are ellipses matching the frame's own 2:1 aspect,
- * not circles.
+ * Generate one `<frame>_shadow` companion from a packed frame (T3.3s-r2d):
+ * 1. squash the frame's alpha mask to SHADOW_SQUASH of its height;
+ * 2. flip it vertically, so the object's BASE edge (the frame's bottom row)
+ *    becomes the shadow's top row and the object's silhouette extends
+ *    DOWNWARD from it - a shadow cast away from the top-right sun, not a
+ *    straight-down reflection;
+ * 3. shear: each row displaced SHADOW_SHEAR px leftward per px of distance
+ *    from the base edge (base row undisplaced), on a canvas padded by
+ *    SHADOW_BLUR_PAD so the next step never clips;
+ * 4. blur (SHADOW_BLUR_PX) for the soft edge;
+ * 5. bake: pure black, alpha multiplied by SHADOW_BAKED_ALPHA;
+ * 6. trim to opaque bounds, RECORDING the trim offset and the untrimmed
+ *    canvas size - packed with proper trim metadata so the runtime can
+ *    reconstruct where the base edge sits (canvas layout: x
+ *    [PAD][shear band][base span = source width][PAD], y [PAD][squashed
+ *    mask][PAD]; the base row spans the rightmost source-width columns).
+ * Deterministic like every other frame.
  */
-function generateGroundShadow() {
-  const w = GROUND_SHADOW_WIDTH;
-  const h = GROUND_SHADOW_HEIGHT;
-  const cx = w / 2;
-  const cy = h / 2;
-  const frame = blankFrame(w, h);
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const dx = (x + 0.5 - cx) / cx;
-      const dy = (y + 0.5 - cy) / cy;
-      const d = Math.hypot(dx, dy);
-      const alpha = d >= 1 ? 0 : Math.round(GROUND_SHADOW_CENTER_ALPHA * 255 * (1 - d));
-      setPixel(frame, x, y, [0, 0, 0, alpha]);
+function generateCastShadow(frameImage, name) {
+  const srcW = frameImage.bitmap.width;
+  const srcH = frameImage.bitmap.height;
+  const squashH = Math.max(1, Math.round(srcH * SHADOW_SQUASH));
+  const squashed = frameImage.clone().resize({ w: srcW, h: squashH });
+  squashed.flip({ vertical: true });
+  const maxShift = Math.ceil(SHADOW_SHEAR * (squashH - 1));
+  const canvasW = srcW + maxShift + SHADOW_BLUR_PAD * 2;
+  const canvasH = squashH + SHADOW_BLUR_PAD * 2;
+  const canvas = blankFrame(canvasW, canvasH);
+  for (let y = 0; y < squashH; y++) {
+    // y is the distance from the base edge (row 0 after the flip).
+    const shift = Math.round(SHADOW_SHEAR * y);
+    for (let x = 0; x < srcW; x++) {
+      const alpha = alphaAt(squashed, x, y);
+      if (alpha <= 0) continue;
+      setPixel(canvas, SHADOW_BLUR_PAD + maxShift + x - shift, SHADOW_BLUR_PAD + y, [
+        0,
+        0,
+        0,
+        alpha,
+      ]);
     }
   }
-  return frame;
+  canvas.blur(SHADOW_BLUR_PX);
+  const data = canvas.bitmap.data;
+  for (let i = 0; i < data.length; i += 4) {
+    data[i] = 0;
+    data[i + 1] = 0;
+    data[i + 2] = 0;
+    data[i + 3] = Math.round(data[i + 3] * SHADOW_BAKED_ALPHA);
+  }
+  const bounds = opaqueBounds(canvas);
+  if (bounds === null) throw new Error(`${name}: cast shadow is fully transparent`);
+  canvas.crop(bounds);
+  return {
+    image: canvas,
+    trim: { x: bounds.x, y: bounds.y, sourceW: canvasW, sourceH: canvasH },
+  };
 }
 
 /**
@@ -690,7 +774,7 @@ function packSprites(sprites, maxWidth) {
       y += shelfHeight + PAD;
       shelfHeight = 0;
     }
-    placements.push({ name: sprite.name, image: sprite.image, x, y });
+    placements.push({ name: sprite.name, image: sprite.image, trim: sprite.trim, x, y });
     x += width + PAD;
     shelfHeight = Math.max(shelfHeight, height);
     atlasWidth = Math.max(atlasWidth, x);
@@ -700,14 +784,18 @@ function packSprites(sprites, maxWidth) {
 
 function buildAtlasJson(packed) {
   const frames = {};
-  for (const { name, image, x, y } of packed.placements) {
+  for (const { name, image, trim, x, y } of packed.placements) {
     const { width: w, height: h } = image.bitmap;
+    // Generated cast shadows (T3.3s-r2d) pack their TRIMMED bitmap but keep
+    // the untrimmed canvas as the frame's logical size via the standard
+    // trim metadata - Phaser re-offsets the texture, so runtime geometry
+    // can treat every shadow as its full deterministic canvas.
     frames[name] = {
       frame: { x, y, w, h },
       rotated: false,
-      trimmed: false,
-      spriteSourceSize: { x: 0, y: 0, w, h },
-      sourceSize: { w, h },
+      trimmed: trim !== undefined,
+      spriteSourceSize: trim === undefined ? { x: 0, y: 0, w, h } : { x: trim.x, y: trim.y, w, h },
+      sourceSize: trim === undefined ? { w, h } : { w: trim.sourceW, h: trim.sourceH },
     };
   }
   return {
@@ -779,9 +867,14 @@ for (const name of [...FRAME_NAMES].sort()) {
   else frame = processPanel(image, name);
   sprites.push({ name, image: frame });
 }
-// T3.9: the one generated (not staged) frame - appended after the sorted
-// staged frames, so packing order stays deterministic.
-sprites.push({ name: 'ground_shadow', image: generateGroundShadow() });
+// T3.3s-r2d: generated cast-shadow companions - appended after the sorted
+// staged frames, themselves in sorted order, so packing stays deterministic.
+for (const name of [...SHADOWED_FRAME_NAMES].sort()) {
+  const source = sprites.find((sprite) => sprite.name === name);
+  if (source === undefined) throw new Error(`${name}: shadowed frame missing from the pack`);
+  const { image, trim } = generateCastShadow(source.image, name);
+  sprites.push({ name: `${name}_shadow`, image, trim });
+}
 
 const plotSprite = sprites.find((s) => s.name === 'plot');
 const plotFootprintAfter = opaqueBounds(plotSprite.image);

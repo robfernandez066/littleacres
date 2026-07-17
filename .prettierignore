@@ -4,4 +4,6 @@ node_modules
 package-lock.json
 assets/atlas.json
 tools/mockups
+tools/art-studio
+private
 AGENTS.md

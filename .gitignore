@@ -4,5 +4,11 @@ dist
 .DS_Store
 tools/audio-staging/
 tools/art-staging/
-docs/private/
-_to_delete/
+
+# Owner-private area - never public (2026-07-17 reorg):
+#   private/to_delete/  disposable transfer files (review diffs, raw art)
+#   private/misc/       private keepers (reports, PM notes)
+private/
+
+# Owner-only art sandbox (never public, never shipped) - see private/misc/art-studio-workflow.md
+tools/art-studio/
