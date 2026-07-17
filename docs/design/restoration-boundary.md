@@ -1,10 +1,6 @@
 # Restoration Chapter v1 - Boundary vs T3.3 Land Expansion
 
-**Status:** APPROVED by owner 2026-07-15, with three amendments resolved
-below (second structure = the mere-edge dock; perks = light and per-building,
-PM to propose a menu at restoration design time; structure movability logged
-as a future direction, v1 unchanged). This boundary is now the scope contract
-for all restoration coder prompts.
+**Status:** ACTIVE - APPROVED (2026-07-15); scope contract for all restoration coder prompts. Wake: restoration design work starts after the land/camera package ships. Amendments resolved below (second structure = mere-edge dock; perks = light and per-building, PM menu at design time; structure movability logged as a future direction, v1 unchanged).
 
 ## Why this doc exists
 

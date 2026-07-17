@@ -1,9 +1,6 @@
 # The Mere - Art Direction Brief (v2, "nature-made")
 
-**Status:** Owner + PM direction, 2026-07-16. Replaces the rejected
-small-pond sprite. Generate against this; composite assembly per the land
-design (T3.3c). Owner's core critique of round 1: it read as a backyard
-pond someone dug in an afternoon - bounded, tidy, placed ON the farm.
+**Status:** ACTIVE - v2 "nature-made" direction (2026-07-16); generate the T3.3c art batch against this, composite assembly per the land design. Supersedes the rejected round-1 small-pond sprite ("a backyard pond someone dug in an afternoon").
 
 ## The one-line direction
 

@@ -5,11 +5,15 @@ You are the developer on Little Acres, a cozy mobile farming game (Phaser 3 + Ty
 ## Standing rules
 
 1. **Never read the `docs/` folder.** Do not open, read, grep, summarize, or reference anything under `docs/`. It is owned by the project manager and is not part of your context. All design context you need is in the task prompt. If a task seems to require design information you do not have, say so in your report instead of looking in `docs/`.
+   - **Documentation review exception:** when the user explicitly requests a read-only game review, you may read the files under `docs/` that the request names. You must not modify those files.
 2. **Never commit or push.** Do not run `git commit`, `git push`, `git tag`, or otherwise write to git history. Leave all changes in the working tree. The PM decides when work is committed. You may run read-only git commands (`git status`, `git diff`) to describe your changes in the report.
 3. **One task at a time.** Do only what the current task prompt asks. Do not start the next task, refactor unrelated code, or add features that were not requested.
-4. **End every task with the report** in the template below. No exceptions, even for trivial tasks.
+4. **End every task with the report** in the template below. If (and only if) the prompt's meta line is explicitly marked **TRIVIAL** by the PM, the report may collapse to STATUS / FILES CHANGED / HOW TO VERIFY / GIT STATE. The full template is mandatory for everything else.
 5. **Memory hygiene.** Session memories are for environment/tooling/workflow lessons only - never design facts, game data, or task specifics. The current task prompt always overrides memory.
 6. **Trust the prompt's file list.** Task prompts name every file the task needs (read AND write). Do not survey the repo beyond that list plus files it directly imports where signatures matter. If the list seems incomplete or contradicts the code, stop and say so in your report (BLOCKED or a question) instead of exploring - a wrong assumption costs more than a question.
+7. **The owner's save is radioactive around reloads.** Any task that expects a page reload or an atlas repack, or any live verification that imports a test save, starts with a DISK-PERSISTED backup of the owner's save (never an in-page variable) and restores it afterward. State in your report that this was done.
+8. **Re-pinned tests carry derivations.** When you change a pinned test expectation, the new value gets a one-line derivation comment. Never adjust an expectation just to make the suite pass without a stated derivation.
+9. **Sync flags for protected constants.** If your task renames, relocates, or changes the shape (not value) of any constant the prompt marks PROTECTED, add a `SYNC FLAGS:` line to your report listing each as `<file> - <what changed> (<old> -> <new>)`.
 
 ## Coding conventions
 
@@ -26,6 +30,13 @@ You are the developer on Little Acres, a cozy mobile farming game (Phaser 3 + Ty
 - **Tests where noted.** When a task's acceptance criteria mention tests, write or update them and make them pass.
 - **Verify last.** Run `npm test`, `npm run build`, and `npm run lint` as the FINAL step before writing your report - after your last file edit. A verification that ran before your latest change is stale and must be re-run.
 - **Lockfile must stay CI-safe.** CI runs `npm ci` on Linux; npm on Windows silently drops other platforms' optional deps when it regenerates the lockfile. After ANY change to dependencies, verify `package-lock.json` still contains top-level `node_modules/@emnapi/core` and `node_modules/@emnapi/runtime` entries (e.g. `findstr "node_modules/@emnapi" package-lock.json`). If they are missing, regenerate with `npm install --package-lock-only` from a clean state (no `node_modules` present) and re-check. Mention the lockfile check result in your report whenever dependencies changed.
+
+## Stable design invariants (true for the life of the project; prompts do not restate these)
+
+- **Frozen iso frame.** The scene grid is frozen: tile (col, row) has its diamond center at `x = 540 + (col - row) * 128`, `y = 768 + (col + row) * 64`; tile diamonds are 256x128 (TILE_WIDTH/HEIGHT in `src/systems/iso.ts`).
+- **Structures are anchor-based.** Each structure's save state is one grid anchor; blocked tiles = anchor + `STRUCTURE_FOOTPRINT_OFFSETS[id]`, sprite position = tile center + `STRUCTURE_RENDER_OFFSETS[id]` (both in `src/config.ts`). The anchor tile is a pure reference point and need not be inside the footprint.
+- **Collision authorities.** `isPlotTileFree` is THE per-tile authority for plot placement; `isStructureAnchorFree` is THE authority for structure anchors (both in `src/systems/gameState.ts`). Never duplicate their rules elsewhere.
+- **MUST-MATCH mirrors.** `FarmScene.ts` deliberately mirrors some gameState placement geometry (expand-sign blocked tiles, per-tile legality, EXPAND_SIGN geometry). When a task changes placement rules in gameState.ts, check the mirrors the prompt names and say in your report whether they needed changes.
 
 ## End-of-task report (MANDATORY - paste this back verbatim, filled in)
 
@@ -55,8 +66,13 @@ DEVIATIONS / ASSUMPTIONS:
 BLOCKERS / QUESTIONS:
 - <anything preventing completion or needing a PM decision; "none" if none>
 
+SYNC FLAGS:
+- <protected-constant renames/moves/shape changes as `<file> - <what> (<old> -> <new>)`; "none" if none>
+
 GIT STATE:
 - <output summary of `git status`; confirm nothing was committed or pushed>
 ```
+
+TRIVIAL tasks (only when the PM marks the prompt TRIVIAL): the report collapses to STATUS / FILES CHANGED / HOW TO VERIFY / GIT STATE.
 
 If STATUS is BLOCKED or PARTIAL, stop and explain in BLOCKERS - do not improvise around missing design info.

@@ -1,12 +1,7 @@
 # Design Review 2026-07-10 (external)
 
-**Source:** One-time top-to-bottom design review commissioned by the user from a CEO/lead-designer perspective. Advisory input to the PM, not gate notes and not orders. The reviewer read docs/, src/data, the gameState schema, the atlas, and the audio config; no files were changed.
-
-**Timing note:** Written just before the T2.10 coder report landed. Where the review says "the queued tasks T2.10-T2.15," read T2.11-T2.15: T2.10 (WYWA redesign) is done and confirm.mp3 is wired.
-
-**Lifecycle:** Consult this document when planning tasks and at every phase gate (one-line "checked the design review" note in status.md at gates). When a newer design review arrives, mark this one SUPERSEDED at the top, stop consulting it, and carry forward only items still open in the roadmap. Items rejected in the PM's 2026-07-10 triage (see decisions.md) are settled and do not need re-litigating at gates.
-
-**Triage:** Completed 2026-07-10, logged in decisions.md; roadmap.md and status.md carry the resulting queue.
+**Status:** ACTIVE (advisory) - one-time external review; triage complete 2026-07-10 (decisions archive carries it); consult at phase gates only, rejected items are settled and never re-litigated.
+**Supersede rule:** when a newer design review arrives, mark this file SUPERSEDED at the top and carry forward only items still open in the roadmap.
 
 ---
 

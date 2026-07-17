@@ -204,11 +204,9 @@ trim-fit-center treatment at 256x256 and are wired up immediately:
 `src/scenes/FarmScene.ts` renders both structures on the farm (the notice
 board opens the order board on tap; the farmhouse is decorative).
 
-`dirt_path` (added in T2.22b) gets the same square trim-fit-center treatment
-at 288x288 and is wired up immediately as a non-interactive ground decal
-(`FarmScene.createDirtPath`), connecting the farmhouse down toward the plot
-grid's upper-right edge. See `DIRT_PATH_POSITION` in `src/config.ts` for how
-its placement was measured.
+`dirt_path`: RETIRED - the decal and its placed dressing era were removed in
+T3.art-1 (new-art era, blank dressing slate; the dressing editor remains).
+Historical detail: docs/archive/assets-retired-2026-07-17.md.
 
 `tuft_1`, `tuft_2`, and `dirt_wisp` (added in T2.28) get the same square
 trim-fit-center treatment at 96x96; `stones_1` at 128x128; `stone_a`/`stone_b`/
@@ -399,8 +397,5 @@ log line whenever the panel art changes.
 
 ## The retired placeholder generator
 
-`tools/gen-assets.mjs` drew the original programmatic placeholder art. It is
-**retired** and kept only for history - its npm script has been removed; do
-not run it directly either, as it would overwrite the atlas with placeholder
-art that no longer matches the frame list (no `plot_occupied`, `starcorn_*`,
-or `moondust` frames). Use `npm run pack:atlas` instead.
+RETIRED - moved to docs/archive/assets-retired-2026-07-17.md. Use `npm run
+pack:atlas` for all atlas regeneration.

@@ -1,9 +1,6 @@
 # Sweep-vs-Pan at Scale - R1 Checkpoint Protocol (PARKED until T3.3b ships R1)
 
-**Status:** parked 2026-07-15. Owner + PM + external (ChatGPT) input merged.
-This file IS the agenda item for the owner checkpoint scheduled after T3.3b
-ships R1 East Meadow. Do not act on it before then, except the one adopted
-scope item below.
+**Status:** PARKED (2026-07-15) - wake when T3.3b ships R1 East Meadow; this file IS that checkpoint's agenda item. Do not act before then except the one adopted scope item below (the two-finger-pan hint, folded into T3.3b). Owner + PM + external input merged.
 
 ## The issue (3 sentences)
 
