@@ -150,27 +150,6 @@ export const FARMHOUSE_POSITION = { x: 880, y: 520 } as const;
 export const VILLAGER_POSITION = { x: 1240, y: 900 } as const;
 
 /**
- * Screen position (design space) of the dirt path ground decal (T2.22b),
- * connecting the farmhouse down toward the plot grid's upper-right edge.
- *
- * MEASURED (Jimp: rendered the packed `dirt_path`, `plot`, and `farmhouse`
- * frames into full-resolution alpha masks at this position/scale, using the
- * same iso grid math as systems/iso.ts, for every plot at both
- * BASE_PLOT_COUNT (12 plots, 3 rows) and EXPANDED_PLOT_COUNT (16 plots, 4
- * rows)): pixel-exact alpha-mask collision check finds ZERO overlapping
- * opaque pixels between the path and any plot tile at either field size
- * (nearest tile clears by roughly 35px+ per an earlier bounding estimate).
- * The path's upper-right tip lands within the farmhouse's own opaque
- * footprint (overlap there is intentional - see FarmScene's
- * `createDirtPath`), close to its base/steps but not pixel-exact on them,
- * since a tighter fit would cut the tile clearance at the 16-plot layout.
- * Position chosen by search over a grid of candidates, confirmed by
- * rendering a static composite of both field sizes with the real packed art
- * (browser automation was unavailable this session - see the task report).
- */
-export const DIRT_PATH_POSITION = { x: 750, y: 630 } as const;
-
-/**
  * One scene-dressing decal: an atlas frame placed at a fixed screen position
  * with a uniform scale, normally rendered at DRESSING_DEPTH (see
  * FarmScene.createSceneDressing). `front` (T2.28a editor "Move to front"
@@ -187,37 +166,18 @@ export interface DressingPlacement {
 }
 
 /**
- * All scene dressing (T2.28, collapsed into one array in T2.28a): dirt-based
- * decals (`tuft_1`, `dirt_wisp`, `stones_1`) plus grass-based decals
- * (`tuft_2`, single rocks) hugging the dirt path and scattered across open
- * grass, all rendered at one depth by `FarmScene.createSceneDressing`.
- * Originally two depth-separated arrays (road-edge hugging the path at depth
- * 6, grass scatter in the open at depth 4), each measured by a Jimp
- * opaque-bounds scan against every plot tile (both field sizes) plus the
- * farmhouse/notice board/sign/dirt path footprints - see git history for
- * that measurement detail. From T2.28a on, this array is hand-placed and
- * iterated via the dev-overlay dressing editor ("Edit dressing"): drag/
- * spawn/scale/delete live, then "Copy layout" to hand the PM a fresh array
- * to bake in here.
+ * All scene dressing (T2.28, collapsed into one array in T2.28a): fixed
+ * ground decals (tufts, stones, wisps) rendered at one depth by
+ * `FarmScene.createSceneDressing`. Hand-placed and iterated via the
+ * dev-overlay dressing editor ("Edit dressing"): drag/spawn/scale/delete
+ * live, then "Copy layout" to hand the PM a fresh array to bake in here.
+ *
+ * EMPTY since T3.art-1: the old-art-era layout (and the dirt path decal it
+ * hugged) clashed with the regenerated farmhouse/plot art and was removed
+ * (owner decision). The editor, palette, and plumbing all remain - the
+ * owner redresses the farm in the new art era from this blank slate.
  */
-// Owner-authored layout (2026-07-12, revision 2 with the v2 tufts), placed
-// live in the dressing editor and baked from its Copy-layout JSON (PM-direct).
-export const DRESSING: DressingPlacement[] = [
-  { frame: 'stones_1', x: 834, y: 1288, scale: 0.6 },
-  { frame: 'stone_a', x: 606, y: 686, scale: 0.55 },
-  { frame: 'stone_b', x: 698, y: 743, scale: 0.55 },
-  { frame: 'stone_c', x: 732, y: 724, scale: 0.55 },
-  { frame: 'stones_1', x: 986, y: 581, scale: 0.55 },
-  { frame: 'stone_a', x: 689, y: 640, scale: 0.55 },
-  { frame: 'stone_b', x: 643, y: 661, scale: 0.55 },
-  { frame: 'stone_c', x: 771, y: 706, scale: 0.55 },
-  { frame: 'tuft_2v2', x: 848, y: 1369, scale: 0.55, front: true },
-  { frame: 'tuft_2v2', x: 869, y: 1362, scale: 0.55 },
-  { frame: 'tuft_1v2', x: 947, y: 1396, scale: 0.55 },
-  { frame: 'tuft_1v2', x: 935, y: 1412, scale: 0.55, front: true },
-  { frame: 'tuft_2v2', x: 949, y: 624, scale: 0.55, front: true },
-  { frame: 'tuft_2v2', x: 768, y: 530, scale: 0.55 },
-];
+export const DRESSING: DressingPlacement[] = [];
 
 /**
  * Dressing editor (T2.28a dev overlay) scale-step size, shared by
@@ -246,8 +206,8 @@ export const DRESSING_PALETTE_FRAMES = [
  * for standing sprites reading as "taped on" instead of resting on the
  * ground. Width is this fraction of the object's own display width; height
  * is width x 0.5 (the frame is already 2:1, so this keeps the shadow's own
- * aspect). Not applied to dressing decals or the dirt path - ground-hugging
- * art that never needed rooting.
+ * aspect). Not applied to dressing decals - ground-hugging art that never
+ * needed rooting.
  */
 export const SHADOW_WIDTH_RATIO = 0.8;
 export const SHADOW_HEIGHT_RATIO = 0.5;

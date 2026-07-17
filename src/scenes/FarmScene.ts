@@ -8,7 +8,6 @@ import {
   ATLAS_KEY,
   DESIGN_HEIGHT,
   DESIGN_WIDTH,
-  DIRT_PATH_POSITION,
   type DressingPlacement,
   DRESSING,
   DRESSING_SCALE_STEP,
@@ -259,20 +258,19 @@ const FARMHOUSE_DISPLAY_HEIGHT = 300;
 const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 
 /**
- * Dirt path ground decal (T2.22b): a single S-curve image connecting the
- * farmhouse down toward the plot grid's upper-right edge. Packed as a
- * 288x288 square (same trim-fit-center treatment as the structures above -
- * see tools/pack-atlas.mjs), displayed at a uniform scale so the square
- * frame stays undistorted. Fixed at DIRT_PATH_DEPTH, below every
- * y-depth-sorted object (crops, structures, chest ceremony, the Expand
- * sign) but above the grass tiles, which render at the default depth (0)
- * - see `createDirtPath`. Non-interactive; an isolated create call so it
- * can be pulled independently, same as the farmhouse.
+ * Expand-sign ground shadow geometry (T3.art-2). The sign draws itself from
+ * its own PRIVATE constants in ui/ExpandSign.ts - position (540, 1300),
+ * 240px display size on a square frame, center origin - at depth 1900 (the
+ * floating-text tier, so its planks read above crops). Its shadow therefore
+ * cannot take the usual object.depth-1 (1899 would cover crops and decor):
+ * it grounds at the sign's position y - 1 instead, matching the y-1
+ * convention every decor shadow already uses, so anything standing in front
+ * still covers it. MUST MATCH ExpandSign.ts's SIGN_X / SIGN_Y /
+ * SIGN_DISPLAY_HEIGHT if the sign ever moves or rescales.
  */
-const DIRT_PATH_FRAME_SIZE = 288;
-const DIRT_PATH_DISPLAY_WIDTH = 280;
-const DIRT_PATH_SCALE = DIRT_PATH_DISPLAY_WIDTH / DIRT_PATH_FRAME_SIZE;
-const DIRT_PATH_DEPTH = 5;
+const EXPAND_SIGN_X = 540;
+const EXPAND_SIGN_Y = 1300;
+const EXPAND_SIGN_DISPLAY_SIZE = 240;
 
 /**
  * Decor Shop (T3.9): opened by tapping the farmhouse, which becomes
@@ -490,10 +488,10 @@ const WAREHOUSE_EMPTY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 
 /**
  * Scene dressing decals (T2.28, collapsed to one array + depth in T2.28a):
- * `DRESSING` reads as ground decals just above the dirt path (depth 5) -
- * see `DRESSING`'s own comment in config.ts. `createSceneDressing` is the
- * one call in `create()` that draws it - commenting it out disables all of
- * this task's dressing.
+ * `DRESSING` reads as ground decals above the grass tiles but below every
+ * y-depth-sorted object - see `DRESSING`'s own comment in config.ts.
+ * `createSceneDressing` is the one call in `create()` that draws it -
+ * commenting it out disables all of this task's dressing.
  */
 const DRESSING_DEPTH = 6;
 
@@ -795,6 +793,8 @@ export class FarmScene extends Phaser.Scene {
   private levelUpCelebration!: LevelUpCelebration;
   private onboardingGuide!: OnboardingGuide;
   private expandSign!: ExpandSign;
+  /** The sign's generated ground shadow (T3.art-2) - synced with the sign in `refreshExpandSign`. */
+  private expandSignShadow!: Phaser.GameObjects.Image;
   private offlineSummaryPanel!: OfflineSummaryPanel;
   private weeklyNoticePanel!: WeeklyNoticePanel;
   private audio!: AudioManager;
@@ -1094,7 +1094,6 @@ export class FarmScene extends Phaser.Scene {
       .setDepth(GROUND_LAYER_DEPTH - 1);
 
     this.createGroundLayer(this.groundMode);
-    this.createDirtPath();
     this.createSceneDressing();
     this.buildPlotVisuals();
     // Audio is background-loaded (T3.21): the playlist + ambient bed are
@@ -1194,7 +1193,8 @@ export class FarmScene extends Phaser.Scene {
     this.expandSign = new ExpandSign(this, (pointer) =>
       this.handleStructureDown(pointer, () => this.tryExpand()),
     );
-    this.expandSign.refresh(gameState.getState());
+    this.expandSignShadow = this.createExpandSignShadow();
+    this.refreshExpandSign();
     this.inUiLayer(() => this.createArrangeControls());
     this.inUiLayer(() => this.createRecenterButton());
     this.setupFieldInput();
@@ -1427,7 +1427,7 @@ export class FarmScene extends Phaser.Scene {
     if (!this.levelUpCelebration.isActive() && !this.weeklyNoticePanel.isVisible()) {
       this.chestCeremony.enqueue(gameState.consumeChestEvents());
     }
-    this.expandSign.refresh(gameState.getState());
+    this.refreshExpandSign();
     const radiantEvents = gameState.consumeRadiantEvents();
     if (radiantEvents.length > 0) {
       for (const event of radiantEvents) this.playRadiantJuice(event.plotIndex);
@@ -2508,7 +2508,7 @@ export class FarmScene extends Phaser.Scene {
     }
     this.audio.expandFanfare();
     buzz(HAPTIC_MEDIUM_MS);
-    this.expandSign.refresh(gameState.getState());
+    this.refreshExpandSign();
   }
 
   /**
@@ -3112,6 +3112,43 @@ export class FarmScene extends Phaser.Scene {
       .setPosition(object.x, baseY)
       .setDisplaySize(width, height)
       .setDepth(object.depth - 1);
+  }
+
+  /**
+   * The expand sign's generated ground shadow (T3.art-2): the same
+   * `ground_shadow` frame and geometry rule as `createGroundShadow`
+   * (SHADOW_WIDTH_RATIO of display width, 2:1 squash, base raised
+   * SHADOW_BASE_RAISE), computed from the mirrored EXPAND_SIGN_* constants
+   * since the sign owns its sprite privately (ui/ExpandSign.ts) and renders
+   * at the floating-text depth tier - see the constants' comment for the
+   * depth reasoning. Starts hidden; `refreshExpandSign` owns visibility.
+   */
+  private createExpandSignShadow(): Phaser.GameObjects.Image {
+    const width = EXPAND_SIGN_DISPLAY_SIZE * SHADOW_WIDTH_RATIO;
+    return this.add
+      .image(
+        EXPAND_SIGN_X,
+        EXPAND_SIGN_Y + EXPAND_SIGN_DISPLAY_SIZE / 2 - SHADOW_BASE_RAISE,
+        ATLAS_KEY,
+        'ground_shadow',
+      )
+      .setAlpha(SHADOW_ALPHA)
+      .setDisplaySize(width, width * SHADOW_HEIGHT_RATIO)
+      .setDepth(EXPAND_SIGN_Y - 1)
+      .setVisible(false);
+  }
+
+  /**
+   * Re-derive the expand sign AND its shadow together (T3.art-2): the
+   * sign's own `refresh` keeps the visibility rule (onboarding completed,
+   * not yet expanded); the shadow mirrors the same rule here so it
+   * disappears exactly when the sign does - an expansion purchase can
+   * never orphan it.
+   */
+  private refreshExpandSign(): void {
+    const state = gameState.getState();
+    this.expandSign.refresh(state);
+    this.expandSignShadow.setVisible(state.onboarding.completed && !state.expanded);
   }
 
   /**
@@ -4360,19 +4397,6 @@ export class FarmScene extends Phaser.Scene {
       }
     }
     this.warehouseEmptyText.setVisible(!anyOwned);
-  }
-
-  /**
-   * Dirt path ground decal (T2.22b), no interaction. Kept as one isolated
-   * create call, same as the farmhouse, so it can be pulled independently -
-   * see DIRT_PATH_POSITION's comment in config.ts for how the position was
-   * measured.
-   */
-  private createDirtPath(): void {
-    this.add
-      .image(DIRT_PATH_POSITION.x, DIRT_PATH_POSITION.y, ATLAS_KEY, 'dirt_path')
-      .setScale(DIRT_PATH_SCALE)
-      .setDepth(DIRT_PATH_DEPTH);
   }
 
   /**
