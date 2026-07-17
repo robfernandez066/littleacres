@@ -11,15 +11,15 @@ import {
   type DressingPlacement,
   DRESSING,
   DRESSING_SCALE_STEP,
-  FARMHOUSE_POSITION,
   GROUND_MODE,
   GROUND_TEXTURE_A_KEY,
   GROUND_TEXTURE_A_TILE_SCALE,
   GROUND_TEXTURE_B_KEY,
   GROUND_TEXTURE_B_TILE_SCALE,
   type GroundMode,
-  NOTICE_BOARD_POSITION,
   PANEL_SLICE,
+  STRUCTURE_RENDER_OFFSETS,
+  type StructureId,
   SHADOW_ALPHA,
   SHADOW_BASE_RAISE,
   SHADOW_HEIGHT_RATIO,
@@ -75,8 +75,10 @@ import {
   bestBatchStartTile,
   gameState,
   isPlotTileFree,
+  isStructureAnchorFree,
   nextChainPlotTile,
   placeablePlotTiles,
+  structureRenderPosition,
   type DecorationPlacement,
   type PlotState,
 } from '../systems/gameState';
@@ -800,12 +802,35 @@ export class FarmScene extends Phaser.Scene {
   private audio!: AudioManager;
   private noticeBoardImage!: Phaser.GameObjects.Image;
   private noticeBoardBadge!: Phaser.GameObjects.Text;
+  /** The badge's perpetual bounce tween - killed and rebuilt whenever the
+   *  board (and so the badge's base position) moves (T3.3s). */
+  private noticeBoardBadgeTween: Phaser.Tweens.Tween | null = null;
+  /** The board's ground shadow - a field since T3.3s so it travels with the board. */
+  private noticeBoardShadow!: Phaser.GameObjects.Image;
   /** Cached rails gating so interactivity/alpha only toggle on change (mirrors Hud's pattern). */
   private noticeBoardEnabled = true;
   private chestCeremony!: ChestCeremony;
   private farmhouseImage!: Phaser.GameObjects.Image;
+  /** The farmhouse's ground shadow - a field since T3.3s so it travels with the house. */
+  private farmhouseShadow!: Phaser.GameObjects.Image;
   /** Cached rails gating, mirrors `noticeBoardEnabled`. */
   private farmhouseEnabled = true;
+  /**
+   * The selected structure in arrange mode (T3.3s), or null - mutually
+   * exclusive with `selectedDecorationIndex`/`selectedPlotIndex`, same
+   * one-selection rule. While one is selected, Scale/Flip/Put Away all dim
+   * (structures move only - never scale, flip, or store).
+   */
+  private selectedStructureId: StructureId | null = null;
+  /** The structure being drag-moved right now (T3.3s), or null outside a lift. */
+  private structureDragId: StructureId | null = null;
+  /** The live snap anchor of the in-flight structure drag - always legal. */
+  private structureDragCol = 0;
+  private structureDragRow = 0;
+  /** Last-rendered structure anchors, serialized - `refreshStructures`
+   *  repositions only on change (so it never fights a live drag, whose
+   *  moves are sprite-only until the commit). */
+  private lastStructureAnchorsJson = '';
   private decorShop!: DecorShop;
   private questBoard!: QuestBoard;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
@@ -974,8 +999,12 @@ export class FarmScene extends Phaser.Scene {
    */
   private pendingLift: {
     pointer: Phaser.Input.Pointer;
-    kind: 'decor' | 'plot';
+    kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
+    /** Which structure, when kind is 'structure' (T3.3s) - identified at
+     *  down time by sprite reference, carried so the lift paths never
+     *  re-derive it. */
+    structureId?: StructureId;
     downX: number;
     downY: number;
     grabOffsetX: number;
@@ -985,7 +1014,7 @@ export class FarmScene extends Phaser.Scene {
   /** The active lift (T3.3a-r3), set while `fieldGesture` is 'lift' - same
    *  reference-not-index rule as `pendingLift`. */
   private activeLift: {
-    kind: 'decor' | 'plot';
+    kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
     grabOffsetX: number;
     grabOffsetY: number;
@@ -1165,9 +1194,10 @@ export class FarmScene extends Phaser.Scene {
     this.createNoticeBoard();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
+    // Live board position (T3.3s - the board is movable), read at pulse time.
     registerPulseTarget('orders-button', () => ({
-      x: NOTICE_BOARD_POSITION.x,
-      y: NOTICE_BOARD_POSITION.y,
+      x: this.noticeBoardImage.x,
+      y: this.noticeBoardImage.y,
       width: NOTICE_BOARD_PULSE_SIZE,
       height: NOTICE_BOARD_PULSE_SIZE,
       object: this.noticeBoardImage,
@@ -1361,6 +1391,10 @@ export class FarmScene extends Phaser.Scene {
     this.refreshNoticeBoardBadge();
     this.applyFarmhouseRailsGating();
     this.refreshDecorations();
+    // Movable structures (T3.3s): re-derive sprite/shadow/badge positions
+    // when a saved anchor changed (dev import/reset) - a cheap string
+    // compare otherwise, and inert during a live drag by construction.
+    this.refreshStructures();
     // Chain placement (T3.3a-r): keep the Place Next button truthful on the
     // tick too - grants and put-aways can change its count mid-arrange.
     if (this.arrangeModeActive) this.updatePlaceNextButton();
@@ -1540,6 +1574,7 @@ export class FarmScene extends Phaser.Scene {
               movable.target,
               movable.target.x - world.x,
               movable.target.y - world.y,
+              movable.structureId,
             )
           ) {
             return;
@@ -1549,7 +1584,7 @@ export class FarmScene extends Phaser.Scene {
           // hold arm, exactly as the stale-grace case did.
         }
         this.fieldGesture = 'lift-pending';
-        this.beginPendingLift(pointer, movable.kind, movable.target);
+        this.beginPendingLift(pointer, movable.kind, movable.target, movable.structureId);
         return;
       }
       // Not ours: badges, panels, and every button keep their own
@@ -1602,6 +1637,11 @@ export class FarmScene extends Phaser.Scene {
    * merely STARTING on a building can never open its menu.
    */
   private handleStructureDown(pointer: Phaser.Input.Pointer, fire: () => void): void {
+    // Arrange mode (T3.3s): structure taps SELECT, never open - the scene
+    // classifier's lift path owns the whole gesture (the farmhouse/notice
+    // board stay interactive through the mode purely to be hit-testable),
+    // so the deferred tap must neither fire nor arm here.
+    if (this.arrangeModeActive) return;
     if (!this.cameraGesturesAllowed()) {
       fire();
       return;
@@ -1645,16 +1685,25 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * The topmost movable arrange object under the down, or null - the hit
-   * list arrives topmost-first, so the first decor sprite or plot tile in
-   * it is the one the finger visually landed on.
+   * list arrives topmost-first, so the first decor sprite, plot tile, or
+   * movable structure (T3.3s: farmhouse/notice board) in it is the one the
+   * finger visually landed on.
    */
-  private movableLiftTarget(
-    currentlyOver: readonly Phaser.GameObjects.GameObject[],
-  ): { kind: 'decor' | 'plot'; target: Phaser.GameObjects.Image } | null {
+  private movableLiftTarget(currentlyOver: readonly Phaser.GameObjects.GameObject[]): {
+    kind: 'decor' | 'plot' | 'structure';
+    target: Phaser.GameObjects.Image;
+    structureId?: StructureId;
+  } | null {
     for (const object of currentlyOver) {
       const image = object as Phaser.GameObjects.Image;
       if (this.decorationSprites.includes(image)) return { kind: 'decor', target: image };
       if (this.plotTileSprites.includes(image)) return { kind: 'plot', target: image };
+      if (image === this.farmhouseImage) {
+        return { kind: 'structure', target: image, structureId: 'farmhouse' };
+      }
+      if (image === this.noticeBoardImage) {
+        return { kind: 'structure', target: image, structureId: 'noticeBoard' };
+      }
     }
     return null;
   }
@@ -1666,14 +1715,18 @@ export class FarmScene extends Phaser.Scene {
    * decoration-sprite pattern (indices shift when a decoration is stored).
    */
   private isSelectedMovable(movable: {
-    kind: 'decor' | 'plot';
+    kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
+    structureId?: StructureId;
   }): boolean {
     if (movable.kind === 'decor') {
       return (
         this.selectedDecorationIndex !== null &&
         this.decorationSprites[this.selectedDecorationIndex] === movable.target
       );
+    }
+    if (movable.kind === 'structure') {
+      return this.selectedStructureId !== null && this.selectedStructureId === movable.structureId;
     }
     return (
       this.selectedPlotIndex !== null &&
@@ -1692,14 +1745,16 @@ export class FarmScene extends Phaser.Scene {
    */
   private beginPendingLift(
     pointer: Phaser.Input.Pointer,
-    kind: 'decor' | 'plot',
+    kind: 'decor' | 'plot' | 'structure',
     target: Phaser.GameObjects.Image,
+    structureId?: StructureId,
   ): void {
     const world = this.fieldPointerWorld(pointer);
     this.pendingLift = {
       pointer,
       kind,
       target,
+      structureId,
       downX: pointer.x,
       downY: pointer.y,
       grabOffsetX: target.x - world.x,
@@ -1724,10 +1779,11 @@ export class FarmScene extends Phaser.Scene {
    * decoration, missing or non-empty plot) - callers decide the fallback.
    */
   private startLift(
-    kind: 'decor' | 'plot',
+    kind: 'decor' | 'plot' | 'structure',
     target: Phaser.GameObjects.Image,
     grabOffsetX: number,
     grabOffsetY: number,
+    structureId?: StructureId,
   ): boolean {
     if (kind === 'plot') {
       const plotIndex = this.plotTileSprites.indexOf(target);
@@ -1737,6 +1793,15 @@ export class FarmScene extends Phaser.Scene {
       this.plotDragIndex = plotIndex;
       this.plotDragCol = plot.col;
       this.plotDragRow = plot.row;
+    } else if (kind === 'structure') {
+      // Structures are always liftable in arrange mode (T3.3s) - move only,
+      // no locked state; the drag anchor starts at the saved anchor.
+      if (structureId === undefined) return false;
+      const anchor = gameState.getState().structures[structureId];
+      this.setStructureSelection(structureId);
+      this.structureDragId = structureId;
+      this.structureDragCol = anchor.col;
+      this.structureDragRow = anchor.row;
     } else {
       const index = this.decorationSprites.indexOf(target);
       if (index === -1) return false;
@@ -1778,7 +1843,15 @@ export class FarmScene extends Phaser.Scene {
         return;
       }
     }
-    if (!this.startLift(pending.kind, pending.target, pending.grabOffsetX, pending.grabOffsetY)) {
+    if (
+      !this.startLift(
+        pending.kind,
+        pending.target,
+        pending.grabOffsetX,
+        pending.grabOffsetY,
+        pending.structureId,
+      )
+    ) {
       this.fieldGesture = null;
       this.gesturePointerId = -1;
     }
@@ -1810,6 +1883,17 @@ export class FarmScene extends Phaser.Scene {
       lift.target.setPosition(x, y).setDepth(y);
       const shadow = index === -1 ? undefined : this.decorationShadowSprites[index];
       if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, lift.target);
+    } else if (lift.kind === 'structure') {
+      // Structures snap by ANCHOR (T3.3s): the would-be free-form sprite
+      // position maps back to an anchor candidate by undoing the fixed
+      // render offset, then the same live-grid-snap rule as plots - only
+      // LEGAL anchors preview (`updateStructureDragSnap`).
+      const id = this.structureDragId;
+      if (id !== null) {
+        const offset = STRUCTURE_RENDER_OFFSETS[id];
+        const { col, row } = isoToGrid(freeX - offset.x, freeY - offset.y);
+        this.updateStructureDragSnap(Math.round(col), Math.round(row));
+      }
     } else {
       const { col, row } = isoToGrid(freeX, freeY);
       this.updatePlotDragSnap(Math.round(col), Math.round(row));
@@ -1897,6 +1981,8 @@ export class FarmScene extends Phaser.Scene {
       if (!this.arrangeModeActive) return;
       const index = this.decorationSprites.indexOf(lift.target);
       if (index !== -1) this.commitDecorationTransform(index, lift.target);
+    } else if (lift.kind === 'structure') {
+      if (this.structureDragId !== null) this.commitStructureDrag();
     } else if (this.plotDragIndex !== null) {
       this.commitPlotDrag();
     }
@@ -1908,10 +1994,20 @@ export class FarmScene extends Phaser.Scene {
    * empty plot selects, a growing plot answers with the locked-plot shake
    * and no selection change.
    */
-  private resolveLiftTap(kind: 'decor' | 'plot', target: Phaser.GameObjects.Image): void {
+  private resolveLiftTap(
+    kind: 'decor' | 'plot' | 'structure',
+    target: Phaser.GameObjects.Image,
+    structureId?: StructureId,
+  ): void {
     if (kind === 'decor') {
       const index = this.decorationSprites.indexOf(target);
       if (index !== -1) this.setDecorationSelection(index);
+      return;
+    }
+    if (kind === 'structure') {
+      // Arrange-mode structure taps SELECT (T3.3s) - never open the shop or
+      // the order board; those stay outside-arrange behavior.
+      if (structureId !== undefined) this.setStructureSelection(structureId);
       return;
     }
     const plotIndex = this.plotTileSprites.indexOf(target);
@@ -2113,7 +2209,7 @@ export class FarmScene extends Phaser.Scene {
           this.cameraGesturesAllowed() &&
           Math.hypot(pointer.x - pending.downX, pointer.y - pending.downY) <= TAP_SLOP
         ) {
-          this.resolveLiftTap(pending.kind, pending.target);
+          this.resolveLiftTap(pending.kind, pending.target, pending.structureId);
         }
       } else if (gesture === 'lift') {
         this.finishLift();
@@ -2986,11 +3082,17 @@ export class FarmScene extends Phaser.Scene {
    * origin-centered.
    */
   private createFarmhouse(): void {
+    // Render position derives from the saved anchor (T3.3s) - at the
+    // default anchor this is exactly the historical FARMHOUSE_POSITION.
+    const position = structureRenderPosition(
+      'farmhouse',
+      gameState.getState().structures.farmhouse,
+    );
     const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
     this.farmhouseImage = this.add
-      .image(FARMHOUSE_POSITION.x, FARMHOUSE_POSITION.y, ATLAS_KEY, 'farmhouse')
+      .image(position.x, position.y, ATLAS_KEY, 'farmhouse')
       .setScale(FARMHOUSE_SCALE)
-      .setDepth(FARMHOUSE_POSITION.y)
+      .setDepth(position.y)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
           -pad,
@@ -3008,7 +3110,7 @@ export class FarmScene extends Phaser.Scene {
         this.handleStructureDown(pointer, () => this.openDecorShop());
       },
     );
-    this.createGroundShadow(this.farmhouseImage);
+    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage);
   }
 
   /**
@@ -3098,8 +3200,8 @@ export class FarmScene extends Phaser.Scene {
    * `createGroundShadow`'s geometry, used while a decoration is being
    * dragged in arrange mode (every drag-move frame) and after a scale tap,
    * so the shadow tracks the object continuously instead of only at create
-   * time. The farmhouse/notice board never move after creation, so they only
-   * ever go through `createGroundShadow`.
+   * time. Since T3.3s the farmhouse/notice board move too - their shadows
+   * re-derive through here on every anchor snap (`placeStructureSprite`).
    */
   private applyGroundShadowGeometry(
     shadow: Phaser.GameObjects.Image,
@@ -3213,6 +3315,13 @@ export class FarmScene extends Phaser.Scene {
    * rather than trusting the raw drag-drop coordinates - a drag past the
    * legal bounds visibly "sticks" at the clamp edge instead of leaving the
    * sprite wherever the finger let go.
+   *
+   * A REFUSED commit (T3.3s-r1b: the anchor landed on a permanent object's
+   * footprint) re-derives the sprite from the decoration's UNCHANGED state
+   * entry the same way - position, depth, scale, flip, shadow - so the
+   * sprite snaps back to where state still says it stands instead of
+   * staying visually parked on the structure, with the locked-plot wiggle
+   * so the refusal reads as deliberate.
    */
   private commitDecorationTransform(index: number, sprite: Phaser.GameObjects.Image): void {
     const current = gameState.getState().decorations[index];
@@ -3224,12 +3333,17 @@ export class FarmScene extends Phaser.Scene {
       sprite.scale,
       current.flip,
     );
-    if (!committed) return;
+    // Committed or refused, state holds the truth - snap the sprite to it.
     const decoration = gameState.getState().decorations[index];
     if (decoration === undefined) return;
-    sprite.setPosition(decoration.x, decoration.y).setDepth(decoration.y);
+    sprite
+      .setPosition(decoration.x, decoration.y)
+      .setScale(decoration.scale)
+      .setFlipX(decoration.flip)
+      .setDepth(decoration.y);
     const shadow = this.decorationShadowSprites[index];
     if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    if (!committed) this.shakeLockedPlot(sprite);
   }
 
   /**
@@ -3353,7 +3467,10 @@ export class FarmScene extends Phaser.Scene {
    * enabled/dim states, since they always act on whatever is selected.
    */
   private setDecorationSelection(index: number | null): void {
-    if (index !== null) this.clearPlotSelectionTint();
+    if (index !== null) {
+      this.clearPlotSelectionTint();
+      this.clearStructureSelectionTint();
+    }
     if (this.selectedDecorationIndex !== null) {
       this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
     }
@@ -3371,9 +3488,12 @@ export class FarmScene extends Phaser.Scene {
    * `setDecorationSelection`, driving the same per-item button re-derive.
    */
   private setPlotSelection(index: number | null): void {
-    if (index !== null && this.selectedDecorationIndex !== null) {
-      this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
-      this.selectedDecorationIndex = null;
+    if (index !== null) {
+      if (this.selectedDecorationIndex !== null) {
+        this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
+        this.selectedDecorationIndex = null;
+      }
+      this.clearStructureSelectionTint();
     }
     this.clearPlotSelectionTint();
     this.selectedPlotIndex = index;
@@ -3653,7 +3773,10 @@ export class FarmScene extends Phaser.Scene {
    * one-way - no put-away for plots), dim and inert otherwise - same
    * enabled/dim convention as DecorShop's Buy button. Scale +/- and Flip
    * disable while a PLOT is selected (plots snap to the grid - they never
-   * scale or flip); Scale +/- ALSO disable while a FENCE is selected
+   * scale or flip) and while a STRUCTURE is selected (T3.3s - structures
+   * move only, never scale or flip; Put Away dims too since
+   * `selectedDecorationIndex` is null then - structures cannot be stored);
+   * Scale +/- ALSO disable while a FENCE is selected
    * (T3.3a2 - fences are pinned to FENCE_FIXED_SCALE; Flip stays live,
    * fence flip is directional). With any other decoration or nothing
    * selected they stay enabled as before (a no-selection tap is a no-op).
@@ -3675,7 +3798,7 @@ export class FarmScene extends Phaser.Scene {
         ? undefined
         : gameState.getState().decorations[this.selectedDecorationIndex];
     const fenceSelected = selectedDecoration?.frame === FENCE_FRAME;
-    const flipEnabled = this.selectedPlotIndex === null;
+    const flipEnabled = this.selectedPlotIndex === null && this.selectedStructureId === null;
     const scaleEnabled = flipEnabled && !fenceSelected;
     for (const [button, enabled] of [
       [this.arrangeScaleDownButton, scaleEnabled],
@@ -3719,6 +3842,7 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeModeActive = true;
     this.selectedDecorationIndex = null;
     this.selectedPlotIndex = null;
+    this.selectedStructureId = null;
     this.seedBar.setVisible(false);
     for (const sprite of this.decorationSprites) sprite.setInteractive();
     this.setArrangeControlsVisible(true);
@@ -3752,13 +3876,20 @@ export class FarmScene extends Phaser.Scene {
     this.lastPlacedDecorIndex = -1;
     this.setDecorationSelection(null);
     this.setPlotSelection(null);
+    this.setStructureSelection(null);
     this.plotDragIndex = null;
+    this.structureDragId = null;
     // A lift can only be pending/active mid-exit via a second finger on
     // Done (T3.3a-r3); drop it cleanly - nothing was committed yet, and the
     // gesture's own move/up handlers self-resolve on the dead mode flag.
     this.cancelPendingLift();
     this.activeLift = null;
     this.settleLiftPulse();
+    // A structure lift abandoned mid-exit never committed: snap both
+    // structures back to their saved anchors (a no-op when nothing moved -
+    // the state-change refresh can't catch this, state never changed).
+    this.applyStructureStatePosition('farmhouse');
+    this.applyStructureStatePosition('noticeBoard');
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
     // Plot tiles go inert again (T3.3a). They are exempt from the enter
     // sweep (see `arrangeExemptObjects`), so the restore pass below can
@@ -3778,6 +3909,12 @@ export class FarmScene extends Phaser.Scene {
   private arrangeExemptObjects(): Phaser.GameObjects.GameObject[] {
     return [
       ...this.decorationSprites,
+      // Movable structures (T3.3s): stay interactive through arrange mode
+      // so the classifier can hit-test them for select/lift; their own
+      // deferred-tap handler self-gates on `arrangeModeActive`, so nothing
+      // can open through them mid-arrange.
+      this.farmhouseImage,
+      this.noticeBoardImage,
       // Owned entirely by refreshArrangePlotInteractivity/exitArrangeMode
       // (T3.3a) - the sweep must neither disable nor, crucially, RESTORE
       // them (see exitArrangeMode's comment).
@@ -3885,6 +4022,113 @@ export class FarmScene extends Phaser.Scene {
     this.refreshCrops();
     this.applyPlotSelectionTint();
     this.refreshArrangePlotInteractivity();
+  }
+
+  /**
+   * Live snap of an in-flight structure lift (T3.3s), the exact plot-tile
+   * pattern by ANCHOR: hovering a NEW anchor whose whole footprint is legal
+   * (`isStructureAnchorFree`) jumps the structure sprite (and its shadow,
+   * and the board's badge) there instantly; an illegal candidate does not
+   * snap - the piece stays on the last legal preview, so it is always
+   * parked somewhere committable.
+   */
+  private updateStructureDragSnap(col: number, row: number): void {
+    const id = this.structureDragId;
+    if (id === null) return;
+    if (col === this.structureDragCol && row === this.structureDragRow) return;
+    if (!isStructureAnchorFree(gameState.getState(), id, col, row)) return;
+    this.structureDragCol = col;
+    this.structureDragRow = row;
+    this.placeStructureSprite(id, { col, row });
+  }
+
+  /**
+   * Commit the structure lift (T3.3s): `moveStructure` validates once more
+   * and persists; the visuals then re-derive from the committed state, so a
+   * refused commit (state unchanged) snaps the sprite back to its origin -
+   * with the locked-plot wiggle as the refusal cue. The dropped structure
+   * stays selected, so it regrabs instantly (the plot convention).
+   */
+  private commitStructureDrag(): void {
+    const id = this.structureDragId;
+    if (id === null) return;
+    this.structureDragId = null;
+    const moved = gameState.moveStructure(id, this.structureDragCol, this.structureDragRow);
+    this.applyStructureStatePosition(id);
+    if (!moved) this.shakeLockedPlot(this.structureImage(id));
+    this.setStructureSelection(id);
+  }
+
+  /** The structure's sprite (T3.3s) - reference lookup, the fixed pair. */
+  private structureImage(id: StructureId): Phaser.GameObjects.Image {
+    return id === 'farmhouse' ? this.farmhouseImage : this.noticeBoardImage;
+  }
+
+  /** The structure's ground shadow (T3.3s) - travels with the sprite. */
+  private structureShadow(id: StructureId): Phaser.GameObjects.Image {
+    return id === 'farmhouse' ? this.farmhouseShadow : this.noticeBoardShadow;
+  }
+
+  /**
+   * Put a structure's sprite (+ shadow, + the board's badge) at the render
+   * position for `anchor` (T3.3s): position and y-derived depth re-derive
+   * together so the structure iso-sorts correctly wherever it stands.
+   */
+  private placeStructureSprite(id: StructureId, anchor: { col: number; row: number }): void {
+    const pos = structureRenderPosition(id, anchor);
+    const image = this.structureImage(id);
+    image.setPosition(pos.x, pos.y).setDepth(pos.y);
+    this.applyGroundShadowGeometry(this.structureShadow(id), image);
+    if (id === 'noticeBoard') this.placeNoticeBoardBadge();
+  }
+
+  /** `placeStructureSprite` at the structure's COMMITTED (saved) anchor. */
+  private applyStructureStatePosition(id: StructureId): void {
+    this.placeStructureSprite(id, gameState.getState().structures[id]);
+  }
+
+  /**
+   * Re-derive both structures' visuals from state on the refresh tick
+   * (T3.3s) - the structure counterpart of `syncPlotVisuals`, so a dev
+   * import/reset re-renders moved structures without a reload. Repositions
+   * only when a saved anchor actually changed, which also means it can
+   * never fight an in-flight structure drag (sprite-only moves; state is
+   * untouched until the commit).
+   */
+  private refreshStructures(): void {
+    const structures = gameState.getState().structures;
+    const json = `${structures.farmhouse.col},${structures.farmhouse.row};${structures.noticeBoard.col},${structures.noticeBoard.row}`;
+    if (json === this.lastStructureAnchorsJson) return;
+    this.lastStructureAnchorsJson = json;
+    this.applyStructureStatePosition('farmhouse');
+    this.applyStructureStatePosition('noticeBoard');
+  }
+
+  /**
+   * Select a structure (T3.3s): tints its sprite, deselecting any
+   * decoration and plot first - the structure-side mirror of
+   * `setDecorationSelection`/`setPlotSelection`, driving the same per-item
+   * button re-derive (Scale/Flip/Put Away all dim - structures move only).
+   */
+  private setStructureSelection(id: StructureId | null): void {
+    if (id !== null) {
+      if (this.selectedDecorationIndex !== null) {
+        this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
+        this.selectedDecorationIndex = null;
+      }
+      this.clearPlotSelectionTint();
+    }
+    this.clearStructureSelectionTint();
+    this.selectedStructureId = id;
+    if (id !== null) this.structureImage(id).setTint(DRESSING_SELECTED_TINT);
+    this.updateArrangeItemButtonsState();
+  }
+
+  /** Clear the selected structure's tint and forget the selection. */
+  private clearStructureSelectionTint(): void {
+    if (this.selectedStructureId === null) return;
+    this.structureImage(this.selectedStructureId).clearTint();
+    this.selectedStructureId = null;
   }
 
   /**
@@ -4604,11 +4848,17 @@ export class FarmScene extends Phaser.Scene {
    * center-relative rect for the pre-fix version - now removed).
    */
   private createNoticeBoard(): void {
+    // Render position derives from the saved anchor (T3.3s) - at the
+    // default anchor this is exactly the historical NOTICE_BOARD_POSITION.
+    const position = structureRenderPosition(
+      'noticeBoard',
+      gameState.getState().structures.noticeBoard,
+    );
     const pad = NOTICE_BOARD_HIT_PAD_DISPLAY_PX / STRUCTURE_SCALE;
     this.noticeBoardImage = this.add
-      .image(NOTICE_BOARD_POSITION.x, NOTICE_BOARD_POSITION.y, ATLAS_KEY, 'notice_board')
+      .image(position.x, position.y, ATLAS_KEY, 'notice_board')
       .setScale(STRUCTURE_SCALE)
-      .setDepth(NOTICE_BOARD_POSITION.y)
+      .setDepth(position.y)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
           -pad,
@@ -4626,26 +4876,35 @@ export class FarmScene extends Phaser.Scene {
         this.handleStructureDown(pointer, () => this.hud.toggleOrderBoard());
       },
     );
-    this.createGroundShadow(this.noticeBoardImage);
+    this.noticeBoardShadow = this.createGroundShadow(this.noticeBoardImage);
 
+    this.noticeBoardBadge = this.add
+      .text(0, 0, '!', BADGE_TEXT_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    this.placeNoticeBoardBadge();
+  }
+
+  /**
+   * (Re-)anchor the "!" badge to the board's CURRENT position (T3.3s - the
+   * board is movable now) and restart its gentle perpetual bounce from the
+   * new base y. The bounce runs continuously (harmless while hidden) rather
+   * than starting/stopping with visibility, matching the codebase's other
+   * perpetual-tween highlights (SwipeGuide, OnboardingGuide's halo); it is
+   * killed and rebuilt here because its yoyo target is an absolute y.
+   */
+  private placeNoticeBoardBadge(): void {
     const badgeX =
-      NOTICE_BOARD_POSITION.x +
+      this.noticeBoardImage.x +
       (NOTICE_BOARD_CONTENT_RIGHT_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE +
       BADGE_CORNER_NUDGE;
     const badgeY =
-      NOTICE_BOARD_POSITION.y +
+      this.noticeBoardImage.y +
       (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - STRUCTURE_FRAME_SIZE / 2) * STRUCTURE_SCALE -
       BADGE_CORNER_NUDGE;
-    this.noticeBoardBadge = this.add
-      .text(badgeX, badgeY, '!', BADGE_TEXT_STYLE)
-      .setOrigin(0.5)
-      .setDepth(NOTICE_BOARD_POSITION.y + 1)
-      .setVisible(false);
-    // Gentle perpetual bounce so an active badge draws the eye without being
-    // distracting; runs continuously (harmless while hidden) rather than
-    // starting/stopping with visibility, matching the codebase's other
-    // perpetual-tween highlights (SwipeGuide, OnboardingGuide's halo).
-    this.tweens.add({
+    this.noticeBoardBadgeTween?.remove();
+    this.noticeBoardBadge.setPosition(badgeX, badgeY).setDepth(this.noticeBoardImage.depth + 1);
+    this.noticeBoardBadgeTween = this.tweens.add({
       targets: this.noticeBoardBadge,
       y: badgeY + BADGE_BOUNCE_OFFSET_Y,
       duration: BADGE_BOUNCE_HALF_MS,

@@ -1,4 +1,11 @@
-import { DESIGN_HEIGHT, DESIGN_WIDTH } from '../config';
+import {
+  DESIGN_HEIGHT,
+  DESIGN_WIDTH,
+  STRUCTURE_DEFAULT_ANCHORS,
+  STRUCTURE_FOOTPRINT_OFFSETS,
+  STRUCTURE_RENDER_OFFSETS,
+  type StructureId,
+} from '../config';
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
 import {
   CHEST_COINS_MAX,
@@ -163,6 +170,24 @@ export interface DecorationPlacement {
   scale: number;
   /** Horizontal mirror (T3.15) - flipX, never rotation. */
   flip: boolean;
+}
+
+/**
+ * One movable structure's saved GRID ANCHOR TILE (T3.3s, schema v18), in the
+ * frozen iso frame like a plot's col/row. The structure's blocked footprint
+ * tiles are anchor + STRUCTURE_FOOTPRINT_OFFSETS[id] and its render position
+ * is the anchor tile's center + STRUCTURE_RENDER_OFFSETS[id] (config.ts) -
+ * never stored, always derived.
+ */
+export interface StructureAnchor {
+  col: number;
+  row: number;
+}
+
+/** The two movable structures' anchors (T3.3s). The expand sign stays fixed. */
+export interface StructuresState {
+  farmhouse: StructureAnchor;
+  noticeBoard: StructureAnchor;
 }
 
 export interface GameSettings {
@@ -375,6 +400,8 @@ export interface GameStateData {
    * count reaches 0, never left at 0 (see `placeFromWarehouse`).
    */
   warehouse: Record<string, number>;
+  /** Movable structures' grid anchors (T3.3s, schema v18). */
+  structures: StructuresState;
   /** Quest system state (T3.10). */
   quests: QuestsState;
   onboarding: OnboardingState;
@@ -710,6 +737,24 @@ const v16ToV17: Migration = (raw) => ({
     : raw.decorations,
 });
 
+/** A fresh copy of the default structure anchors (T3.3s) - cloned so no save
+ * ever aliases the shared config constant. */
+function createDefaultStructures(): StructuresState {
+  return {
+    farmhouse: { ...STRUCTURE_DEFAULT_ANCHORS.farmhouse },
+    noticeBoard: { ...STRUCTURE_DEFAULT_ANCHORS.noticeBoard },
+  };
+}
+
+/**
+ * v17 -> v18: movable structures (T3.3s). Every save gains
+ * `structures` at the DEFAULT anchors - the exact tiles whose derived
+ * footprints and render positions reproduce the pre-v18 hardcoded
+ * blocked-tile sets and position constants, so an existing save renders
+ * pixel-identical after migration (pinned by test).
+ */
+const v17ToV18: Migration = (raw) => ({ ...raw, structures: createDefaultStructures() });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -728,6 +773,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v14ToV15,
   v15ToV16,
   v16ToV17,
+  v17ToV18,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -751,6 +797,7 @@ export function createDefaultState(version: number): GameStateData {
     orderSkips: { count: 0, lastAt: 0 },
     decorations: [],
     warehouse: {},
+    structures: createDefaultStructures(),
     quests: createDefaultQuestsState(now),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
@@ -821,49 +868,154 @@ export function placeablePlotTiles(): readonly PlotTileCoord[] {
 }
 
 /**
- * Structure footprint tiles (T3.3a-r): placeable tiles a plot may never sit
- * on because a structure's art stands there. Each set is hardcoded from a
- * derivation over the existing position constants - a tile is blocked when
- * its diamond center lies within the structure's measured footprint rect
- * expanded by a quarter tile (64, 32), i.e. the diamond overlaps the
- * structure by more than a corner graze. Tile centers in the frozen frame:
+ * Structure footprint tiles (T3.3a-r, made anchor-relative in T3.3s):
+ * placeable tiles a plot may never sit on because a structure's art stands
+ * there. Since schema v18 the farmhouse/notice board footprints derive
+ * DYNAMICALLY from `state.structures` + STRUCTURE_FOOTPRINT_OFFSETS
+ * (config.ts) - the historical hardcoded sets are exactly the offsets
+ * applied at the default anchors (pinned by test). The offsets' original
+ * derivation (unchanged): a tile is blocked when its diamond center lies
+ * within the structure's measured footprint rect expanded by a quarter tile
+ * (64, 32), i.e. the diamond overlaps the structure by more than a corner
+ * graze. Tile centers in the frozen frame:
  * (540 + (col-row)*128, 768 + (col+row)*64).
  *
  * The villager needs no set: VILLAGER_POSITION (config.ts) is an off-screen
  * fly-to point (x 1240), not a standing structure.
  */
+const STRUCTURE_IDS: readonly StructureId[] = ['farmhouse', 'noticeBoard'];
+
+/** Each structure's footprint offsets as "dc,dr" keys - static, so the
+ * per-tile membership test below is one Set lookup per structure. */
+const STRUCTURE_FOOTPRINT_OFFSET_KEYS: Record<StructureId, ReadonlySet<string>> = {
+  farmhouse: new Set(
+    STRUCTURE_FOOTPRINT_OFFSETS.farmhouse.map((offset) => plotTileKey(offset.col, offset.row)),
+  ),
+  noticeBoard: new Set(
+    STRUCTURE_FOOTPRINT_OFFSETS.noticeBoard.map((offset) => plotTileKey(offset.col, offset.row)),
+  ),
+};
 
 /**
- * Farmhouse: FARMHOUSE_POSITION (880, 520), 300x300 display centered, opaque
- * art y 370..670 (config.ts measured comment) -> footprint rect
- * x [730, 1030], y [370, 670].
+ * Whether the design-space point (x, y) lies inside tile (col, row)'s
+ * diamond (frozen frame): the Manhattan-normalized containment test - the
+ * one rule shared by "decor anchors block plot placement" (isPlotTileFree)
+ * and "decor may not commit onto a permanent object" (T3.3s-r1).
  */
-const FARMHOUSE_BLOCKED_TILES: readonly PlotTileCoord[] = [
-  { col: -2, row: -4 },
-  { col: -1, row: -4 },
-  { col: -2, row: -3 },
-  { col: -1, row: -3 },
-  { col: 0, row: -3 },
-  { col: -1, row: -2 },
-  { col: 0, row: -2 },
-];
+function pointInTileDiamond(x: number, y: number, col: number, row: number): boolean {
+  const center = gridToIso(col, row);
+  return (
+    Math.abs(x - center.x) / (TILE_WIDTH / 2) + Math.abs(y - center.y) / (TILE_HEIGHT / 2) <= 1
+  );
+}
 
 /**
- * Notice board: NOTICE_BOARD_POSITION (900, 1310), opaque art x ~822..978,
- * y ~1190..1430 (config.ts measured comment) -> footprint rect x [822, 978],
- * y [1190, 1430].
+ * Whether the design-space point (x, y) lands inside any PERMANENT object's
+ * footprint tile diamond (T3.3s-r1, owner rule: nothing places on top of
+ * permanent objects): the farmhouse and notice board footprints at their
+ * CURRENT anchors, plus the expand sign's while the save is not expanded.
+ * The gate `setDecorationTransform` runs on a decoration's ground anchor.
  */
-const NOTICE_BOARD_BLOCKED_TILES: readonly PlotTileCoord[] = [
-  { col: 5, row: 2 },
-  { col: 5, row: 3 },
-  { col: 6, row: 3 },
-  { col: 6, row: 4 },
-];
+function isPointOnPermanentFootprint(
+  state: Pick<GameStateData, 'structures' | 'expanded'>,
+  x: number,
+  y: number,
+): boolean {
+  for (const id of STRUCTURE_IDS) {
+    const anchor = state.structures[id];
+    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
+      if (pointInTileDiamond(x, y, anchor.col + offset.col, anchor.row + offset.row)) return true;
+    }
+  }
+  if (!state.expanded) {
+    for (const tile of EXPAND_SIGN_BLOCKED_TILES) {
+      if (pointInTileDiamond(x, y, tile.col, tile.row)) return true;
+    }
+  }
+  return false;
+}
+
+/** Whether (col, row) lies under either structure's CURRENT footprint. */
+function isUnderStructure(structures: StructuresState, col: number, row: number): boolean {
+  for (const id of STRUCTURE_IDS) {
+    const anchor = structures[id];
+    if (STRUCTURE_FOOTPRINT_OFFSET_KEYS[id].has(plotTileKey(col - anchor.col, row - anchor.row))) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Structure `id`'s absolute footprint tiles at `anchor` (T3.3s). */
+export function structureFootprintTiles(id: StructureId, anchor: StructureAnchor): PlotTileCoord[] {
+  return STRUCTURE_FOOTPRINT_OFFSETS[id].map((offset) => ({
+    col: anchor.col + offset.col,
+    row: anchor.row + offset.row,
+  }));
+}
+
+/**
+ * Structure `id`'s sprite position at `anchor` (T3.3s): the anchor tile's
+ * center plus the structure's fixed render offset. At the default anchors
+ * this reproduces FARMHOUSE_POSITION / NOTICE_BOARD_POSITION exactly
+ * (pinned by test).
+ */
+export function structureRenderPosition(
+  id: StructureId,
+  anchor: StructureAnchor,
+): { x: number; y: number } {
+  const center = gridToIso(anchor.col, anchor.row);
+  const offset = STRUCTURE_RENDER_OFFSETS[id];
+  return { x: center.x + offset.x, y: center.y + offset.y };
+}
+
+/**
+ * THE structure-placement authority (T3.3s): whether structure `id` may
+ * anchor at (col, row) - legal iff EVERY footprint tile at that anchor is
+ * inside the placeable domain (the same hidden-grid tile set plots use),
+ * free of plots, free of the OTHER structure's footprint, and - while the
+ * save is NOT expanded - clear of the expand sign's footprint (T3.3s-r1, PM
+ * ruling: a structure parked on the sign buries a tappable progression
+ * object; the same pre-expansion gating plot placement already uses - once
+ * expanded the sign is gone and those tiles are normal). Decor does not
+ * block structures (free-form cosmetic). Both the store's `moveStructure`
+ * and the scene's live drag-snap preview go through this one function, so
+ * an illegal anchor can never even preview.
+ */
+export function isStructureAnchorFree(
+  state: Pick<GameStateData, 'plots' | 'structures' | 'expanded'>,
+  id: StructureId,
+  col: number,
+  row: number,
+): boolean {
+  if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+  const otherId: StructureId = id === 'farmhouse' ? 'noticeBoard' : 'farmhouse';
+  const otherAnchor = state.structures[otherId];
+  const otherKeys = STRUCTURE_FOOTPRINT_OFFSET_KEYS[otherId];
+  for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
+    const tileCol = col + offset.col;
+    const tileRow = row + offset.row;
+    if (!PLACEABLE_PLOT_TILE_KEYS.has(plotTileKey(tileCol, tileRow))) return false;
+    for (const plot of state.plots) {
+      if (plot.col === tileCol && plot.row === tileRow) return false;
+    }
+    if (otherKeys.has(plotTileKey(tileCol - otherAnchor.col, tileRow - otherAnchor.row))) {
+      return false;
+    }
+    if (!state.expanded && EXPAND_SIGN_BLOCKED_KEYS.has(plotTileKey(tileCol, tileRow))) {
+      return false;
+    }
+  }
+  return true;
+}
 
 /**
  * Expand sign, blocked only while it stands (`expanded` false - it hides
  * permanently once purchased): SIGN_X/Y (540, 1300) at 240x240 display
  * centered (ui/ExpandSign.ts) -> footprint rect x [420, 660], y [1180, 1420].
+ * The sign is NOT movable (T3.3s) - this set stays hardcoded. While the sign
+ * stands it blocks BOTH plot placement (isPlotTileFree) and structure
+ * anchors (isStructureAnchorFree, T3.3s-r1).
  */
 const EXPAND_SIGN_BLOCKED_TILES: readonly PlotTileCoord[] = [
   { col: 3, row: 3 },
@@ -875,11 +1027,6 @@ const EXPAND_SIGN_BLOCKED_TILES: readonly PlotTileCoord[] = [
   { col: 5, row: 5 },
 ];
 
-const STRUCTURE_BLOCKED_KEYS: ReadonlySet<string> = new Set(
-  [...FARMHOUSE_BLOCKED_TILES, ...NOTICE_BOARD_BLOCKED_TILES].map((tile) =>
-    plotTileKey(tile.col, tile.row),
-  ),
-);
 const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
   EXPAND_SIGN_BLOCKED_TILES.map((tile) => plotTileKey(tile.col, tile.row)),
 );
@@ -888,8 +1035,10 @@ const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
  * THE tile-collision authority (T3.3a-r): whether a plot may be placed on or
  * moved to (col, row) right now. A tile is free when it is placeable
  * (`placeablePlotTiles`), no OTHER plot occupies it (`ignorePlotIndex`
- * exempts the plot being moved), it is not under a structure footprint (the
- * Expand sign's only counts while the sign still stands), and no
+ * exempts the plot being moved), it is not under a structure footprint
+ * (derived LIVE from `state.structures` since T3.3s, so moved structures'
+ * footprints follow them; the Expand sign's only counts while the sign
+ * still stands), and no
  * decoration's ground anchor (its x/y position) lies inside the tile's
  * diamond - decor stays free-form; this only stops plots from sliding under
  * existing decor (decor-over-plot stays the known nit). Every placement
@@ -897,7 +1046,7 @@ const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
  * and free-tile searches - goes through this one function.
  */
 export function isPlotTileFree(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
   col: number,
   row: number,
   ignorePlotIndex = -1,
@@ -910,17 +1059,10 @@ export function isPlotTileFree(
     const plot = state.plots[index]!;
     if (plot.col === col && plot.row === row) return false;
   }
-  if (STRUCTURE_BLOCKED_KEYS.has(key)) return false;
+  if (isUnderStructure(state.structures, col, row)) return false;
   if (!state.expanded && EXPAND_SIGN_BLOCKED_KEYS.has(key)) return false;
-  const center = gridToIso(col, row);
   for (const decoration of state.decorations) {
-    if (
-      Math.abs(decoration.x - center.x) / (TILE_WIDTH / 2) +
-        Math.abs(decoration.y - center.y) / (TILE_HEIGHT / 2) <=
-      1
-    ) {
-      return false;
-    }
+    if (pointInTileDiamond(decoration.x, decoration.y, col, row)) return false;
   }
   return true;
 }
@@ -965,7 +1107,7 @@ function isHuggingPlot(
  * equality compare is exact.
  */
 function nearestFreePlaceableTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
   x: number,
   y: number,
   hugExcludeKeys?: ReadonlySet<string>,
@@ -1010,7 +1152,7 @@ function nearestFreePlaceableTile(
  *   is blocked (or the history is empty).
  */
 export function nextChainPlotTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
   history: readonly PlotTileCoord[],
 ): PlotTileCoord | null {
   const last = history[history.length - 1];
@@ -1081,7 +1223,7 @@ export function nextChainPlotTile(
  * design center, as before.
  */
 export function bestBatchStartTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded'>,
+  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
   shedCount: number,
 ): PlotTileCoord | null {
   if (state.plots.length === 0) {
@@ -1322,6 +1464,18 @@ function isQuestsState(value: unknown): value is QuestsState {
   );
 }
 
+/** A structure anchor: integer col/row within the static validator bounds,
+ * like a plot's tile (T3.3s). */
+function isStructureAnchor(value: unknown): value is StructureAnchor {
+  return isRecord(value) && isPlotGridCoord(value.col) && isPlotGridCoord(value.row);
+}
+
+function isStructuresState(value: unknown): value is StructuresState {
+  return (
+    isRecord(value) && isStructureAnchor(value.farmhouse) && isStructureAnchor(value.noticeBoard)
+  );
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -1367,6 +1521,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     // Split budgets (T3.3a2): non-fence decor and fences cap independently.
     decorOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECOR_ITEMS &&
     fenceOwnedCount(raw.decorations, raw.warehouse) <= MAX_FENCES &&
+    isStructuresState(raw.structures) &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
@@ -1831,6 +1986,26 @@ export class GameStateStore {
   }
 
   /**
+   * Relocate a movable structure's anchor to (col, row) (T3.3s - the
+   * arrange-mode structure move). Legal iff every footprint tile at the new
+   * anchor is inside the placeable domain, free of plots, free of the
+   * OTHER structure's footprint, and clear of the expand sign's footprint
+   * while the sign still stands (`isStructureAnchorFree` - decor does not
+   * block structures). Returns false without mutating anything on any
+   * violation; one save on success. A move onto the structure's own current
+   * anchor passes the same check trivially (its own tiles hold no plots) -
+   * a valid no-op commit, mirroring `movePlot`.
+   */
+  moveStructure(id: StructureId, col: number, row: number): boolean {
+    if (!isStructureAnchorFree(this.state, id, col, row)) return false;
+    const anchor = this.state.structures[id];
+    anchor.col = col;
+    anchor.row = row;
+    this.save();
+    return true;
+  }
+
+  /**
    * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b):
    * deducts its price from the right currency and increments its warehouse
    * count - nothing is placed on the lawn. Returns false without mutating
@@ -1914,6 +2089,14 @@ export class GameStateStore {
    * either way. FENCES are the exception (T3.3a2): their scale is pinned to
    * exactly FENCE_FIXED_SCALE unconditionally - no caller, dev probe
    * included, can resize a fence.
+   *
+   * T3.3s-r1 (owner rule: nothing places on top of permanent objects): the
+   * commit is REFUSED outright (false, no mutation) when the decoration's
+   * CLAMPED ground anchor lands inside any permanent-object footprint tile's
+   * diamond - the farmhouse/notice board footprints at their current
+   * anchors, plus the expand sign's while it still stands
+   * (`isPointOnPermanentFootprint`). The clamped point is judged because
+   * that is where the commit would actually land.
    */
   setDecorationTransform(
     index: number,
@@ -1927,8 +2110,11 @@ export class GameStateStore {
     if (decoration === undefined) return false;
     if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(scale)) return false;
     if (typeof flip !== 'boolean') return false;
-    decoration.x = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
-    decoration.y = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
+    const clampedX = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
+    const clampedY = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
+    if (isPointOnPermanentFootprint(this.state, clampedX, clampedY)) return false;
+    decoration.x = clampedX;
+    decoration.y = clampedY;
     const ceiling = scaleCeiling ?? decorMaxScale(decoration.frame);
     decoration.scale =
       decoration.frame === FENCE_FRAME

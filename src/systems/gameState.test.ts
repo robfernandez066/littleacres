@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { FARMHOUSE_POSITION, NOTICE_BOARD_POSITION, STRUCTURE_DEFAULT_ANCHORS } from '../config';
 import { CHEST_COINS_MAX, CHEST_COINS_MIN, CHEST_MOONDUST_AMOUNT } from '../data/chests';
 import { type CropId, CROPS } from '../data/crops';
 import {
@@ -51,6 +52,7 @@ import {
   type GameStateData,
   GameStateStore,
   isPlotTileFree,
+  isStructureAnchorFree,
   isValidState,
   MIGRATIONS,
   type Migration,
@@ -61,6 +63,9 @@ import {
   RECOVERY_KEY,
   SAVE_KEY,
   type SaveStorage,
+  structureFootprintTiles,
+  structureRenderPosition,
+  type StructuresState,
 } from './gameState';
 import { gridToIso, TILE_HEIGHT, TILE_WIDTH } from './iso';
 import { advanceTime, getTimeOffsetMs, now } from './time';
@@ -103,6 +108,24 @@ function stubRng(...values: number[]): () => number {
  */
 function tileOf(index: number): { col: number; row: number } {
   return { col: index % FARM_COLS, row: Math.floor(index / FARM_COLS) };
+}
+
+/**
+ * Flip a store's save to post-expansion in place (T3.3s-r1 tests): the
+ * expand sign is gone, so its footprint tiles stop blocking. Direct state
+ * mutation like `completeOnboarding` - buying the real expansion would also
+ * grant plots, which these tests do not want.
+ */
+function markExpanded(store: GameStateStore): void {
+  (store.getState() as GameStateData).expanded = true;
+}
+
+/** A fresh copy of the default structure anchors (T3.3s) for state slices. */
+function defaultStructures(): StructuresState {
+  return {
+    farmhouse: { ...STRUCTURE_DEFAULT_ANCHORS.farmhouse },
+    noticeBoard: { ...STRUCTURE_DEFAULT_ANCHORS.noticeBoard },
+  };
 }
 
 /**
@@ -414,7 +437,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(16);
+    expect(MIGRATIONS).toHaveLength(17);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -425,7 +448,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -448,7 +471,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -458,8 +481,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(17);
-    expect(store.getState().version).toBe(17);
+    expect(store.currentVersion).toBe(18);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -495,7 +518,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -539,7 +562,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -579,7 +602,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -667,7 +690,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -707,7 +730,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -741,7 +764,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -782,7 +805,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -797,7 +820,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -1904,11 +1927,12 @@ describe('isPlotTileFree (T3.3a-r collision rules)', () => {
   function slice(
     plots: { col: number; row: number }[],
     options: { decorations?: GameStateData['decorations']; expanded?: boolean } = {},
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations: options.decorations ?? [],
       expanded: options.expanded ?? false,
+      structures: defaultStructures(),
     };
   }
 
@@ -1971,11 +1995,12 @@ describe('nextChainPlotTile (T3.3a-r chain adjacency preference)', () => {
   function slice(
     plots: { col: number; row: number }[],
     expanded = true,
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations: [],
       expanded,
+      structures: defaultStructures(),
     };
   }
 
@@ -2127,11 +2152,12 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   function slice(
     plots: { col: number; row: number }[],
     decorations: GameStateData['decorations'] = [],
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations,
       expanded: true,
+      structures: defaultStructures(),
     };
   }
 
@@ -2144,8 +2170,13 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   /** The default 12-plot farm (cols 0..3, rows 0..2) after the expansion purchase. */
   function defaultFarm(
     decorations: GameStateData['decorations'] = [],
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> {
-    return { plots: createDefaultState(16).plots, decorations, expanded: true };
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
+    return {
+      plots: createDefaultState(16).plots,
+      decorations,
+      expanded: true,
+      structures: defaultStructures(),
+    };
   }
 
   /** A 3x3 block (cols/rows 0..2): all four of its faces are fully on the placeable rect. */
@@ -2218,10 +2249,11 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   it('owner scenario end-to-end: 4 grants fill the bottom row rightward, every placement touching the block', () => {
     const original = createDefaultState(16).plots;
     let plots = [...original];
-    const state = (): Pick<GameStateData, 'plots' | 'decorations' | 'expanded'> => ({
+    const state = (): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> => ({
       plots,
       decorations: [],
       expanded: true,
+      structures: defaultStructures(),
     });
     const history: { col: number; row: number }[] = [];
     const place = (tile: { col: number; row: number }): void => {
@@ -3455,7 +3487,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(17);
+    const saved = createDefaultState(18);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -3961,7 +3993,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -3988,7 +4020,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4017,7 +4049,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4048,7 +4080,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4062,7 +4094,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4078,7 +4110,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4093,7 +4125,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(17);
+    expect(store.getState().version).toBe(18);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4125,7 +4157,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4142,7 +4174,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(17);
+    expect(state.version).toBe(18);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4192,7 +4224,7 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 17,
+      version: 18,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4242,6 +4274,269 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
   it('passes a save with no decorations array through untouched', () => {
     const migrated = v16ToV17({ decorations: 'nope' }, rng);
     expect(migrated.decorations).toBe('nope');
+  });
+});
+
+describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
+  it('a v17 save (no structures field) gains the default anchors and round-trips otherwise untouched', () => {
+    const saved = createDefaultState(18) as unknown as Record<string, unknown>;
+    saved.version = 17;
+    delete saved.structures; // a genuine v17 save never had this field
+    saved.coins = 444;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual({
+      ...saved,
+      version: 18,
+      structures: defaultStructures(),
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('PIXEL IDENTITY: the default anchors reproduce the historical render positions exactly', () => {
+    expect(structureRenderPosition('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual({
+      x: FARMHOUSE_POSITION.x,
+      y: FARMHOUSE_POSITION.y,
+    });
+    expect(structureRenderPosition('noticeBoard', STRUCTURE_DEFAULT_ANCHORS.noticeBoard)).toEqual({
+      x: NOTICE_BOARD_POSITION.x,
+      y: NOTICE_BOARD_POSITION.y,
+    });
+  });
+
+  it('the default anchors reproduce the historical blocked-tile sets tile for tile', () => {
+    // The exact FARMHOUSE_BLOCKED_TILES / NOTICE_BOARD_BLOCKED_TILES sets
+    // hardcoded in v16..v17 gameState.ts, in the same order.
+    expect(structureFootprintTiles('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual([
+      { col: -2, row: -4 },
+      { col: -1, row: -4 },
+      { col: -2, row: -3 },
+      { col: -1, row: -3 },
+      { col: 0, row: -3 },
+      { col: -1, row: -2 },
+      { col: 0, row: -2 },
+    ]);
+    expect(structureFootprintTiles('noticeBoard', STRUCTURE_DEFAULT_ANCHORS.noticeBoard)).toEqual([
+      { col: 5, row: 2 },
+      { col: 5, row: 3 },
+      { col: 6, row: 3 },
+      { col: 6, row: 4 },
+    ]);
+  });
+
+  it('validation rejects missing, malformed, or out-of-bounds structures', () => {
+    expect(isValidState(createDefaultState(18), 18)).toBe(true);
+    const missing = createDefaultState(18) as unknown as Record<string, unknown>;
+    delete missing.structures;
+    expect(isValidState(missing, 18)).toBe(false);
+    const fractional = createDefaultState(18);
+    fractional.structures.farmhouse.col = 0.5;
+    expect(isValidState(fractional, 18)).toBe(false);
+    const outOfBounds = createDefaultState(18);
+    outOfBounds.structures.noticeBoard.col = PLOT_GRID_COORD_MAX + 1;
+    expect(isValidState(outOfBounds, 18)).toBe(false);
+    const wrongShape = createDefaultState(18) as unknown as Record<string, unknown>;
+    wrongShape.structures = { farmhouse: { col: 0, row: 0 } }; // noticeBoard missing
+    expect(isValidState(wrongShape, 18)).toBe(false);
+  });
+
+  it('a full-chain v1 save lands at version 18 with the default anchors', () => {
+    const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
+    void moondust;
+    void orders;
+    void onboarding;
+    void orderSkips;
+    const raw = v1Save as unknown as Record<string, unknown>;
+    delete raw.structures; // a genuine v1 save never had this field either
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(18);
+    expect(store.getState().structures).toEqual(defaultStructures());
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('moveStructure (T3.3s legality matrix)', () => {
+  function makeStore(storage: SaveStorage = makeStorage()): GameStateStore {
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    return store;
+  }
+
+  it('happy path: the farmhouse moves to an open legal anchor and the move persists', () => {
+    const storage = makeStorage();
+    const store = makeStore(storage);
+    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
+    expect(store.getState().structures.farmhouse).toEqual({ col: 8, row: 5 });
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().structures.farmhouse).toEqual({ col: 8, row: 5 });
+  });
+
+  it('a move onto its own current anchor is a valid no-op commit', () => {
+    const store = makeStore();
+    expect(store.moveStructure('farmhouse', -1, -3)).toBe(true);
+    expect(store.getState().structures.farmhouse).toEqual({ col: -1, row: -3 });
+  });
+
+  it('refuses an anchor whose footprint overlaps a plot', () => {
+    const store = makeStore();
+    // Default plots fill cols 0..3, rows 0..2 - anchor (2, 1) puts the whole
+    // farmhouse footprint on top of them.
+    expect(store.moveStructure('farmhouse', 2, 1)).toBe(false);
+    // A single-tile graze refuses too: anchor (2, 3) reaches (1, 2) and (2, 2).
+    expect(store.moveStructure('farmhouse', 2, 3)).toBe(false);
+  });
+
+  it("refuses an anchor overlapping the OTHER structure's footprint - tracked at its LIVE anchor", () => {
+    const store = makeStore();
+    // Expanded, so the sign footprint (which also overlaps anchor (5, 4) -
+    // covered by its own test) cannot mask the structure-structure rule.
+    markExpanded(store);
+    // Farmhouse anchor (5, 4) reaches (5, 3) and (6, 4) - the notice board's
+    // default footprint.
+    expect(store.moveStructure('farmhouse', 5, 4)).toBe(false);
+    // Move the board away; its old footprint stops blocking...
+    expect(store.moveStructure('noticeBoard', 8, 6)).toBe(true);
+    expect(store.moveStructure('farmhouse', 5, 4)).toBe(true);
+    // ...and its new footprint blocks instead: farmhouse (8, 5) reaches
+    // (8, 5)/(8, 6)/(9, 6), all under the board at (8, 6).
+    expect(store.moveStructure('farmhouse', 8, 5)).toBe(false);
+  });
+
+  it('refuses anchors whose footprint leaves the placeable domain, and non-integer coordinates', () => {
+    const store = makeStore();
+    // Board at (11, 10): footprint tile (12, 10) is past the placeable
+    // domain's max col (11 - pinned by the placeablePlotTiles bounds test).
+    expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false);
+    // Deep off-grid.
+    expect(store.moveStructure('farmhouse', -8, -8)).toBe(false);
+    expect(store.moveStructure('farmhouse', 99, 99)).toBe(false);
+    expect(store.moveStructure('farmhouse', 0.5, 5)).toBe(false);
+    expect(store.moveStructure('farmhouse', Number.NaN, 5)).toBe(false);
+  });
+
+  it('a refused move mutates nothing (verified via the exported save)', () => {
+    const store = makeStore();
+    const before = store.exportSave();
+    expect(store.moveStructure('farmhouse', 2, 1)).toBe(false); // plots
+    expect(store.moveStructure('farmhouse', 5, 4)).toBe(false); // other structure
+    expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false); // out of domain
+    expect(store.moveStructure('farmhouse', 0.5, 5)).toBe(false); // non-integer
+    expect(store.exportSave()).toBe(before);
+  });
+
+  it('isPlotTileFree derives footprints dynamically: old tiles free, new tiles blocked after a move', () => {
+    const store = makeStore();
+    expect(isPlotTileFree(store.getState(), 0, -2)).toBe(false);
+    expect(isPlotTileFree(store.getState(), -1, -3)).toBe(false);
+    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
+    // The vacated default footprint frees up...
+    expect(isPlotTileFree(store.getState(), 0, -2)).toBe(true);
+    expect(isPlotTileFree(store.getState(), -1, -3)).toBe(true);
+    // ...and the new footprint blocks, anchor tile and offset tile alike.
+    expect(isPlotTileFree(store.getState(), 8, 5)).toBe(false);
+    expect(isPlotTileFree(store.getState(), 7, 4)).toBe(false);
+  });
+
+  it('placePlot respects MOVED footprints: plots go where the farmhouse was, never where it now is', () => {
+    const store = makeStore();
+    expect(store.grantPlots(1)).toBe(true);
+    store.consumePlotGrantEvents();
+    expect(store.placePlot(-1, -3)).toBe(false); // still under the farmhouse
+    expect(store.moveStructure('farmhouse', 8, 5)).toBe(true);
+    expect(store.placePlot(-1, -3)).toBe(BASE_PLOT_COUNT); // vacated - appends as plot 12
+    expect(store.grantPlots(1)).toBe(true);
+    expect(store.placePlot(8, 5)).toBe(false); // under the moved farmhouse
+  });
+
+  it('isStructureAnchorFree matches moveStructure verdicts (the scene preview shares the rule)', () => {
+    const store = makeStore();
+    const state = store.getState();
+    expect(isStructureAnchorFree(state, 'farmhouse', 8, 5)).toBe(true);
+    expect(isStructureAnchorFree(state, 'farmhouse', 2, 1)).toBe(false);
+    expect(isStructureAnchorFree(state, 'farmhouse', 5, 4)).toBe(false);
+    expect(isStructureAnchorFree(state, 'noticeBoard', 11, 10)).toBe(false);
+    // The current anchor is always a legal preview (snap-back home).
+    expect(isStructureAnchorFree(state, 'farmhouse', -1, -3)).toBe(true);
+  });
+
+  it('refuses anchors overlapping the expand sign footprint pre-expansion; the same anchors are legal once expanded (T3.3s-r1)', () => {
+    // Anchor (4, 4) is clear of plots (rows 0..2), the farmhouse footprint
+    // there ((3,3)..(5,5)) is clear of the board's default footprint, and
+    // the board footprint there ((4,3)/(4,4)/(5,4)/(5,5)) is clear of the
+    // farmhouse's - so pre-expansion the SIGN is the only refusal cause.
+    const farmhouseStore = makeStore();
+    expect(farmhouseStore.moveStructure('farmhouse', 4, 4)).toBe(false);
+    expect(farmhouseStore.moveStructure('noticeBoard', 4, 4)).toBe(false);
+    markExpanded(farmhouseStore);
+    expect(farmhouseStore.moveStructure('farmhouse', 4, 4)).toBe(true);
+    expect(farmhouseStore.getState().structures.farmhouse).toEqual({ col: 4, row: 4 });
+    const boardStore = makeStore();
+    markExpanded(boardStore);
+    expect(boardStore.moveStructure('noticeBoard', 4, 4)).toBe(true);
+    expect(boardStore.getState().structures.noticeBoard).toEqual({ col: 4, row: 4 });
+  });
+});
+
+describe('setDecorationTransform vs permanent objects (T3.3s-r1 mutual exclusion)', () => {
+  /** A post-tutorial store with one decoration parked on open ground. */
+  function makeStoreWithDecor(): GameStateStore {
+    const store = new GameStateStore({ storage: makeStorage() });
+    completeOnboarding(store);
+    store
+      .getState()
+      .decorations.push({ frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false });
+    return store;
+  }
+
+  it('refuses a commit whose anchor lands inside a farmhouse/board/sign footprint tile diamond - mutating nothing', () => {
+    const store = makeStoreWithDecor();
+    const before = store.exportSave();
+    // Farmhouse default anchor tile (-1,-3): center (796, 512), and the
+    // diamond's edge midpoint (860, 480) - both inside.
+    expect(store.setDecorationTransform(0, 796, 512, 0.55, false)).toBe(false);
+    expect(store.setDecorationTransform(0, 860, 480, 0.55, false)).toBe(false);
+    // Notice board default anchor tile (5, 3): center (796, 1280).
+    expect(store.setDecorationTransform(0, 796, 1280, 0.55, false)).toBe(false);
+    // Expand sign tile (4, 4): center (540, 1280), pre-expansion.
+    expect(store.setDecorationTransform(0, 540, 1280, 0.55, false)).toBe(false);
+    expect(store.getState().decorations[0]).toEqual({
+      frame: 'decor_bench',
+      x: 200,
+      y: 1440,
+      scale: 0.55,
+      flip: false,
+    });
+    expect(store.exportSave()).toBe(before);
+  });
+
+  it('accepts an anchor just outside the footprint diamonds', () => {
+    const store = makeStoreWithDecor();
+    // (926, 512) sits inside tile (0,-4)'s diamond - a NON-footprint
+    // neighbor 2px past the shared corner of three footprint diamonds.
+    expect(store.setDecorationTransform(0, 926, 512, 0.55, false)).toBe(true);
+    expect(store.getState().decorations[0]).toMatchObject({ x: 926, y: 512 });
+  });
+
+  it('accepts anchors on sign tiles post-expansion (the sign is gone)', () => {
+    const store = makeStoreWithDecor();
+    markExpanded(store);
+    expect(store.setDecorationTransform(0, 540, 1280, 0.55, false)).toBe(true);
+    expect(store.getState().decorations[0]).toMatchObject({ x: 540, y: 1280 });
+  });
+
+  it('tracks structure footprints at their LIVE anchors: a moved farmhouse blocks its new tiles and frees its old ones', () => {
+    const store = makeStoreWithDecor();
+    markExpanded(store);
+    expect(store.moveStructure('farmhouse', 3, 5)).toBe(true);
+    // New anchor tile (3, 5): center (284, 1280) - refused.
+    expect(store.setDecorationTransform(0, 284, 1280, 0.55, false)).toBe(false);
+    // The vacated default tile center (796, 512) - accepted now.
+    expect(store.setDecorationTransform(0, 796, 512, 0.55, false)).toBe(true);
+    expect(store.getState().decorations[0]).toMatchObject({ x: 796, y: 512 });
   });
 });
 

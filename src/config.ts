@@ -126,6 +126,10 @@ export const QUEST_ICON_POSITION = { x: 700, y: 86 } as const;
  * sign's x-range by 178px (so it's unambiguously "beside" it, not "above"
  * it) and its bottom edge (~y1430) clears the seed bar band (top ~1550) by
  * 120px. Its right edge (~x978) clears the screen edge by 102px.
+ *
+ * T3.3s: the board is MOVABLE now - this constant is only the DEFAULT
+ * render position (anchor (5,3) + STRUCTURE_RENDER_OFFSETS.noticeBoard,
+ * pinned identical by test); live positions derive from state.structures.
  */
 export const NOTICE_BOARD_POSITION = { x: 900, y: 1310 } as const;
 
@@ -140,8 +144,66 @@ export const NOTICE_BOARD_POSITION = { x: 900, y: 1310 } as const;
  * lowest HUD element (y265) by 105px, its opaque bottom edge (y670) clears
  * every plot tile's visual top edge at both field sizes (>=704) by >=34px,
  * and its right edge (x~1014) clears the screen edge by 66px.
+ *
+ * T3.3s: the farmhouse is MOVABLE now - this constant is only the DEFAULT
+ * render position (anchor (-1,-3) + STRUCTURE_RENDER_OFFSETS.farmhouse,
+ * pinned identical by test); live positions derive from state.structures.
  */
 export const FARMHOUSE_POSITION = { x: 880, y: 520 } as const;
+
+/**
+ * Movable structures (T3.3s, schema v18): the farmhouse and the notice board
+ * are anchored to a hidden-grid tile in the frozen iso frame (see
+ * systems/iso.ts - tile centers at (540 + (col-row)*128, 768 + (col+row)*64)),
+ * stored per save in `state.structures`. The three constant tables below are
+ * pure data - the derivations they must stay consistent with are pinned by
+ * tests in systems/gameState.test.ts:
+ *
+ * - STRUCTURE_DEFAULT_ANCHORS: the anchor tiles a migrated (or fresh) save
+ *   starts with. Chosen as the (0,0)-offset member of each structure's
+ *   historical blocked-tile set, so the default footprint and render position
+ *   reproduce the pre-v18 hardcoded values EXACTLY.
+ * - STRUCTURE_FOOTPRINT_OFFSETS: each structure's blocked tiles RELATIVE to
+ *   its anchor. At the default anchors these reproduce the historical
+ *   FARMHOUSE_BLOCKED_TILES / NOTICE_BOARD_BLOCKED_TILES sets (v16/v17
+ *   gameState.ts) tile for tile.
+ * - STRUCTURE_RENDER_OFFSETS: pixel delta from the anchor tile's CENTER to
+ *   the structure sprite's position. At the default anchors:
+ *   farmhouse: gridToIso(-1,-3) = (796, 512), +(84, 8) = FARMHOUSE_POSITION;
+ *   noticeBoard: gridToIso(5,3) = (796, 1280), +(104, 30) = NOTICE_BOARD_POSITION.
+ */
+export type StructureId = 'farmhouse' | 'noticeBoard';
+
+export const STRUCTURE_DEFAULT_ANCHORS: Record<StructureId, { col: number; row: number }> = {
+  farmhouse: { col: -1, row: -3 },
+  noticeBoard: { col: 5, row: 3 },
+};
+
+export const STRUCTURE_FOOTPRINT_OFFSETS: Record<
+  StructureId,
+  readonly { col: number; row: number }[]
+> = {
+  farmhouse: [
+    { col: -1, row: -1 },
+    { col: 0, row: -1 },
+    { col: -1, row: 0 },
+    { col: 0, row: 0 },
+    { col: 1, row: 0 },
+    { col: 0, row: 1 },
+    { col: 1, row: 1 },
+  ],
+  noticeBoard: [
+    { col: 0, row: -1 },
+    { col: 0, row: 0 },
+    { col: 1, row: 0 },
+    { col: 1, row: 1 },
+  ],
+};
+
+export const STRUCTURE_RENDER_OFFSETS: Record<StructureId, { x: number; y: number }> = {
+  farmhouse: { x: 84, y: 8 },
+  noticeBoard: { x: 104, y: 30 },
+};
 
 /**
  * Off-screen-right point the fulfilled order goods fly to - "handed to the
