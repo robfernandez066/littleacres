@@ -71,7 +71,8 @@
  *   too small at 128.
  * - <frame>_shadow companions (T3.3s-r2d): NOT staged - generated directly
  *   by this script (see generateCastShadow) for every SHADOWED_FRAME_NAMES
- *   entry (all decor + trophies, farmhouse, notice_board, sign): a soft
+ *   entry (all decor except decor_fence, T3.art-3, + trophies, farmhouse,
+ *   notice_board, sign): a soft
  *   directional cast shadow derived from the packed frame's own alpha mask
  *   (sun fixed at TOP-RIGHT, shadow falls LOWER-LEFT), squashed, sheared,
  *   blurred, and alpha-baked pure black, then trimmed and packed with
@@ -627,11 +628,12 @@ const SHADOW_BLUR_PAD = SHADOW_BLUR_PX * 2;
 
 /** Every frame that gets a generated `<frame>_shadow` companion (T3.3s-r2d):
  *  all decor + trophy frames, the two structures, and the expand sign. Crops
- *  and tiles stay shadowless, as always. */
+ *  and tiles stay shadowless, as always. decor_fence is deliberately absent
+ *  (T3.art-3: fences cast no shadow, owner ruling) - FarmScene.createGroundShadow
+ *  tolerates the missing companion frame. */
 const SHADOWED_FRAME_NAMES = [
   'decor_bench',
   'decor_flowerbed',
-  'decor_fence',
   'decor_barrels',
   'decor_scarecrow',
   'decor_birdbath',

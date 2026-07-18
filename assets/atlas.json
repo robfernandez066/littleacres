@@ -1464,36 +1464,16 @@
       "frame": {
         "x": 732,
         "y": 2506,
-        "w": 104,
-        "h": 46
+        "w": 102,
+        "h": 48
       },
       "rotated": false,
       "trimmed": true,
       "spriteSourceSize": {
-        "x": 35,
-        "y": 6,
-        "w": 104,
-        "h": 46
-      },
-      "sourceSize": {
-        "w": 166,
-        "h": 59
-      }
-    },
-    "decor_fence_shadow": {
-      "frame": {
-        "x": 838,
-        "y": 2506,
-        "w": 140,
-        "h": 45
-      },
-      "rotated": false,
-      "trimmed": true,
-      "spriteSourceSize": {
-        "x": 13,
-        "y": 7,
-        "w": 140,
-        "h": 45
+        "x": 30,
+        "y": 5,
+        "w": 102,
+        "h": 48
       },
       "sourceSize": {
         "w": 166,
@@ -1502,8 +1482,8 @@
     },
     "decor_flowerbed_shadow": {
       "frame": {
-        "x": 2,
-        "y": 2646,
+        "x": 836,
+        "y": 2506,
         "w": 129,
         "h": 38
       },
@@ -1522,7 +1502,7 @@
     },
     "decor_gnome_shadow": {
       "frame": {
-        "x": 133,
+        "x": 2,
         "y": 2646,
         "w": 86,
         "h": 48
@@ -1542,7 +1522,7 @@
     },
     "decor_lantern_shadow": {
       "frame": {
-        "x": 221,
+        "x": 90,
         "y": 2646,
         "w": 65,
         "h": 47
@@ -1562,7 +1542,7 @@
     },
     "decor_mushrooms_shadow": {
       "frame": {
-        "x": 288,
+        "x": 157,
         "y": 2646,
         "w": 123,
         "h": 49
@@ -1582,7 +1562,7 @@
     },
     "decor_scarecrow_shadow": {
       "frame": {
-        "x": 413,
+        "x": 282,
         "y": 2646,
         "w": 73,
         "h": 48
@@ -1602,7 +1582,7 @@
     },
     "decor_well_shadow": {
       "frame": {
-        "x": 488,
+        "x": 357,
         "y": 2646,
         "w": 95,
         "h": 47
@@ -1622,7 +1602,7 @@
     },
     "farmhouse_shadow": {
       "frame": {
-        "x": 585,
+        "x": 454,
         "y": 2646,
         "w": 238,
         "h": 80
@@ -1642,7 +1622,7 @@
     },
     "notice_board_shadow": {
       "frame": {
-        "x": 825,
+        "x": 694,
         "y": 2646,
         "w": 169,
         "h": 81
@@ -1662,8 +1642,8 @@
     },
     "sign_shadow": {
       "frame": {
-        "x": 2,
-        "y": 2729,
+        "x": 865,
+        "y": 2646,
         "w": 167,
         "h": 64
       },
@@ -1682,7 +1662,7 @@
     },
     "trophy_ancientoak_shadow": {
       "frame": {
-        "x": 171,
+        "x": 2,
         "y": 2729,
         "w": 227,
         "h": 79
@@ -1702,7 +1682,7 @@
     },
     "trophy_goldscarecrow_shadow": {
       "frame": {
-        "x": 400,
+        "x": 231,
         "y": 2729,
         "w": 106,
         "h": 47
@@ -1722,7 +1702,7 @@
     },
     "trophy_moonwell_shadow": {
       "frame": {
-        "x": 508,
+        "x": 339,
         "y": 2729,
         "w": 130,
         "h": 42
@@ -1742,7 +1722,7 @@
     },
     "trophy_starbanner_shadow": {
       "frame": {
-        "x": 640,
+        "x": 471,
         "y": 2729,
         "w": 90,
         "h": 64
@@ -1762,7 +1742,7 @@
     },
     "trophy_traderscart_shadow": {
       "frame": {
-        "x": 732,
+        "x": 563,
         "y": 2729,
         "w": 117,
         "h": 48

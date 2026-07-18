@@ -8,12 +8,15 @@ import {
   EXPANDED_PLOT_COUNT,
   EXPANSION_COST,
   FARM_COLS,
+  findRegion,
   PLOT_GRID_COORD_MAX,
   PLOT_GRID_COORD_MIN,
   PLOT_PLACEABLE_MAX_X,
   PLOT_PLACEABLE_MAX_Y,
   PLOT_PLACEABLE_MIN_X,
   PLOT_PLACEABLE_MIN_Y,
+  plotEntitlementCap,
+  REGIONS,
 } from '../data/farm';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
@@ -437,7 +440,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(17);
+    expect(MIGRATIONS).toHaveLength(18);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -448,7 +451,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -471,7 +474,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -481,8 +484,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(18);
-    expect(store.getState().version).toBe(18);
+    expect(store.currentVersion).toBe(19);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -518,7 +521,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -562,7 +565,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -602,7 +605,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -690,7 +693,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -730,7 +733,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -764,7 +767,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -805,7 +808,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -820,7 +823,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -1284,19 +1287,25 @@ describe('setDecorationTransform', () => {
 
   it('clamps x/y/scale to their legal ranges, flip unclamped', () => {
     const store = storeWithOneDecoration();
-    expect(store.setDecorationTransform(0, -500, -500, 0, false)).toBe(true);
+    // T3.3b RE-PIN: the base decor clamp widened to the full base plot rect -
+    // x [DECOR_X_MIN 20, DECOR_X_MAX 1240], y [DECOR_Y_MIN -300, DECOR_Y_MAX
+    // 2010] (west mere reserve + south seed-bar dead band), superseding the old
+    // hand-tuned 0..1080 / 380..1520. Scale range (0.35..bench max 0.85)
+    // unchanged. Both clamp corners land on open ground (no permanent object),
+    // so the commit succeeds.
+    expect(store.setDecorationTransform(0, -5000, -5000, 0, false)).toBe(true);
     expect(store.getState().decorations[0]).toEqual({
       frame: 'decor_bench',
-      x: 0,
-      y: 380,
+      x: 20,
+      y: -300,
       scale: 0.35,
       flip: false,
     });
     expect(store.setDecorationTransform(0, 5000, 5000, 5, true)).toBe(true);
     expect(store.getState().decorations[0]).toEqual({
       frame: 'decor_bench',
-      x: 1080,
-      y: 1520,
+      x: 1240,
+      y: 2010,
       scale: 0.85,
       flip: true,
     });
@@ -1922,17 +1931,255 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
   });
 });
 
+describe('placeablePlotTiles region union + bounds (T3.3b)', () => {
+  /** A tile whose diamond fits the East Meadow band but NOT the base rect:
+   *  col-row = 7 -> center x = 540 + 7*128 = 1436, diamond x 1308..1564
+   *  (inside the band's [1240, 1752], past the base's 1240 east edge);
+   *  col+row = 1 -> center y = 768 + 64 = 832, well inside y [-300, 2010]. */
+  const BAND_TILE = { col: 4, row: -3 };
+
+  it('with no region unlocked returns exactly the base set (136 tiles)', () => {
+    expect(placeablePlotTiles([])).toEqual(placeablePlotTiles());
+    expect(placeablePlotTiles([])).toHaveLength(136);
+    expect(placeablePlotTiles([])).not.toContainEqual(BAND_TILE);
+  });
+
+  it('unlocking east_meadow adds the band AND the seam column (136 -> 204), base tiles preserved', () => {
+    // DERIVATION (T3.3b-r1 seam fix): the domain now enumerates over the
+    // MERGED rect x [20, 1752] y [-300, 2010] (base and band share the full
+    // y-range and touch at x=1240), not the two rects separately. That is the
+    // 136 base tiles + the band's own 34 + the 34 tiles whose diamonds straddle
+    // x=1240 and so fitted inside NEITHER rect before = 204.
+    const base = placeablePlotTiles();
+    const withRegion = placeablePlotTiles(['east_meadow']);
+    expect(withRegion).toHaveLength(204);
+    for (const tile of base) expect(withRegion).toContainEqual(tile);
+    expect(withRegion).toContainEqual(BAND_TILE);
+  });
+
+  it('THE SEAM FIX (T3.3b-r1): a straddling tile is not placeable base-only but is once east_meadow unlocks', () => {
+    // DERIVATION: seam tiles are exactly col-row in {5, 6}. (5,0): col-row = 5
+    // -> center x = 540 + 5*128 = 1180, diamond x 1052..1308 - it crosses the
+    // shared edge x=1240, so it fits neither the base rect (east edge 1240)
+    // nor the band (west edge 1240), and the pre-fix per-rect union dropped it.
+    const SEAM_TILE = { col: 5, row: 0 };
+    expect(placeablePlotTiles([])).not.toContainEqual(SEAM_TILE);
+    expect(placeablePlotTiles(['east_meadow'])).toContainEqual(SEAM_TILE);
+    // Continuity: the seam tile's west and east grid neighbors are in the
+    // domain too, so base -> seam -> band is an unbroken run of tiles.
+    expect(placeablePlotTiles(['east_meadow'])).toContainEqual({ col: 4, row: 0 }); // base side
+    expect(placeablePlotTiles(['east_meadow'])).toContainEqual({ col: 6, row: 0 }); // seam (col-row 6)
+    expect(placeablePlotTiles(['east_meadow'])).toContainEqual({ col: 7, row: 0 }); // band side
+  });
+
+  it('ignores unknown region ids (base set only)', () => {
+    expect(placeablePlotTiles(['not_a_region'])).toHaveLength(136);
+  });
+
+  it('the static validator bounds enclose the region-union set with >=1 tile margin (T3.3b re-pin)', () => {
+    // Base col [-9, 11] / row [-9, 10] UNION the East Meadow band pushes the
+    // union to col [-9, 13] and row [-11, 10]; [-12, 14] gives row -11 and
+    // col 13 exactly 1 tile of margin, the rest more.
+    const union = placeablePlotTiles(REGIONS.map((region) => region.id));
+    const cols = union.map((tile) => tile.col);
+    const rows = union.map((tile) => tile.row);
+    expect(Math.min(...cols)).toBe(-9);
+    expect(Math.max(...cols)).toBe(13);
+    expect(Math.min(...rows)).toBe(-11);
+    expect(Math.max(...rows)).toBe(10);
+    expect(PLOT_GRID_COORD_MIN).toBeLessThanOrEqual(-11 - 1);
+    expect(PLOT_GRID_COORD_MAX).toBeGreaterThanOrEqual(13 + 1);
+  });
+
+  it('every union tile diamond fits the MERGED base+band rect (T3.3b-r1 re-pin)', () => {
+    // RE-PIN: was "fits its OWN rect (base or band)". That is exactly the
+    // pre-fix rule that dropped the seam column, so it can no longer hold -
+    // the merged rect (base west/north/south edges, band east edge) is the
+    // domain's real boundary now. Region placeableRects are unchanged; only
+    // the tile-domain computation merges.
+    const east = findRegion('east_meadow')!;
+    for (const { col, row } of placeablePlotTiles(['east_meadow'])) {
+      const { x, y } = gridToIso(col, row);
+      expect(x - TILE_WIDTH / 2).toBeGreaterThanOrEqual(PLOT_PLACEABLE_MIN_X);
+      expect(x + TILE_WIDTH / 2).toBeLessThanOrEqual(east.placeableRect.maxX);
+      expect(y - TILE_HEIGHT / 2).toBeGreaterThanOrEqual(PLOT_PLACEABLE_MIN_Y);
+      expect(y + TILE_HEIGHT / 2).toBeLessThanOrEqual(PLOT_PLACEABLE_MAX_Y);
+    }
+    // And the merge is lossless in the other direction: the band's own rect is
+    // still edge-adjacent to the base rect on the full shared y-range, which is
+    // what makes the combined bounding rect cover exactly their union.
+    expect(east.placeableRect.minX).toBe(PLOT_PLACEABLE_MAX_X);
+    expect(east.placeableRect.minY).toBe(PLOT_PLACEABLE_MIN_Y);
+    expect(east.placeableRect.maxY).toBe(PLOT_PLACEABLE_MAX_Y);
+  });
+
+  it('a structure commits onto band tiles across the former seam only once east_meadow is unlocked (T3.3b-r1)', () => {
+    // DERIVATION: farmhouse anchor (5,0) -> 2x2 footprint (6,0),(7,0),(6,1),(7,1).
+    // By col-row: (6,1)=5 and (6,0)/(7,1)=6 are SEAM tiles, (7,0)=7 is squarely
+    // in the band. None of the four is in the base set, so the anchor is
+    // illegal with no region and legal with East Meadow - and it straddles the
+    // seam, which the pre-fix per-rect domain made impossible.
+    const base: Pick<GameStateData, 'plots' | 'structures' | 'expanded' | 'regionsUnlocked'> = {
+      plots: [],
+      structures: defaultStructures(),
+      expanded: true,
+      regionsUnlocked: [],
+    };
+    expect(isStructureAnchorFree(base, 'farmhouse', 5, 0)).toBe(false);
+    expect(
+      isStructureAnchorFree({ ...base, regionsUnlocked: ['east_meadow'] }, 'farmhouse', 5, 0),
+    ).toBe(true);
+  });
+});
+
+describe('plotEntitlementCap (T3.3b)', () => {
+  it('is EXPANDED_PLOT_COUNT (16) with no region, 22 with East Meadow', () => {
+    expect(plotEntitlementCap([])).toBe(EXPANDED_PLOT_COUNT);
+    expect(plotEntitlementCap([])).toBe(16);
+    // 16 + East Meadow's entitlementIncrease (6) = 22.
+    expect(plotEntitlementCap(['east_meadow'])).toBe(22);
+  });
+
+  it('ignores unknown region ids', () => {
+    expect(plotEntitlementCap(['not_a_region'])).toBe(16);
+  });
+});
+
+describe('regionsUnlocked + twoFingerHintShown validation (T3.3b)', () => {
+  it('accepts empty and known ids; rejects unknown, duplicate, and non-array region lists', () => {
+    const base = createDefaultState(19);
+    expect(isValidState(base, 19)).toBe(true);
+    expect(isValidState({ ...base, regionsUnlocked: ['east_meadow'] }, 19)).toBe(true);
+    expect(isValidState({ ...base, regionsUnlocked: ['not_a_region'] }, 19)).toBe(false);
+    expect(isValidState({ ...base, regionsUnlocked: ['east_meadow', 'east_meadow'] }, 19)).toBe(
+      false,
+    );
+    expect(isValidState({ ...base, regionsUnlocked: 'east_meadow' }, 19)).toBe(false);
+    expect(isValidState({ ...base, regionsUnlocked: undefined }, 19)).toBe(false);
+  });
+
+  it('requires a boolean twoFingerHintShown', () => {
+    const base = createDefaultState(19);
+    expect(isValidState({ ...base, twoFingerHintShown: undefined }, 19)).toBe(false);
+    expect(isValidState({ ...base, twoFingerHintShown: 'yes' }, 19)).toBe(false);
+  });
+
+  it('accepts up to the region-raised cap (22 with East Meadow), rejects above it (T3.3b re-pin)', () => {
+    // 16 placed + 6 shed = 22 = cap with East Meadow unlocked: valid.
+    const base = createDefaultState(19);
+    const state = {
+      ...base,
+      regionsUnlocked: ['east_meadow'],
+      expanded: true,
+      unplacedPlots: 6,
+      plots: [
+        ...base.plots,
+        ...Array.from({ length: 4 }, (_, i): PlotState => ({ state: 'empty', ...tileOf(12 + i) })),
+      ],
+    };
+    expect(isValidState(state, 19)).toBe(true);
+    // 23 total: over the 22 cap.
+    expect(isValidState({ ...state, unplacedPlots: 7 }, 19)).toBe(false);
+    // The identical 22-total layout WITHOUT the region: over the base 16 cap.
+    expect(isValidState({ ...state, regionsUnlocked: [] }, 19)).toBe(false);
+  });
+});
+
+describe('purchaseRegion (T3.3b)', () => {
+  /** A store that can afford and is level-gated for East Meadow (level 7, 7550 coins). */
+  function readyStore(): GameStateStore {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.setLevel(7);
+    store.addCoins(7500); // 50 default + 7500 = 7550
+    return store;
+  }
+
+  it('refuses an unknown region id', () => {
+    expect(readyStore().purchaseRegion('not_a_region')).toBe(false);
+  });
+
+  it('refuses below the level gate, without mutating', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.setLevel(6);
+    store.addCoins(10_000);
+    const coins = store.getState().coins;
+    expect(store.purchaseRegion('east_meadow')).toBe(false);
+    expect(store.getState().coins).toBe(coins);
+    expect(store.getState().regionsUnlocked).toEqual([]);
+    expect(store.getState().unplacedPlots).toBe(0);
+  });
+
+  it('refuses with insufficient coins, without mutating', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.setLevel(7); // default 50 coins < 7500
+    expect(store.purchaseRegion('east_meadow')).toBe(false);
+    expect(store.getState().regionsUnlocked).toEqual([]);
+    expect(store.getState().unplacedPlots).toBe(0);
+  });
+
+  it('purchases: deducts exactly 7500, unlocks, grants 6 plots, raises the cap to 22', () => {
+    const store = readyStore();
+    const before = store.getState().coins;
+    expect(store.purchaseRegion('east_meadow')).toBe(true);
+    expect(store.getState().coins).toBe(before - 7500);
+    expect(store.getState().regionsUnlocked).toEqual(['east_meadow']);
+    expect(store.getState().unplacedPlots).toBe(6);
+    expect(store.consumePlotGrantEvents()).toEqual([{ count: 6 }]);
+    // Cap is 22 now: 12 placed + 6 shed = 18, so 4 more grant, a 5th does not.
+    expect(store.grantPlots(4)).toBe(true);
+    expect(store.grantPlots(1)).toBe(false);
+  });
+
+  it('refuses a second purchase of the same region', () => {
+    const store = readyStore();
+    store.addCoins(7500);
+    expect(store.purchaseRegion('east_meadow')).toBe(true);
+    expect(store.purchaseRegion('east_meadow')).toBe(false);
+  });
+
+  it('opens the band to plot placement on purchase (domain union via the single authority)', () => {
+    const store = readyStore();
+    // (4,-3) is a band tile: not placeable before, placeable after.
+    expect(isPlotTileFree(store.getState(), 4, -3)).toBe(false);
+    expect(store.purchaseRegion('east_meadow')).toBe(true);
+    expect(isPlotTileFree(store.getState(), 4, -3)).toBe(true);
+    expect(store.placePlot(4, -3)).toBe(BASE_PLOT_COUNT);
+  });
+
+  it('devUnlockRegion unlocks and grants without the level or coin gates', () => {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store); // level 1, 50 coins - a real purchase would refuse
+    expect(store.devUnlockRegion('east_meadow')).toBe(true);
+    expect(store.getState().regionsUnlocked).toEqual(['east_meadow']);
+    expect(store.getState().unplacedPlots).toBe(6);
+    expect(store.getState().coins).toBe(50);
+    expect(store.devUnlockRegion('east_meadow')).toBe(false); // already unlocked
+    expect(store.devUnlockRegion('not_a_region')).toBe(false);
+  });
+
+  it('markTwoFingerHintShown flips the flag once and persists it', () => {
+    const store = new GameStateStore({ storage: null });
+    expect(store.getState().twoFingerHintShown).toBe(false);
+    store.markTwoFingerHintShown();
+    expect(store.getState().twoFingerHintShown).toBe(true);
+  });
+});
+
 describe('isPlotTileFree (T3.3a-r collision rules)', () => {
   /** A minimal state slice: `plots` on the given tiles, optional decor, unexpanded by default. */
   function slice(
     plots: { col: number; row: number }[],
     options: { decorations?: GameStateData['decorations']; expanded?: boolean } = {},
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations: options.decorations ?? [],
       expanded: options.expanded ?? false,
       structures: defaultStructures(),
+      regionsUnlocked: [],
     };
   }
 
@@ -1949,17 +2196,24 @@ describe('isPlotTileFree (T3.3a-r collision rules)', () => {
     // 521): tiles (0,-3),(1,-3),(0,-2),(1,-2).
     expect(isPlotTileFree(state, 0, -3)).toBe(false);
     expect(isPlotTileFree(state, 1, -2)).toBe(false);
-    // Notice board single-tile footprint (position 912, 1269): tile (6,3)
-    // only (offset (1,0) at anchor (5,3)).
+    // RE-PIN (T3.3b-r1): the notice board footprint grew from the single tile
+    // (1,0) to the 5-tile diamond (1,0),(1,-1),(1,1),(2,0),(0,0) - the single
+    // tile was smaller than the board art, so plots on the covered tiles tucked
+    // under/over it. At the default anchor (5,3) those offsets are (6,3),(6,2),
+    // (6,4),(7,3),(5,3).
     expect(isPlotTileFree(state, 6, 3)).toBe(false);
-    // Neighbors just outside the footprints stay free - including BOTH anchor
-    // tiles, which are NOT part of their footprints (2026-07-17 owner ruling:
-    // the anchor is a pure reference point). Farmhouse anchor (-1,-3); notice
-    // board anchor (5,3) and its former footprint tile (5,2).
+    expect(isPlotTileFree(state, 6, 2)).toBe(false);
+    expect(isPlotTileFree(state, 6, 4)).toBe(false);
+    expect(isPlotTileFree(state, 7, 3)).toBe(false);
+    // The board's ANCHOR tile is in its footprint now - a deliberate reversal
+    // of the anchor-as-pure-reference convention, for the board only (the art
+    // stands on it). The FARMHOUSE anchor keeps the convention and stays free.
+    expect(isPlotTileFree(state, 5, 3)).toBe(false);
     expect(isPlotTileFree(state, -1, -3)).toBe(true);
-    expect(isPlotTileFree(state, 5, 3)).toBe(true);
+    // Neighbors just outside the 5-tile diamond stay free.
     expect(isPlotTileFree(state, 5, 2)).toBe(true);
     expect(isPlotTileFree(state, 4, 2)).toBe(true);
+    expect(isPlotTileFree(state, 7, 4)).toBe(true);
   });
 
   it('rejects the expand sign tiles only while the sign still stands (unexpanded)', () => {
@@ -2001,12 +2255,13 @@ describe('nextChainPlotTile (T3.3a-r chain adjacency preference)', () => {
   function slice(
     plots: { col: number; row: number }[],
     expanded = true,
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations: [],
       expanded,
       structures: defaultStructures(),
+      regionsUnlocked: [],
     };
   }
 
@@ -2160,12 +2415,13 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   function slice(
     plots: { col: number; row: number }[],
     decorations: GameStateData['decorations'] = [],
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'> {
     return {
       plots: plots.map((tile): PlotState => ({ state: 'empty', ...tile })),
       decorations,
       expanded: true,
       structures: defaultStructures(),
+      regionsUnlocked: [],
     };
   }
 
@@ -2178,12 +2434,13 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   /** The default 12-plot farm (cols 0..3, rows 0..2) after the expansion purchase. */
   function defaultFarm(
     decorations: GameStateData['decorations'] = [],
-  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> {
+  ): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'> {
     return {
       plots: createDefaultState(16).plots,
       decorations,
       expanded: true,
       structures: defaultStructures(),
+      regionsUnlocked: [],
     };
   }
 
@@ -2259,11 +2516,15 @@ describe('bestBatchStartTile (T3.3a-r2f batch-start preference)', () => {
   it('owner scenario end-to-end: 4 grants fill the bottom row rightward, every placement touching the block', () => {
     const original = createDefaultState(16).plots;
     let plots = [...original];
-    const state = (): Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'> => ({
+    const state = (): Pick<
+      GameStateData,
+      'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+    > => ({
       plots,
       decorations: [],
       expanded: true,
       structures: defaultStructures(),
+      regionsUnlocked: [],
     });
     const history: { col: number; row: number }[] = [];
     const place = (tile: { col: number; row: number }): void => {
@@ -2358,7 +2619,7 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.placePlot(5, 0)).toBe(false); // diamond off the world's east edge
     expect(store.placePlot(0, 4)).toBe(false); // west mere reserve (x < 20)
     expect(store.placePlot(0, -2)).toBe(false); // farmhouse footprint
-    expect(store.placePlot(6, 3)).toBe(false); // notice-board footprint (single tile)
+    expect(store.placePlot(6, 3)).toBe(false); // notice-board footprint (5-tile diamond, T3.3b-r1)
     expect(store.placePlot(0.5, 3)).toBe(false);
     expect(store.getState().unplacedPlots).toBe(4);
   });
@@ -3497,7 +3758,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   });
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
-    const saved = createDefaultState(18);
+    const saved = createDefaultState(19);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4003,7 +4264,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4030,7 +4291,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4059,7 +4320,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4090,7 +4351,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4104,7 +4365,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4120,7 +4381,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4135,7 +4396,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4167,7 +4428,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4184,7 +4445,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(18);
+    expect(state.version).toBe(19);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4234,7 +4495,7 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 18,
+      version: 19,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4298,7 +4559,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 18,
+      version: 19,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4322,9 +4583,15 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     // the default anchor (-1,-3) that is tiles (0,-3),(1,-3),(0,-2),(1,-2),
     // in offset order. The notice board is ALSO DESIGN-CHOSEN by the same
     // ruling: a SINGLE-tile footprint at offset (1,0) -> tile (6,3) at anchor
-    // (5,3), superseding the old 4-tile measured set. For BOTH structures the
-    // anchor tile is deliberately OUTSIDE the footprint (a pure reference
-    // point). See STRUCTURE_FOOTPRINT_OFFSETS in config.ts.
+    // (5,3), superseding the old 4-tile measured set.
+    //
+    // DELIBERATE RE-PIN (owner hand-edit, T3.3b-r1): the board footprint is now
+    // the 5-tile diamond, offsets (1,0),(1,-1),(1,1),(2,0),(0,0) - the single
+    // tile was smaller than the board art. At the default anchor (5,3), in
+    // offset order, that is (6,3),(6,2),(6,4),(7,3),(5,3). Note offset (0,0):
+    // the board INCLUDES its anchor tile, reversing the anchor-as-pure-
+    // reference convention for the board only. The FARMHOUSE keeps it (its 2x2
+    // still excludes (0,0)). See STRUCTURE_FOOTPRINT_OFFSETS in config.ts.
     expect(structureFootprintTiles('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual([
       { col: 0, row: -3 },
       { col: 1, row: -3 },
@@ -4333,6 +4600,10 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     ]);
     expect(structureFootprintTiles('noticeBoard', STRUCTURE_DEFAULT_ANCHORS.noticeBoard)).toEqual([
       { col: 6, row: 3 },
+      { col: 6, row: 2 },
+      { col: 6, row: 4 },
+      { col: 7, row: 3 },
+      { col: 5, row: 3 },
     ]);
   });
 
@@ -4352,7 +4623,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     expect(isValidState(wrongShape, 18)).toBe(false);
   });
 
-  it('a full-chain v1 save lands at version 18 with the default anchors', () => {
+  it('a full-chain v1 save lands at version 19 with the default anchors', () => {
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -4360,11 +4631,52 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     void orderSkips;
     const raw = v1Save as unknown as Record<string, unknown>;
     delete raw.structures; // a genuine v1 save never had this field either
+    // Genuine pre-v19 saves never had these region fields either.
+    delete raw.regionsUnlocked;
+    delete raw.twoFingerHintShown;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(18);
+    expect(store.getState().version).toBe(19);
     expect(store.getState().structures).toEqual(defaultStructures());
+    expect(store.getState().regionsUnlocked).toEqual([]);
+    expect(store.getState().twoFingerHintShown).toBe(false);
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
+  it('a v18 save (no region fields) gains regionsUnlocked [] and twoFingerHintShown false, no warnings', () => {
+    const saved = createDefaultState(19) as unknown as Record<string, unknown>;
+    saved.version = 18;
+    delete saved.regionsUnlocked; // a genuine v18 save never had these fields
+    delete saved.twoFingerHintShown;
+    saved.coins = 321;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual({
+      ...saved,
+      version: 19,
+      regionsUnlocked: [],
+      twoFingerHintShown: false,
+    });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a purchased region survives a save/reload round-trip (band stays clear, cap stays 22)', () => {
+    const storage = makeStorage();
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    store.setLevel(7);
+    store.addCoins(7500);
+    expect(store.purchaseRegion('east_meadow')).toBe(true);
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().regionsUnlocked).toEqual(['east_meadow']);
+    expect(plotEntitlementCap(reloaded.getState().regionsUnlocked)).toBe(22);
+    // The band is still in the placement domain after reload.
+    expect(isPlotTileFree(reloaded.getState(), 4, -3)).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
 });
@@ -4411,24 +4723,31 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     // Expanded, so the sign footprint can never mask the structure-structure
     // rule (keeps the board collision the sole isolated refusal cause).
     markExpanded(store);
+    // RE-DERIVED for the T3.3b-r1 5-tile board footprint (offsets
+    // (1,0),(1,-1),(1,1),(2,0),(0,0)); the board blocks more ground now, so the
+    // farmhouse-vs-board overlaps widen.
     // Farmhouse anchor (5, 3): its 2x2 footprint (6,3),(7,3),(6,4),(7,4)
-    // reaches (6, 3) - the notice board's SINGLE default footprint tile. All
-    // four farmhouse tiles are in-domain, so the board is the sole refusal.
+    // meets three of the board's default tiles ((6,3),(7,3),(6,4) at anchor
+    // (5,3)). All four farmhouse tiles are in-domain, so the board is the sole
+    // refusal.
     expect(store.moveStructure('farmhouse', 5, 3)).toBe(false);
-    // Move the board away; its old footprint tile (6,3) stops blocking...
+    // Move the board to (8, 6) - footprint (9,6),(9,5),(9,7),(10,6),(8,6), all
+    // in-domain and clear of plots, the farmhouse default, and the sign. Its
+    // old tiles stop blocking...
     expect(store.moveStructure('noticeBoard', 8, 6)).toBe(true);
     expect(store.moveStructure('farmhouse', 5, 3)).toBe(true);
     // ...and its new footprint blocks instead: farmhouse (7, 6) footprint
-    // (8,6),(9,6),(8,7),(9,7) reaches (9, 6) - the board's single tile now at
-    // anchor (8, 6). All four farmhouse tiles are in-domain.
+    // (8,6),(9,6),(8,7),(9,7) meets the board's (8,6),(9,6),(9,7). All four
+    // farmhouse tiles are in-domain.
     expect(store.moveStructure('farmhouse', 7, 6)).toBe(false);
   });
 
   it('refuses anchors whose footprint leaves the placeable domain, and non-integer coordinates', () => {
     const store = makeStore();
-    // Board at (11, 10): its single footprint tile (12, 10) is past the
-    // placeable domain (col 12 is never placeable - the placeablePlotTiles
-    // bounds test pins max placeable col at 11).
+    // Board at (11, 10): its 5-tile footprint reaches (12,10),(12,9),(12,11),
+    // (13,10),(11,10), all past the base placeable domain's south-east limit
+    // (col+row >= 21; the domain's max col+row is 18, and col 12/13 exceed the
+    // max placeable col of 11 as well).
     expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false);
     // The farmhouse 2x2 footprint reaches col+2 / row+1 from the anchor
     // (2026-07-17), so anchor (10, 0) pushes footprint tile (12, 0) past the
@@ -4446,7 +4765,7 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     const store = makeStore();
     const before = store.exportSave();
     expect(store.moveStructure('farmhouse', 2, 1)).toBe(false); // plots
-    expect(store.moveStructure('farmhouse', 5, 3)).toBe(false); // other structure (board tile (6,3))
+    expect(store.moveStructure('farmhouse', 5, 3)).toBe(false); // other structure (board tiles (6,3),(7,3),(6,4))
     expect(store.moveStructure('noticeBoard', 11, 10)).toBe(false); // out of domain
     expect(store.moveStructure('farmhouse', 0.5, 5)).toBe(false); // non-integer
     expect(store.exportSave()).toBe(before);
@@ -4484,7 +4803,8 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     const state = store.getState();
     expect(isStructureAnchorFree(state, 'farmhouse', 6, 7)).toBe(true);
     expect(isStructureAnchorFree(state, 'farmhouse', 2, 1)).toBe(false);
-    // (5,3): farmhouse footprint (6,3),(7,3),(6,4),(7,4) hits the board tile (6,3).
+    // (5,3): farmhouse footprint (6,3),(7,3),(6,4),(7,4) hits the board's
+    // 5-tile default footprint at (6,3),(7,3),(6,4) (T3.3b-r1 re-derivation).
     expect(isStructureAnchorFree(state, 'farmhouse', 5, 3)).toBe(false);
     expect(isStructureAnchorFree(state, 'noticeBoard', 11, 10)).toBe(false);
     // The current anchor is always a legal preview (snap-back home).
@@ -4497,11 +4817,14 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     // its default, the domain edge), so the SIGN is the sole pre-expansion
     // refusal cause and each turns legal once the sign retires.
     //   Farmhouse anchor (4, 5): 2x2 footprint (5,5),(6,5),(5,6),(6,6); only
-    //   (5,5) is a sign tile. (With the board now a single tile at (6,3), the
-    //   farmhouse no longer collides with the board here.)
-    //   Notice board anchor (4, 4): single footprint tile (5,4), which is a
-    //   sign tile (see EXPAND_SIGN_BLOCKED_TILES in gameState.ts); clear of the
-    //   farmhouse's default footprint and the domain, so post-expansion legal.
+    //   (5,5) is a sign tile. RE-DERIVED for the T3.3b-r1 5-tile board: the
+    //   board's default footprint is (6,3),(6,2),(6,4),(7,3),(5,3), none of
+    //   which the farmhouse touches here, so the sign stays the sole cause.
+    //   Notice board anchor (4, 4): 5-tile footprint (5,4),(5,3),(5,5),(6,4),
+    //   (4,4); three of those - (5,4),(5,5),(4,4) - are sign tiles (see
+    //   EXPAND_SIGN_BLOCKED_TILES in gameState.ts). All five are in-domain and
+    //   clear of plots and the farmhouse's default footprint, so once the sign
+    //   retires the anchor is legal.
     const farmhouseStore = makeStore();
     expect(farmhouseStore.moveStructure('farmhouse', 4, 5)).toBe(false);
     expect(farmhouseStore.moveStructure('noticeBoard', 4, 4)).toBe(false);
@@ -4524,12 +4847,17 @@ describe('moveStructure (T3.3s legality matrix)', () => {
     expect(store.placePlot(-1, -3)).toBe(BASE_PLOT_COUNT);
   });
 
-  it('the notice board anchor tile itself is placeable (2026-07-17: the single-tile footprint excludes its anchor)', () => {
+  it('the notice board anchor tile is NOT placeable (T3.3b-r1: the board deliberately includes its anchor)', () => {
     const store = makeStore();
     expect(store.grantPlots(1)).toBe(true);
     store.consumePlotGrantEvents();
-    // (5,3) is the board DEFAULT anchor; its single footprint tile is (6,3),
-    // so the anchor tile itself is free ground - a plot places there.
+    // FLIPPED RE-PIN: this test previously asserted placePlot(5,3) succeeded,
+    // when the board footprint was the single tile (6,3). The 5-tile diamond
+    // includes offset (0,0), so the DEFAULT anchor (5,3) is itself a footprint
+    // tile and a plot can no longer be placed there.
+    expect(store.placePlot(5, 3)).toBe(false);
+    // The board's anchor moves with it: park it away and (5,3) frees up.
+    expect(store.moveStructure('noticeBoard', 8, 6)).toBe(true);
     expect(store.placePlot(5, 3)).toBe(BASE_PLOT_COUNT);
   });
 
@@ -4568,10 +4896,12 @@ describe('setDecorationTransform vs permanent objects (T3.3s-r1 mutual exclusion
     // a footprint tile since 2026-07-17, so it is deliberately not used here.)
     expect(store.setDecorationTransform(0, 796, 640, 0.55, false)).toBe(false);
     expect(store.setDecorationTransform(0, 860, 608, 0.55, false)).toBe(false);
-    // Notice board single footprint tile (6, 3): center (924, 1344). (Its
-    // anchor tile (5,3), center (796,1280), is NOT a footprint tile since
-    // 2026-07-17, so it is deliberately not used here.)
+    // Notice board footprint tile (6, 3): center (924, 1344). RE-PIN
+    // (T3.3b-r1): the board's ANCHOR tile (5,3), center (796, 1280), is a
+    // footprint tile now (offset (0,0) is in the 5-tile set), so it is refused
+    // too - the previous version of this test deliberately avoided it.
     expect(store.setDecorationTransform(0, 924, 1344, 0.55, false)).toBe(false);
+    expect(store.setDecorationTransform(0, 796, 1280, 0.55, false)).toBe(false);
     // Expand sign tile (4, 4): center (540, 1280), pre-expansion.
     expect(store.setDecorationTransform(0, 540, 1280, 0.55, false)).toBe(false);
     expect(store.getState().decorations[0]).toEqual({

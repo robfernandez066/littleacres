@@ -18,10 +18,7 @@ import {
   DECOR_FRAMES,
   DECOR_SCALE_MIN,
   DECOR_SIZING,
-  DECOR_X_MAX,
-  DECOR_X_MIN,
-  DECOR_Y_MAX,
-  DECOR_Y_MIN,
+  decorClampBounds,
   DECOR_ITEMS,
   decorMaxScale,
   decorOwnedCount,
@@ -39,12 +36,17 @@ import {
   EXPANDED_PLOT_COUNT,
   EXPANSION_COST,
   FARM_COLS,
+  findRegion,
   PLOT_GRID_COORD_MAX,
   PLOT_GRID_COORD_MIN,
   PLOT_PLACEABLE_MAX_X,
   PLOT_PLACEABLE_MAX_Y,
   PLOT_PLACEABLE_MIN_X,
   PLOT_PLACEABLE_MIN_Y,
+  plotEntitlementCap,
+  type RegionRect,
+  REGION_IDS,
+  REGIONS,
 } from '../data/farm';
 import { levelForXp } from '../data/levels';
 import {
@@ -402,6 +404,19 @@ export interface GameStateData {
   warehouse: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
   structures: StructuresState;
+  /**
+   * Purchased regions (T3.3b, schema v19): ids from `REGIONS` (data/farm.ts),
+   * no duplicates. Each entry adds its band to the placeable domain and raises
+   * the plot entitlement cap by its `entitlementIncrease`. Empty on a fresh or
+   * migrated save.
+   */
+  regionsUnlocked: string[];
+  /**
+   * Whether the one-time two-finger-pan hint (T3.3b) has been shown - shown
+   * once after the first region purchase's grant popup closes, then never
+   * again. Defaults false (fresh and migrated saves).
+   */
+  twoFingerHintShown: boolean;
   /** Quest system state (T3.10). */
   quests: QuestsState;
   onboarding: OnboardingState;
@@ -755,6 +770,18 @@ function createDefaultStructures(): StructuresState {
  */
 const v17ToV18: Migration = (raw) => ({ ...raw, structures: createDefaultStructures() });
 
+/**
+ * v18 -> v19: purchasable regions (T3.3b). Every save gains an empty
+ * `regionsUnlocked` (no region owned yet) and `twoFingerHintShown: false`
+ * (everyone still gets the one-time pan hint after their first region
+ * purchase, same as a fresh save).
+ */
+const v18ToV19: Migration = (raw) => ({
+  ...raw,
+  regionsUnlocked: [],
+  twoFingerHintShown: false,
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -774,6 +801,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v15ToV16,
   v16ToV17,
   v17ToV18,
+  v18ToV19,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -798,6 +826,8 @@ export function createDefaultState(version: number): GameStateData {
     decorations: [],
     warehouse: {},
     structures: createDefaultStructures(),
+    regionsUnlocked: [],
+    twoFingerHintShown: false,
     quests: createDefaultQuestsState(now),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
@@ -825,21 +855,21 @@ function plotTileKey(col: number, row: number): string {
 }
 
 /**
- * Enumerate every hidden-grid tile whose diamond fits inside the placeable
- * rect (data/farm.ts), in the frozen iso frame. The scan range is the static
- * validator bounds, which enclose the placeable set with margin (pinned by a
- * test), so nothing is ever clipped at the scan edge.
+ * Enumerate every hidden-grid tile whose diamond fits inside `rect`, in the
+ * frozen iso frame. The scan range is the static validator bounds, which
+ * enclose the whole (base UNION regions) placeable set with margin (pinned by
+ * a test), so nothing is ever clipped at the scan edge.
  */
-function computePlaceablePlotTiles(): PlotTileCoord[] {
+function computePlaceableTilesInRect(rect: RegionRect): PlotTileCoord[] {
   const tiles: PlotTileCoord[] = [];
   for (let row = PLOT_GRID_COORD_MIN; row <= PLOT_GRID_COORD_MAX; row++) {
     for (let col = PLOT_GRID_COORD_MIN; col <= PLOT_GRID_COORD_MAX; col++) {
       const { x, y } = gridToIso(col, row);
       if (
-        x - TILE_WIDTH / 2 >= PLOT_PLACEABLE_MIN_X &&
-        x + TILE_WIDTH / 2 <= PLOT_PLACEABLE_MAX_X &&
-        y - TILE_HEIGHT / 2 >= PLOT_PLACEABLE_MIN_Y &&
-        y + TILE_HEIGHT / 2 <= PLOT_PLACEABLE_MAX_Y
+        x - TILE_WIDTH / 2 >= rect.minX &&
+        x + TILE_WIDTH / 2 <= rect.maxX &&
+        y - TILE_HEIGHT / 2 >= rect.minY &&
+        y + TILE_HEIGHT / 2 <= rect.maxY
       ) {
         tiles.push({ col, row });
       }
@@ -848,23 +878,131 @@ function computePlaceablePlotTiles(): PlotTileCoord[] {
   return tiles;
 }
 
-/** Static geometry - computed once at module load. */
-const PLACEABLE_PLOT_TILES: readonly PlotTileCoord[] = computePlaceablePlotTiles();
-const PLACEABLE_PLOT_TILE_KEYS: ReadonlySet<string> = new Set(
-  PLACEABLE_PLOT_TILES.map((tile) => plotTileKey(tile.col, tile.row)),
-);
+/**
+ * Whether `a` and `b` are edge-adjacent along a shared full edge (T3.3b-r1):
+ * identical y-range and touching east/west, or identical x-range and touching
+ * north/south. Only such a pair has a combined bounding rectangle that covers
+ * exactly their union and nothing more - so merging them is lossless.
+ */
+function areRectsEdgeAdjacent(a: RegionRect, b: RegionRect): boolean {
+  const sameY = a.minY === b.minY && a.maxY === b.maxY;
+  const sameX = a.minX === b.minX && a.maxX === b.maxX;
+  return (
+    (sameY && (a.maxX === b.minX || b.maxX === a.minX)) ||
+    (sameX && (a.maxY === b.minY || b.maxY === a.minY))
+  );
+}
 
 /**
- * THE placement authority (T3.3a-r, replacing the owned-land zoning of
- * `ownedPlotTiles`): every hidden-grid tile a plot may occupy - a scene-wide
- * set, deliberately independent of `expanded` (the expansion is only a 4-plot
- * grant now, never geometry). Coordinates include negative col/row: tile
- * (0, 0) is the legacy grid's top corner, not the scene's. Whether a given
- * tile is currently FREE (unoccupied, clear of structures and decor) is
- * `isPlotTileFree`'s business.
+ * Collapse edge-adjacent rects into their combined bounding rectangles
+ * (T3.3b-r1). THE fix for the seam gap: `computePlaceableTilesInRect` admits a
+ * tile only when its whole diamond fits inside ONE rect, so tiles straddling
+ * the boundary between two touching rects (the base rect's east edge x=1240
+ * and the East Meadow band's west edge, same y-range) fit neither and were
+ * dropped - a dead column with no grid between the base area and the band.
+ * Merging first makes the seam interior, so those tiles enumerate normally.
+ * Repeats to a fixed point, so a future chain of bands (R2/R3 east of R1)
+ * collapses all the way in one pass of the caller.
  */
-export function placeablePlotTiles(): readonly PlotTileCoord[] {
-  return PLACEABLE_PLOT_TILES;
+function mergeEdgeAdjacentRects(rects: readonly RegionRect[]): RegionRect[] {
+  const merged: RegionRect[] = rects.map((rect) => ({ ...rect }));
+  for (let i = 0; i < merged.length; i++) {
+    for (let j = i + 1; j < merged.length; j++) {
+      if (!areRectsEdgeAdjacent(merged[i]!, merged[j]!)) continue;
+      merged[i] = {
+        minX: Math.min(merged[i]!.minX, merged[j]!.minX),
+        maxX: Math.max(merged[i]!.maxX, merged[j]!.maxX),
+        minY: Math.min(merged[i]!.minY, merged[j]!.minY),
+        maxY: Math.max(merged[i]!.maxY, merged[j]!.maxY),
+      };
+      merged.splice(j, 1);
+      // Restart the inner sweep: the grown rect may now touch a rect it did
+      // not before (and one already passed over).
+      j = i;
+    }
+  }
+  return merged;
+}
+
+/** One resolved placeable domain: the tile list plus its "col,row" key set. */
+interface PlaceableDomain {
+  tiles: readonly PlotTileCoord[];
+  keys: ReadonlySet<string>;
+}
+
+/** Static geometry - computed once at module load. */
+const BASE_PLACEABLE_RECT: RegionRect = {
+  minX: PLOT_PLACEABLE_MIN_X,
+  maxX: PLOT_PLACEABLE_MAX_X,
+  minY: PLOT_PLACEABLE_MIN_Y,
+  maxY: PLOT_PLACEABLE_MAX_Y,
+};
+const BASE_PLACEABLE_TILES: readonly PlotTileCoord[] =
+  computePlaceableTilesInRect(BASE_PLACEABLE_RECT);
+const BASE_PLACEABLE_DOMAIN: PlaceableDomain = {
+  tiles: BASE_PLACEABLE_TILES,
+  keys: new Set(BASE_PLACEABLE_TILES.map((tile) => plotTileKey(tile.col, tile.row))),
+};
+
+/**
+ * Memoized runtime placeable domains keyed by the canonical unlocked-region
+ * list (T3.3b) - a fresh union per distinct unlocked set, built at most once.
+ */
+const RUNTIME_PLACEABLE_CACHE = new Map<string, PlaceableDomain>();
+
+/**
+ * THE runtime placeable domain (T3.3b): the base set UNION the bands of every
+ * unlocked, KNOWN region, derived from `state.regionsUnlocked`. With no region
+ * unlocked this is exactly the base domain. Coordinates include negative
+ * col/row: tile (0, 0) is the legacy grid's top corner, not the scene's.
+ *
+ * T3.3b-r1: tiles are enumerated over the MERGED active area, not per raw
+ * rect - see `mergeEdgeAdjacentRects` for why (the seam gap). Region
+ * `placeableRect`s themselves are untouched; the dim overlay and
+ * `decorClampBounds` still read the raw rects.
+ */
+function runtimePlaceableDomain(regionsUnlocked: readonly string[]): PlaceableDomain {
+  // Canonical key: REGIONS order filtered to unlocked & known, so duplicates
+  // and ordering in the save never split the cache.
+  const unlockedKnown = REGIONS.filter((region) => regionsUnlocked.includes(region.id)).map(
+    (region) => region.id,
+  );
+  if (unlockedKnown.length === 0) return BASE_PLACEABLE_DOMAIN;
+  const cacheKey = unlockedKnown.join('|');
+  const cached = RUNTIME_PLACEABLE_CACHE.get(cacheKey);
+  if (cached !== undefined) return cached;
+  const rects = mergeEdgeAdjacentRects([
+    BASE_PLACEABLE_RECT,
+    ...unlockedKnown.map((id) => findRegion(id)!.placeableRect),
+  ]);
+  const tiles: PlotTileCoord[] = [];
+  const keys = new Set<string>();
+  for (const rect of rects) {
+    for (const tile of computePlaceableTilesInRect(rect)) {
+      const key = plotTileKey(tile.col, tile.row);
+      if (!keys.has(key)) {
+        keys.add(key);
+        tiles.push(tile);
+      }
+    }
+  }
+  const domain: PlaceableDomain = { tiles, keys };
+  RUNTIME_PLACEABLE_CACHE.set(cacheKey, domain);
+  return domain;
+}
+
+/**
+ * THE placement authority (T3.3a-r; region-aware since T3.3b): every
+ * hidden-grid tile a plot may occupy given the unlocked regions - a scene-wide
+ * set, deliberately independent of `expanded` (the legacy expansion is only a
+ * 4-plot grant now, never geometry). With no argument, the base (no-region)
+ * set. Whether a given tile is currently FREE (unoccupied, clear of structures
+ * and decor) is `isPlotTileFree`'s business.
+ */
+export function placeablePlotTiles(
+  regionsUnlocked: readonly string[] = [],
+): readonly PlotTileCoord[] {
+  return runtimePlaceableDomain(regionsUnlocked).tiles;
 }
 
 /**
@@ -983,19 +1121,20 @@ export function structureRenderPosition(
  * an illegal anchor can never even preview.
  */
 export function isStructureAnchorFree(
-  state: Pick<GameStateData, 'plots' | 'structures' | 'expanded'>,
+  state: Pick<GameStateData, 'plots' | 'structures' | 'expanded' | 'regionsUnlocked'>,
   id: StructureId,
   col: number,
   row: number,
 ): boolean {
   if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
+  const placeableKeys = runtimePlaceableDomain(state.regionsUnlocked).keys;
   const otherId: StructureId = id === 'farmhouse' ? 'noticeBoard' : 'farmhouse';
   const otherAnchor = state.structures[otherId];
   const otherKeys = STRUCTURE_FOOTPRINT_OFFSET_KEYS[otherId];
   for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
     const tileCol = col + offset.col;
     const tileRow = row + offset.row;
-    if (!PLACEABLE_PLOT_TILE_KEYS.has(plotTileKey(tileCol, tileRow))) return false;
+    if (!placeableKeys.has(plotTileKey(tileCol, tileRow))) return false;
     for (const plot of state.plots) {
       if (plot.col === tileCol && plot.row === tileRow) return false;
     }
@@ -1046,14 +1185,17 @@ const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
  * and free-tile searches - goes through this one function.
  */
 export function isPlotTileFree(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
+  state: Pick<
+    GameStateData,
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+  >,
   col: number,
   row: number,
   ignorePlotIndex = -1,
 ): boolean {
   if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
   const key = plotTileKey(col, row);
-  if (!PLACEABLE_PLOT_TILE_KEYS.has(key)) return false;
+  if (!runtimePlaceableDomain(state.regionsUnlocked).keys.has(key)) return false;
   for (let index = 0; index < state.plots.length; index++) {
     if (index === ignorePlotIndex) continue;
     const plot = state.plots[index]!;
@@ -1107,7 +1249,10 @@ function isHuggingPlot(
  * equality compare is exact.
  */
 function nearestFreePlaceableTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
+  state: Pick<
+    GameStateData,
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+  >,
   x: number,
   y: number,
   hugExcludeKeys?: ReadonlySet<string>,
@@ -1115,7 +1260,7 @@ function nearestFreePlaceableTile(
   let best: PlotTileCoord | null = null;
   let bestDistSq = Number.POSITIVE_INFINITY;
   let bestHugs = false;
-  for (const tile of PLACEABLE_PLOT_TILES) {
+  for (const tile of runtimePlaceableDomain(state.regionsUnlocked).tiles) {
     if (!isPlotTileFree(state, tile.col, tile.row)) continue;
     const pos = gridToIso(tile.col, tile.row);
     const distSq = (pos.x - x) ** 2 + (pos.y - y) ** 2;
@@ -1152,7 +1297,10 @@ function nearestFreePlaceableTile(
  *   is blocked (or the history is empty).
  */
 export function nextChainPlotTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
+  state: Pick<
+    GameStateData,
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+  >,
   history: readonly PlotTileCoord[],
 ): PlotTileCoord | null {
   const last = history[history.length - 1];
@@ -1223,7 +1371,10 @@ export function nextChainPlotTile(
  * design center, as before.
  */
 export function bestBatchStartTile(
-  state: Pick<GameStateData, 'plots' | 'decorations' | 'expanded' | 'structures'>,
+  state: Pick<
+    GameStateData,
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+  >,
   shedCount: number,
 ): PlotTileCoord | null {
   if (state.plots.length === 0) {
@@ -1276,7 +1427,7 @@ export function bestBatchStartTile(
   // No qualifying face: the nearest free tile still touching the block.
   let best: PlotTileCoord | null = null;
   let bestDistSq = Number.POSITIVE_INFINITY;
-  for (const tile of PLACEABLE_PLOT_TILES) {
+  for (const tile of runtimePlaceableDomain(state.regionsUnlocked).tiles) {
     if (!isPlotTileFree(state, tile.col, tile.row)) continue;
     if (!isHuggingPlot(state, tile.col, tile.row)) continue;
     const pos = gridToIso(tile.col, tile.row);
@@ -1476,6 +1627,20 @@ function isStructuresState(value: unknown): value is StructuresState {
   );
 }
 
+/**
+ * `regionsUnlocked` (T3.3b): an array of KNOWN region ids (REGION_IDS), no
+ * duplicates. An empty array is valid (nothing purchased).
+ */
+function isRegionsUnlocked(value: unknown): value is string[] {
+  if (!Array.isArray(value)) return false;
+  const seen = new Set<string>();
+  for (const id of value) {
+    if (typeof id !== 'string' || !REGION_IDS.has(id) || seen.has(id)) return false;
+    seen.add(id);
+  }
+  return true;
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -1502,10 +1667,13 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     Number.isInteger(raw.unplacedPlots) &&
     raw.unplacedPlots >= 0 &&
     typeof raw.expanded === 'boolean' &&
+    isRegionsUnlocked(raw.regionsUnlocked) &&
+    typeof raw.twoFingerHintShown === 'boolean' &&
     // Total plot entitlement (placed + shed): at least the base grant, at
-    // most the maximal grid (T3.3a - regions raise the ceiling later).
+    // most the region-aware cap (T3.3b - EXPANDED_PLOT_COUNT plus every
+    // unlocked region's entitlementIncrease; regionsUnlocked proven above).
     raw.plots.length + raw.unplacedPlots >= BASE_PLOT_COUNT &&
-    raw.plots.length + raw.unplacedPlots <= EXPANDED_PLOT_COUNT &&
+    raw.plots.length + raw.unplacedPlots <= plotEntitlementCap(raw.regionsUnlocked) &&
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
     isFiniteNumber(raw.moondust) &&
@@ -1925,16 +2093,72 @@ export class GameStateStore {
   }
 
   /**
+   * Purchase a region (T3.3b), modeled on `expandFarm`: refuses (false, no
+   * mutation) if `regionId` is unknown, already unlocked, the level is below
+   * the region's `levelGate`, or coins are short of `costCoins`. On success it
+   * deducts the coins, appends the id to `regionsUnlocked` (which immediately
+   * raises the entitlement cap and opens the band to plots/decor/fences/
+   * structures via the single placement authorities), grants `plotGrant` plots
+   * through the SAME 5C flow the expand sign uses (`grantPlots` - popup event,
+   * Edit Layout flash), and saves. The dev-only overgrant edge keeps the same
+   * behavior class as `expandFarm`'s: `grantPlots`' cap can only fail if the
+   * save was already over-granted, and coins are still spent either way.
+   */
+  purchaseRegion(regionId: string): boolean {
+    const region = findRegion(regionId);
+    if (region === undefined) return false;
+    if (this.state.regionsUnlocked.includes(regionId)) return false;
+    if (this.state.level < region.levelGate) return false;
+    if (this.state.coins < region.costCoins) return false;
+    this.state.coins -= region.costCoins;
+    this.state.regionsUnlocked.push(regionId);
+    this.grantPlots(region.plotGrant);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Dev-only region unlock (T3.3b): the `purchaseRegion` path minus the level
+   * and coin gates - unlocks the region and grants its plots exactly like a
+   * real purchase (same `regionsUnlocked` append + `grantPlots` flow, same
+   * overgrant behavior class). Returns false for an unknown or already-unlocked
+   * id. Wired to `dev.unlockRegion`.
+   */
+  devUnlockRegion(regionId: string): boolean {
+    const region = findRegion(regionId);
+    if (region === undefined) return false;
+    if (this.state.regionsUnlocked.includes(regionId)) return false;
+    this.state.regionsUnlocked.push(regionId);
+    this.grantPlots(region.plotGrant);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Mark the one-time two-finger-pan hint (T3.3b) as shown - permanent, never
+   * flips back. A no-op (no save) once already shown.
+   */
+  markTwoFingerHintShown(): void {
+    if (this.state.twoFingerHintShown) return;
+    this.state.twoFingerHintShown = true;
+    this.save();
+  }
+
+  /**
    * Grant `count` plots into the shed (T3.3a): increments `unplacedPlots`
    * and queues one `PlotGrantEvent` for the scene's popup. Returns false
    * without mutating anything unless `count` is a positive integer and the
-   * total plot entitlement (placed + shed) stays within the maximal grid
-   * (16 - regions raise this later): plots can never be granted with nowhere
-   * to ever put them. Autosaves, like the decoration mutators.
+   * total plot entitlement (placed + shed) stays within the region-aware cap
+   * (T3.3b - EXPANDED_PLOT_COUNT plus every unlocked region's
+   * `entitlementIncrease`): plots can never be granted with nowhere to ever
+   * put them. Autosaves, like the decoration mutators.
    */
   grantPlots(count: number): boolean {
     if (!Number.isInteger(count) || count <= 0) return false;
-    if (this.state.plots.length + this.state.unplacedPlots + count > EXPANDED_PLOT_COUNT) {
+    if (
+      this.state.plots.length + this.state.unplacedPlots + count >
+      plotEntitlementCap(this.state.regionsUnlocked)
+    ) {
       return false;
     }
     this.state.unplacedPlots += count;
@@ -2079,8 +2303,9 @@ export class GameStateStore {
    * Reposition/rescale/flip a placed decoration (the arrange mode; T3.9a,
    * flip added T3.15). Returns false without mutating anything if `index` is
    * out of range, any of x/y/scale is non-finite, or `flip` is not a
-   * boolean; otherwise clamps x/y/scale to their legal ranges
-   * (DECOR_X_MIN..MAX, DECOR_Y_MIN..MAX, DECOR_SCALE_MIN..ceiling),
+   * boolean; otherwise clamps x/y to the region-aware decoration bounds
+   * (`decorClampBounds(regionsUnlocked)`, T3.3b - the base rect UNION every
+   * unlocked band) and scale to DECOR_SCALE_MIN..ceiling,
    * applies `flip` unclamped (a plain boolean), one save. The scale ceiling
    * defaults to the item's own `decorMaxScale` (per-item sizing, T3.3a2);
    * T3.27's dev-only decor sizing probe passes a higher dev ceiling while
@@ -2110,8 +2335,9 @@ export class GameStateStore {
     if (decoration === undefined) return false;
     if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(scale)) return false;
     if (typeof flip !== 'boolean') return false;
-    const clampedX = Math.min(DECOR_X_MAX, Math.max(DECOR_X_MIN, x));
-    const clampedY = Math.min(DECOR_Y_MAX, Math.max(DECOR_Y_MIN, y));
+    const bounds = decorClampBounds(this.state.regionsUnlocked);
+    const clampedX = Math.min(bounds.maxX, Math.max(bounds.minX, x));
+    const clampedY = Math.min(bounds.maxY, Math.max(bounds.minY, y));
     if (isPointOnPermanentFootprint(this.state, clampedX, clampedY)) return false;
     decoration.x = clampedX;
     decoration.y = clampedY;

@@ -3,17 +3,25 @@ export const DESIGN_WIDTH = 1080;
 export const DESIGN_HEIGHT = 1920;
 
 /**
- * The day-one WORLD rect (T3.3a-r2): the pannable/zoomable farm world, grown
- * around the legacy 1080x1920 design rect - which stays exactly where it is
- * (no existing coordinate changes) - with a 180px grass apron east/west and a
- * 320px apron north/south. The default (home) camera view is still the
- * legacy design rect at zoom 1; pinch/pan reaches the apron. The world's
- * west strip is reserved for the mere (see PLOT_PLACEABLE_MIN_X in
- * data/farm.ts).
+ * The WORLD rect: the pannable/zoomable farm world. Born (T3.3a-r2) around the
+ * legacy 1080x1920 design rect - which stays exactly where it is (no existing
+ * coordinate changes) - with a 180px grass apron east/west and a 320px apron
+ * north/south. The default (home) camera view is still the legacy design rect
+ * at zoom 1; pinch/pan reaches the apron. The world's west strip is reserved
+ * for the mere (see PLOT_PLACEABLE_MIN_X in data/farm.ts).
+ *
+ * T3.3b (regions): the world grows EAST for the first purchasable region (the
+ * "East Meadow" band). WORLD_MIN_X stays -180; WORLD_WIDTH 1440 -> 1952 moves
+ * the east edge 1260 -> 1772, so the locked band and its region sign are
+ * pannable/visible before purchase. The camera zoom-out floor is fitZoom(world)
+ * and DROPS with the wider world (0.75 -> 1080/1952 ~= 0.553; it derives, never
+ * re-hardcoded); the ground TileSprite covers the grown rect because it derives
+ * from these constants (see FarmScene.createGroundTexture). REGIONS'
+ * placeableRect (data/farm.ts) is measured off this east edge.
  */
 export const WORLD_MIN_X = -180;
 export const WORLD_MIN_Y = -320;
-export const WORLD_WIDTH = 1440;
+export const WORLD_WIDTH = 1952;
 export const WORLD_HEIGHT = 2560;
 
 /** Texture key of the single texture atlas loaded in Preload. */
@@ -182,13 +190,17 @@ export const FARMHOUSE_POSITION = { x: 933, y: 521 } as const;
  *   Studio change requests from here. NOTE the anchor tile (offset (0,0)) is
  *   deliberately NOT part of the farmhouse footprint - the anchor is a pure
  *   reference point (it positions the art and the footprint but is itself
- *   placeable). The notice board is ALSO DESIGN-CHOSEN (same 2026-07-17 owner
- *   ruling): a SINGLE-tile footprint at offset (1,0) - the board art was
- *   re-centered onto one tile (that is what the (116,-11) render offset is
- *   tuned for) and its blocked set was reduced to that same tile, superseding
- *   the old 4-tile measured set (opaque rect x [823, 978], y [1190, 1430] -
- *   no longer used). Like the farmhouse, the board's anchor tile (offset
- *   (0,0)) is deliberately NOT in the footprint (anchor as pure reference).
+ *   placeable). The notice board is ALSO DESIGN-CHOSEN (owner hand-edit,
+ *   approved by visual check, T3.3b-r1): the 5-tile diamond at offsets
+ *   (1,0),(1,-1),(1,1),(2,0),(0,0), covering the board's art base. This
+ *   supersedes the 2026-07-17 single-tile footprint at offset (1,0), which was
+ *   smaller than the art - plots on the tiles the art covered tucked under/over
+ *   the board in the iso depth interleave (the live bug T3.3b-r1 fixes); which
+ *   in turn superseded the old 4-tile measured set (opaque rect x [823, 978],
+ *   y [1190, 1430] - no longer used). NOTE the board's set INCLUDES its anchor
+ *   tile (offset (0,0)) - a DELIBERATE reversal of the farmhouse's
+ *   anchor-as-pure-reference convention, for the board only: the anchor tile
+ *   sits under the board art, so it must block like any other footprint tile.
  * - STRUCTURE_RENDER_OFFSETS: pixel delta from the anchor tile's CENTER to
  *   the structure sprite's position. At the default anchors:
  *   farmhouse: gridToIso(-1,-3) = (796, 512), +(137, 9) = FARMHOUSE_POSITION;
@@ -211,7 +223,13 @@ export const STRUCTURE_FOOTPRINT_OFFSETS: Record<
     { col: 1, row: 1 },
     { col: 2, row: 1 },
   ],
-  noticeBoard: [{ col: 1, row: 0 }],
+  noticeBoard: [
+    { col: 1, row: 0 },
+    { col: 1, row: -1 },
+    { col: 1, row: 1 },
+    { col: 2, row: 0 },
+    { col: 0, row: 0 },
+  ],
 };
 
 export const STRUCTURE_RENDER_OFFSETS: Record<StructureId, { x: number; y: number }> = {

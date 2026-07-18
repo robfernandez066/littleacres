@@ -23,6 +23,14 @@ export interface DevTools {
    * was accepted.
    */
   grantPlots(n: number): boolean;
+  /**
+   * Dev-only region unlock (T3.3b): a straight pipe to
+   * `gameState.devUnlockRegion` - the real `purchaseRegion` path minus the
+   * level and coin gates (unlocks the region and grants its plots). Returns
+   * whether the unlock was accepted (false for an unknown or already-unlocked
+   * region id).
+   */
+  unlockRegion(id: string): boolean;
   /** Overwrite every order slot with a fresh forced-premium order (T2.27). */
   fillBoardPremium(): void;
   /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
@@ -128,6 +136,7 @@ export function installDevTools(store: GameStateStore): void {
     plant: (plotIndex, cropId) => store.plantCrop(plotIndex, cropId),
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
     grantPlots: (n) => store.grantPlots(n),
+    unlockRegion: (id) => store.devUnlockRegion(id),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };
 }

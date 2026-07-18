@@ -31,10 +31,7 @@ import {
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import {
   DECOR_ITEMS,
-  DECOR_X_MAX,
-  DECOR_X_MIN,
-  DECOR_Y_MAX,
-  DECOR_Y_MIN,
+  decorClampBounds,
   decorMaxScale,
   decorSpawnScale,
   FENCE_FRAME,
@@ -43,6 +40,7 @@ import {
   fenceSnapDeltas,
   TROPHY_ITEMS,
 } from '../data/decor';
+import { type RegionDef, REGIONS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
@@ -94,6 +92,7 @@ import { cropToInfoDef, CropInfoCard } from '../ui/CropInfoCard';
 import { DecorShop } from '../ui/DecorShop';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
+import { RegionSign } from '../ui/RegionSign';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
 import { MoondustArc } from '../ui/MoondustArc';
@@ -162,13 +161,14 @@ const GRASS_GRID_MAX = 14;
  * background rect (GROUND_LAYER_DEPTH - 1). Grass tiles need this explicitly
  * because the dev ground-mode cycle rebuilds them AFTER the plots exist - at
  * a shared default depth, later insertion drew grass over the plots (user
- * report + PM-direct fix, 2026-07-12). Was -1 while the world's y was never
- * negative; the T3.3a-r2 north apron has world y down to WORLD_MIN_Y, and a
- * plot tile there carries depth y - 1 (see `plotTileDepth`), so the ground
- * must sit below the lowest possible y-derived depth (WORLD_MIN_Y - 1) or
- * apron plots render UNDER the grass (caught live in this task's checks).
+ * report + PM-direct fix, 2026-07-12). Was WORLD_MIN_Y - 2 while plot tiles
+ * carried y-derived depths; T3.3b-r3 moved plots to the PLOT_TILE_DEPTH
+ * sub-layer band (~-1000), and the whole ground stack (this layer plus its +1/+2/+3
+ * overlays) dropped to -2000 so the plot sub-layer floats in clear air:
+ * ~1000 depth units above the overlay band and ~700 below the lowest
+ * possible standing-object depth, instead of a razor-thin coupling.
  */
-const GROUND_LAYER_DEPTH = WORLD_MIN_Y - 2;
+const GROUND_LAYER_DEPTH = -2000;
 
 /** How often (ms of real time) growth visuals re-derive from state/clock. */
 const CROP_REFRESH_INTERVAL_MS = 250;
@@ -613,18 +613,18 @@ interface HitboxDebuggable extends Phaser.GameObjects.GameObject {
  * this scene owns gesture classification and the live camera writes.
  * `dev.camera(...)` deliberately bypasses all of these clamps.
  */
-/** Zoom-in ceiling for gestures; the floor is fitZoom(world) (0.75 - see cameraFitZoom). */
+/** Zoom-in ceiling for gestures; the floor is fitZoom(world) - see cameraFitZoom. */
 const CAMERA_MAX_ZOOM_IN = 1.6;
 /**
  * T3.3a-r2 splits the two rects the T3.4b gestures share:
- * - WORLD: the full day-one 1440x2560 world (config.ts) - pan reaches
- *   everywhere in it, rubber-banding at its true edges, and the zoom-out
- *   floor is fitZoom(world) = 0.75 exactly (pinned in cameraMath.test.ts),
- *   showing grass to every edge.
+ * - WORLD: the full world rect (config.ts) - pan reaches everywhere in it,
+ *   rubber-banding at its true edges, and the zoom-out floor is fitZoom(world),
+ *   showing grass to every edge. It grew EAST in T3.3b (regions) to 1952x2560,
+ *   so the floor DROPPED from 0.75 to the width fit ~0.553 (derived, pinned in
+ *   cameraMath.test.ts) - never re-hardcoded here.
  * - OWNED: the legacy 1080x1920 design rect, still exactly where it was -
  *   the HOME view (default + Recenter target) is fitZoom(owned) = 1 at
  *   scroll (0, 0), so a player who never touches the camera sees no change.
- * A future purchase task grows OWNED independently (T3.3c).
  */
 const CAMERA_WORLD_BOUNDS: WorldBounds = {
   x: WORLD_MIN_X,
@@ -688,24 +688,70 @@ const STRUCTURE_SNAP_SEARCH = 4;
 /**
  * Lift-time ground overlays (T3.3s-r2): the faint placement grid (change 5)
  * and the dev.footprints() restrictions overlay render in the band directly
- * above the ground layer and strictly below every y-depth-sorted sprite
- * (the lowest possible sprite depth is a plot tile's y - 1 with
- * y >= WORLD_MIN_Y, far above GROUND_LAYER_DEPTH = WORLD_MIN_Y - 2). The
- * lifted structure's green/red footprint preview does NOT live here: since
- * T3.3s-r2c it renders at FOOTPRINT_PREVIEW_DEPTH_OFFSET below the lifted
- * structure's own live depth - above plot tiles, crops, and decor, so a
- * blocked tile reads as red shading OVER the crop standing on it - see
- * `rebuildStructureFootprintPreview`.
+ * above the ground layer (-2000) and strictly below the plot sub-layer band
+ * (PLOT_TILE_DEPTH ~-1000, ~1000 depth units up) and every y-depth-sorted
+ * sprite above that. The lifted structure's green/red footprint preview
+ * does NOT live here: it renders at FOOTPRINT_PREVIEW_DEPTH, above every
+ * field object - see `rebuildStructureFootprintPreview`.
  */
 const PLACEMENT_GRID_DEPTH = GROUND_LAYER_DEPTH + 1;
 const DEV_FOOTPRINTS_DEPTH = GROUND_LAYER_DEPTH + 3;
 /**
- * The live green/red footprint preview's depth relative to the LIFTED
- * structure's own (its y): -2 keeps it under the structure's silhouette
- * shadow (which rides at -1), while still above every ground-level sprite
- * standing north of the lifted piece.
+ * The live green/red footprint preview's depth (T3.3b-r2). Was a small
+ * negative offset from the LIFTED structure's own y (T3.3s-r2c), which put
+ * it below any plot or crop standing in FRONT of the structure - so a
+ * blocked tile's red shading was hidden under the very plot that blocked it
+ * (found on device). It is now a flat depth above EVERY field object:
+ * crops, decor and structures all render at plain y, which
+ * PLOT_PLACEABLE_MAX_Y / DECOR_Y_MAX cap at 2010 (the board badge adds 1),
+ * and plot tiles sit far below in the PLOT_TILE_DEPTH band (T3.3b-r3), so
+ * the highest field depth is 2011. 2100 clears that and stays
+ * below the arrange UI (ARRANGE_UI_DEPTH 2200). The cost is that the
+ * translucent shading also draws over the lifted structure's own base
+ * instead of tucking under it; the invariant that a blocked tile is ALWAYS
+ * visibly red over whatever occupies it wins.
  */
-const FOOTPRINT_PREVIEW_DEPTH_OFFSET = -2;
+const FOOTPRINT_PREVIEW_DEPTH = 2100;
+/**
+ * Plots are a GROUND SUB-LAYER (T3.3b-r3, owner ruling: standing objects
+ * always render on top of plots). Every plot tile renders in a narrow band
+ * around this base: strictly above the ground/overlay stack
+ * (GROUND_LAYER_DEPTH -2000 through its +3 overlay) and strictly below
+ * every y-depth-sorted standing object - crops, decor, structures and their
+ * depth - 1 cast shadows. The lowest committed standing y is
+ * PLOT_PLACEABLE_MIN_Y / DECOR_Y_MIN (-300, shadow -301), and a mid-drag
+ * sprite can reach WORLD_MIN_Y (-320, shadow -321), so the band around
+ * -1000 leaves ~680 depth units of clearance to the standing band and
+ * ~1000 to the overlay band - nothing can drift into either gap. This
+ * replaces both the old y - 1 `plotTileDepth` AND the T3.3b-r2 +32
+ * decoration bias: with plots below the whole standing band, decor renders
+ * at plain y again.
+ *
+ * NOT one shared depth WITHIN the band (owner-reported overlap after the
+ * first flat cut): the plot frame is 256x160 - the 128px diamond plus a
+ * 32px raised-soil lip hanging BELOW it, into the diamond of the row in
+ * front - so plot-vs-plot draw order matters. At one literally flat depth
+ * that overlap resolves by creation order, and a later-placed plot BEHIND
+ * drew its lip over the plot in front. Each tile therefore adds
+ * y * PLOT_TILE_DEPTH_Y_STEP: front-over-back among plots, while any world
+ * y (WORLD_MIN_Y -320 .. PLOT_PLACEABLE_MAX_Y + 64 = 2074) moves the depth
+ * by under +/-2.1 - the band spans [-1000.4, -997.9], so no plot can ever
+ * reorder against the ground stack or a standing object. Grass tiles do
+ * stay one flat depth: their lip band continues seamlessly into the
+ * neighbor's art, so their overlap order is invisible.
+ */
+const PLOT_TILE_DEPTH = -1000;
+const PLOT_TILE_DEPTH_Y_STEP = 0.001;
+/**
+ * A LIFTED plot tile's temporary depth (T3.3b-r3): at the flat
+ * PLOT_TILE_DEPTH a dragged plot would vanish under any crop, decor or
+ * structure it crosses, so the lift elevates it above the whole standing
+ * band (max committed depth 2011 - see FOOTPRINT_PREVIEW_DEPTH) while
+ * staying under the modal backdrop (2090), the structure footprint preview
+ * (2100) and the arrange UI (2200). Snaps back to PLOT_TILE_DEPTH on commit
+ * or on an arrange-mode exit that abandons the lift.
+ */
+const PLOT_LIFT_DEPTH = 2050;
 /** Faint diamond grid over the placeable domain during plot/structure lifts. */
 const PLACEMENT_GRID_LINE_WIDTH = 2;
 const PLACEMENT_GRID_LINE_COLOR = 0xffffff;
@@ -718,6 +764,23 @@ const FOOTPRINT_FILL_ALPHA = 0.35;
 const DEV_FOOTPRINT_BLOCKED_ALPHA = 0.4;
 const DEV_DOMAIN_WASH_COLOR = 0x1a2333;
 const DEV_DOMAIN_WASH_ALPHA = 0.25;
+/**
+ * Locked-region dim overlay (T3.3b): a black tint over a locked band, straight
+ * vertical west edge at the band boundary, full world height, above the ground
+ * layer but below every standing object (its depth is far under the lowest
+ * y-derived sprite depth). Fades out over REGION_DIM_FADE_MS on purchase.
+ */
+const REGION_DIM_COLOR = 0x000000;
+const REGION_DIM_ALPHA = 0.35;
+const REGION_DIM_DEPTH = GROUND_LAYER_DEPTH + 2;
+const REGION_DIM_FADE_MS = 400;
+/** Where a region sign's refusal FloatingText spawns, above the sign. */
+const REGION_SIGN_FEEDBACK_OFFSET_Y = -160;
+const REGION_REFUSAL_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffd27a', fontSize: 44 };
+/** One-time two-finger-pan hint (T3.3b): a UI-layer toast after the first region purchase. */
+const TWO_FINGER_HINT_TEXT = 'Tip: drag with two fingers to pan from anywhere.';
+const TWO_FINGER_HINT_POSITION = { x: DESIGN_WIDTH / 2, y: 620 } as const;
+const TWO_FINGER_HINT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 34 };
 /** Recenter glide duration (task-specified ~250ms, Sine.easeOut). */
 const RECENTER_GLIDE_MS = 250;
 /** Off-default detection thresholds - a finished tween lands exactly, these absorb float noise. */
@@ -863,6 +926,17 @@ export class FarmScene extends Phaser.Scene {
   private expandSign!: ExpandSign;
   /** The sign's generated ground shadow (T3.art-2) - synced with the sign in `refreshExpandSign`. */
   private expandSignShadow!: Phaser.GameObjects.Image;
+  /** Region purchase signs (T3.3b), one per REGIONS entry, keyed by region id. */
+  private readonly regionSigns = new Map<string, RegionSign>();
+  /** Each locked region's dim overlay (T3.3b), keyed by region id; faded out
+   *  and removed on purchase. */
+  private readonly regionDims = new Map<string, Phaser.GameObjects.Rectangle>();
+  /** Set on a successful region purchase (T3.3b): show the one-time
+   *  two-finger-pan hint once the 5C grant popup closes, then clear. */
+  private pendingTwoFingerHint = false;
+  /** Whether the plot-grant popup was visible last tick - so the hint fires on
+   *  its close edge (T3.3b), not before it ever appears. */
+  private plotGrantPopupWasVisible = false;
   private offlineSummaryPanel!: OfflineSummaryPanel;
   private weeklyNoticePanel!: WeeklyNoticePanel;
   private audio!: AudioManager;
@@ -904,8 +978,11 @@ export class FarmScene extends Phaser.Scene {
   /** dev.footprints() overlay state (T3.3s-r2) - see `toggleDevFootprints`. */
   private devFootprintsEnabled = false;
   private devFootprintsGraphics: Phaser.GameObjects.Graphics | null = null;
-  /** "col,row" keys of the placeable hidden-grid tile set, built on first use. */
+  /** "col,row" keys of the placeable hidden-grid tile set, built on first use.
+   *  Region-aware (T3.3b): rebuilt when `regionsUnlocked` changes, tracked by
+   *  `placeableTileKeysSig`. */
   private placeableTileKeys: Set<string> | null = null;
+  private placeableTileKeysSig = '';
   /** Last-rendered structure anchors, serialized - `refreshStructures`
    *  repositions only on change (so it never fights a live drag, whose
    *  moves are sprite-only until the commit). */
@@ -914,7 +991,8 @@ export class FarmScene extends Phaser.Scene {
   private questBoard!: QuestBoard;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
   private decorationSprites: Phaser.GameObjects.Image[] = [];
-  private decorationShadowSprites: Phaser.GameObjects.Image[] = [];
+  /** Null entries are shadowless decorations (no `_shadow` companion frame, e.g. decor_fence) - stays index-aligned with `decorationSprites`. */
+  private decorationShadowSprites: (Phaser.GameObjects.Image | null)[] = [];
   /** Last-rendered decorations, serialized - `refreshDecorations` rebuilds only on change. */
   private lastDecorationsJson = '';
   /** Whether arrange mode (T3.9a) is active - see `enterArrangeMode`/`exitArrangeMode`. */
@@ -1305,6 +1383,10 @@ export class FarmScene extends Phaser.Scene {
     );
     this.expandSignShadow = this.createExpandSignShadow();
     this.refreshExpandSign();
+    // Region signs + locked-land dim overlays (T3.3b): world objects that pan
+    // with the camera; the sign taps route through the shared deferred-tap
+    // helper like the expand sign.
+    this.createRegionPresentation();
     this.inUiLayer(() => this.createArrangeControls());
     this.inUiLayer(() => this.createRecenterButton());
     this.setupFieldInput();
@@ -1526,6 +1608,22 @@ export class FarmScene extends Phaser.Scene {
         this.plotGrantPopup.show(grants.reduce((sum, grant) => sum + grant.count, 0));
       }
     }
+    // One-time two-finger-pan hint (T3.3b): fires on the grant popup's CLOSE
+    // edge after a region purchase, so it never overlaps the popup and shows
+    // exactly once (the flag persists). Tracked against the popup's last-tick
+    // visibility so it waits for the popup to actually appear then close.
+    const grantPopupVisible = this.plotGrantPopup.isVisible();
+    if (
+      this.pendingTwoFingerHint &&
+      this.plotGrantPopupWasVisible &&
+      !grantPopupVisible &&
+      !isModalOpen() &&
+      !gameState.getState().twoFingerHintShown
+    ) {
+      this.showTwoFingerHint();
+      this.pendingTwoFingerHint = false;
+    }
+    this.plotGrantPopupWasVisible = grantPopupVisible;
     // Edit Layout flash (T3.3a): pulses while plots wait in the shed, paused
     // while the grant popup is up and during arrange mode itself (leaving
     // arrange mode with plots still unplaced resumes it here next tick).
@@ -1547,6 +1645,7 @@ export class FarmScene extends Phaser.Scene {
       this.chestCeremony.enqueue(gameState.consumeChestEvents());
     }
     this.refreshExpandSign();
+    this.refreshRegionSigns();
     const radiantEvents = gameState.consumeRadiantEvents();
     if (radiantEvents.length > 0) {
       for (const event of radiantEvents) this.playRadiantJuice(event.plotIndex);
@@ -1878,6 +1977,10 @@ export class FarmScene extends Phaser.Scene {
       this.plotDragIndex = plotIndex;
       this.plotDragCol = plot.col;
       this.plotDragRow = plot.row;
+      // Lifted plots leave the flat ground sub-layer (T3.3b-r3): elevated
+      // above every standing object for the drag's duration, or the tile
+      // would tuck under any crop/decor/structure it crosses.
+      target.setDepth(PLOT_LIFT_DEPTH);
     } else if (kind === 'structure') {
       // Structures are always liftable in arrange mode (T3.3s) - move only,
       // no locked state; the nearest-anchor tracker starts at the saved
@@ -1979,7 +2082,7 @@ export class FarmScene extends Phaser.Scene {
       const y = snapped === null ? freeY : snapped.y;
       lift.target.setPosition(x, y).setDepth(y);
       const shadow = index === -1 ? undefined : this.decorationShadowSprites[index];
-      if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, lift.target);
+      if (shadow) this.applyGroundShadowGeometry(shadow, lift.target);
     } else if (lift.kind === 'structure') {
       // Structures follow the finger FREE-FORM (T3.3s-r2 feel fix) - no
       // more mid-drag anchor snapping; the sprite (+ shadow, + the board's
@@ -1991,10 +2094,9 @@ export class FarmScene extends Phaser.Scene {
       const id = this.structureDragId;
       if (id !== null) {
         this.moveStructureSpriteFree(id, freeX, freeY);
-        // The preview's depth tracks the lifted structure's every move
-        // (T3.3s-r2c) - it must stay just under the structure wherever the
-        // drag takes it, above whatever ground-level sprites it crosses.
-        this.structureFootprintGraphics?.setDepth(freeY + FOOTPRINT_PREVIEW_DEPTH_OFFSET);
+        // The preview's depth no longer tracks the structure (T3.3b-r2): it
+        // is the flat FOOTPRINT_PREVIEW_DEPTH, above every field object the
+        // drag can cross, so nothing here has to follow the move.
         const offset = STRUCTURE_RENDER_OFFSETS[id];
         const grid = isoToGrid(freeX - offset.x, freeY - offset.y);
         const col = Math.round(grid.col);
@@ -2039,6 +2141,9 @@ export class FarmScene extends Phaser.Scene {
     const decorations = gameState.getState().decorations;
     const lifted = decorations[index];
     if (lifted === undefined || lifted.frame !== FENCE_FRAME) return null;
+    // Region-aware clamp bounds (T3.3b) so a fence in an unlocked band can
+    // snap to its plots/fences instead of being filtered out at the base edge.
+    const clamp = decorClampBounds(gameState.getState().regionsUnlocked);
     let bestX = 0;
     let bestY = 0;
     let bestDistSq = FENCE_SNAP_RADIUS * FENCE_SNAP_RADIUS;
@@ -2046,8 +2151,8 @@ export class FarmScene extends Phaser.Scene {
     const consider = (rawX: number, rawY: number): void => {
       const candidateX = Math.round(rawX);
       const candidateY = Math.round(rawY);
-      if (candidateX < DECOR_X_MIN || candidateX > DECOR_X_MAX) return;
-      if (candidateY < DECOR_Y_MIN || candidateY > DECOR_Y_MAX) return;
+      if (candidateX < clamp.minX || candidateX > clamp.maxX) return;
+      if (candidateY < clamp.minY || candidateY > clamp.maxY) return;
       const distSq = (candidateX - freeX) ** 2 + (candidateY - freeY) ** 2;
       if (distSq <= bestDistSq) {
         bestDistSq = distSq;
@@ -2576,8 +2681,8 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /** The gesture zoom-out FLOOR (T3.3a-r2): the zoom that fits the whole
-   *  WORLD - 0.75 exactly for the 1440x2560 world in the design viewport
-   *  (pinned in cameraMath.test.ts). */
+   *  WORLD - the width fit (~0.553) for the T3.3b 1952x2560 world in the design
+   *  viewport (derived from CAMERA_WORLD_BOUNDS, pinned in cameraMath.test.ts). */
   private cameraFitZoom(viewport: Viewport): number {
     return fitZoom(CAMERA_WORLD_BOUNDS, viewport);
   }
@@ -2991,11 +3096,15 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * A plot tile's depth: y-derived like every world object, minus 1 so the
-   * plot's own crop sprite (depth y) always renders over its tile.
+   * A plot tile's depth inside the ground sub-layer band (T3.3b-r3): the
+   * flat base plus a fractional y step so plots sort front-over-back among
+   * THEMSELVES (the frame's soil lip overlaps the row in front - see
+   * PLOT_TILE_DEPTH) while the whole band stays below every standing
+   * object. THE single authority for a grounded plot tile; the lifted tile
+   * alone uses PLOT_LIFT_DEPTH instead.
    */
   private plotTileDepth(y: number): number {
-    return y - 1;
+    return PLOT_TILE_DEPTH + y * PLOT_TILE_DEPTH_Y_STEP;
   }
 
   /**
@@ -3229,7 +3338,8 @@ export class FarmScene extends Phaser.Scene {
         this.handleStructureDown(pointer, () => this.openDecorShop());
       },
     );
-    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage);
+    // Non-null: the farmhouse frame always has a packed shadow companion (T3.art-3).
+    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage)!;
   }
 
   /**
@@ -3305,10 +3415,14 @@ export class FarmScene extends Phaser.Scene {
    * squashed, sheared toward the LOWER-LEFT away from the fixed top-right
    * sun, blurred soft, and alpha-baked pure black, so the runtime applies
    * no tint or alpha of its own). All geometry (position/scale/flip/depth)
-   * tracks the object through `applyGroundShadowGeometry`.
+   * tracks the object through `applyGroundShadowGeometry`. Returns null for
+   * a frame with no packed `_shadow` companion (T3.art-3: decor_fence casts
+   * no shadow) rather than falling back to the whole atlas image.
    */
-  private createGroundShadow(object: Phaser.GameObjects.Image): Phaser.GameObjects.Image {
-    const shadow = this.add.image(0, 0, ATLAS_KEY, `${object.frame.name}_shadow`);
+  private createGroundShadow(object: Phaser.GameObjects.Image): Phaser.GameObjects.Image | null {
+    const shadowFrame = `${object.frame.name}_shadow`;
+    if (!this.textures.get(ATLAS_KEY).has(shadowFrame)) return null;
+    const shadow = this.add.image(0, 0, ATLAS_KEY, shadowFrame);
     this.applyGroundShadowGeometry(shadow, object);
     return shadow;
   }
@@ -3414,6 +3528,121 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Build every region's sign and (while locked) its dim overlay (T3.3b). Signs
+   * are world objects that pan with the camera; their taps defer through the
+   * shared structure-tap helper like the expand sign. A region already unlocked
+   * at boot gets a hidden sign and no dim.
+   */
+  private createRegionPresentation(): void {
+    const state = gameState.getState();
+    for (const region of REGIONS) {
+      const sign = new RegionSign(this, region, (pointer) =>
+        this.handleStructureDown(pointer, () => this.tryPurchaseRegion(region)),
+      );
+      sign.refresh(state);
+      this.regionSigns.set(region.id, sign);
+      if (!state.regionsUnlocked.includes(region.id)) {
+        this.regionDims.set(region.id, this.createRegionDim(region));
+      }
+    }
+  }
+
+  /** One region's locked-land dim rectangle (T3.3b) - see REGION_DIM_* constants. */
+  private createRegionDim(region: RegionDef): Phaser.GameObjects.Rectangle {
+    const westX = region.placeableRect.minX;
+    const width = WORLD_MIN_X + WORLD_WIDTH - westX;
+    return this.add
+      .rectangle(
+        westX + width / 2,
+        WORLD_MIN_Y + WORLD_HEIGHT / 2,
+        width,
+        WORLD_HEIGHT,
+        REGION_DIM_COLOR,
+        REGION_DIM_ALPHA,
+      )
+      .setDepth(REGION_DIM_DEPTH);
+  }
+
+  /**
+   * Re-derive every region sign's visibility from state on the tick (T3.3b),
+   * and drop a dim overlay left over from a dev import/reset that unlocked a
+   * region (the real-purchase fade removes its own dim from the map first, so
+   * this only ever catches the no-fade cases).
+   */
+  private refreshRegionSigns(): void {
+    const state = gameState.getState();
+    for (const sign of this.regionSigns.values()) sign.refresh(state);
+    for (const [id, dim] of this.regionDims) {
+      if (state.regionsUnlocked.includes(id)) {
+        dim.destroy();
+        this.regionDims.delete(id);
+      }
+    }
+  }
+
+  /**
+   * Fade out and destroy a region's dim overlay (T3.3b, ~400ms). Removed from
+   * the map FIRST so `refreshRegionSigns` never yanks it mid-fade.
+   */
+  private fadeOutRegionDim(regionId: string): void {
+    const dim = this.regionDims.get(regionId);
+    if (dim === undefined) return;
+    this.regionDims.delete(regionId);
+    this.tweens.add({
+      targets: dim,
+      alpha: 0,
+      duration: REGION_DIM_FADE_MS,
+      ease: 'Sine.easeOut',
+      onComplete: () => dim.destroy(),
+    });
+  }
+
+  /**
+   * A region sign's tap outcome (T3.3b): below the level gate -> refusal wiggle
+   * + a "Reach level N" float; enough level but short on coins -> the expand
+   * sign's insufficient-funds nudge; affordable -> purchase (no extra confirm -
+   * the 5C grant popup is the ceremony), fanfare + buzz, dim fade, and the
+   * one-time two-finger-pan hint armed for once the popup closes. The store's
+   * `purchaseRegion` re-validates, so a refused purchase falls back to the
+   * insufficient-funds nudge. Level is checked before coins to match the store.
+   */
+  private tryPurchaseRegion(region: RegionDef): void {
+    const sign = this.regionSigns.get(region.id);
+    const state = gameState.getState();
+    if (state.regionsUnlocked.includes(region.id)) return;
+    if (state.level < region.levelGate) {
+      sign?.wiggle();
+      this.worldFloatingText.show(
+        region.signPosition.x,
+        region.signPosition.y + REGION_SIGN_FEEDBACK_OFFSET_Y,
+        `Reach level ${region.levelGate}`,
+        REGION_REFUSAL_TEXT_OPTIONS,
+      );
+      return;
+    }
+    if (state.coins < region.costCoins || !gameState.purchaseRegion(region.id)) {
+      sign?.flashInsufficientCoins();
+      return;
+    }
+    this.audio.expandFanfare();
+    buzz(HAPTIC_MEDIUM_MS);
+    this.fadeOutRegionDim(region.id);
+    sign?.refresh(gameState.getState());
+    if (!gameState.getState().twoFingerHintShown) this.pendingTwoFingerHint = true;
+  }
+
+  /** Show the one-time two-finger-pan hint (T3.3b) and persist that it was shown. */
+  private showTwoFingerHint(): void {
+    this.uiFloatingText.show(
+      TWO_FINGER_HINT_POSITION.x,
+      TWO_FINGER_HINT_POSITION.y,
+      TWO_FINGER_HINT_TEXT,
+      TWO_FINGER_HINT_OPTIONS,
+    );
+    gameState.markTwoFingerHintShown();
+  }
+
+  /**
    * Re-derive placed decorations from state (T3.9): the simplest correct
    * thing at the placement-budget caps (T3.3a2) - rebuild the whole sprite (+
    * ground shadow) list whenever the decorations array differs from the last
@@ -3439,7 +3668,7 @@ export class FarmScene extends Phaser.Scene {
     if (json === this.lastDecorationsJson) return;
     this.lastDecorationsJson = json;
     for (const sprite of this.decorationSprites) sprite.destroy();
-    for (const shadow of this.decorationShadowSprites) shadow.destroy();
+    for (const shadow of this.decorationShadowSprites) shadow?.destroy();
     this.decorationSprites = [];
     this.decorationShadowSprites = [];
     for (const decoration of decorations) {
@@ -3502,7 +3731,7 @@ export class FarmScene extends Phaser.Scene {
       .setFlipX(decoration.flip)
       .setDepth(decoration.y);
     const shadow = this.decorationShadowSprites[index];
-    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    if (shadow) this.applyGroundShadowGeometry(shadow, sprite);
     if (!committed) this.shakeLockedPlot(sprite);
   }
 
@@ -3537,7 +3766,7 @@ export class FarmScene extends Phaser.Scene {
     if (updated === undefined) return;
     sprite.setScale(updated.scale);
     const shadow = this.decorationShadowSprites[index];
-    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    if (shadow) this.applyGroundShadowGeometry(shadow, sprite);
     if (this.decorSizingEnabled) this.logDecorSizing(index);
   }
 
@@ -3618,7 +3847,7 @@ export class FarmScene extends Phaser.Scene {
     if (updated === undefined) return;
     sprite.setFlipX(updated.flip);
     const shadow = this.decorationShadowSprites[index];
-    if (shadow !== undefined) this.applyGroundShadowGeometry(shadow, sprite);
+    if (shadow) this.applyGroundShadowGeometry(shadow, sprite);
   }
 
   /**
@@ -4039,6 +4268,17 @@ export class FarmScene extends Phaser.Scene {
     this.setDecorationSelection(null);
     this.setPlotSelection(null);
     this.setStructureSelection(null);
+    // A plot lift abandoned mid-exit never committed: snap the tile back to
+    // its saved position AND back down from PLOT_LIFT_DEPTH to the ground
+    // sub-layer band (T3.3b-r3) - state never changed, so the tick's
+    // position compare cannot catch either.
+    if (this.plotDragIndex !== null) {
+      const plot = gameState.getState().plots[this.plotDragIndex];
+      if (plot !== undefined) {
+        const { x, y } = gridToIso(plot.col, plot.row);
+        this.plotTileSprites[this.plotDragIndex]?.setPosition(x, y).setDepth(this.plotTileDepth(y));
+      }
+    }
     this.plotDragIndex = null;
     this.structureDragId = null;
     // A lift can only be pending/active mid-exit via a second finger on
@@ -4163,7 +4403,7 @@ export class FarmScene extends Phaser.Scene {
     this.plotDragCol = col;
     this.plotDragRow = row;
     const { x, y } = gridToIso(col, row);
-    this.plotTileSprites[this.plotDragIndex]?.setPosition(x, y).setDepth(this.plotTileDepth(y));
+    this.plotTileSprites[this.plotDragIndex]?.setPosition(x, y).setDepth(PLOT_LIFT_DEPTH);
   }
 
   /**
@@ -4274,11 +4514,19 @@ export class FarmScene extends Phaser.Scene {
     return best;
   }
 
-  /** The placeable hidden-grid tile set as "col,row" keys, built once. */
+  /**
+   * The placeable hidden-grid tile set as "col,row" keys (T3.3b: region-aware).
+   * Rebuilt whenever `regionsUnlocked` changes - so a region purchase opens the
+   * band to the structure preview / dev overlay without a reload - and cached
+   * by that signature otherwise.
+   */
   private getPlaceableTileKeys(): Set<string> {
-    if (this.placeableTileKeys === null) {
+    const regionsUnlocked = gameState.getState().regionsUnlocked;
+    const sig = regionsUnlocked.join('|');
+    if (this.placeableTileKeys === null || sig !== this.placeableTileKeysSig) {
+      this.placeableTileKeysSig = sig;
       this.placeableTileKeys = new Set(
-        placeablePlotTiles().map((tile) => `${tile.col},${tile.row}`),
+        placeablePlotTiles(regionsUnlocked).map((tile) => `${tile.col},${tile.row}`),
       );
     }
     return this.placeableTileKeys;
@@ -4314,21 +4562,19 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Live footprint preview (T3.3s-r2; raised above ground-level sprites in
-   * T3.3s-r2c): for the anchor nearest the lifted structure's current
+   * Live footprint preview (T3.3s-r2; raised above ALL field objects in
+   * T3.3b-r2): for the anchor nearest the lifted structure's current
    * position (`structureDragCol/Row`), fill each footprint tile's diamond
-   * green (free) or red (blocked). Depth rides FOOTPRINT_PREVIEW_DEPTH_OFFSET
-   * below the lifted structure's own live depth - above plot tiles, crops,
-   * and decor, below the structure and its shadow - so a blocked tile reads
-   * as red shading over whatever stands on it, never hidden underneath
-   * (`updateLiftDrag` re-tracks the depth every move). Rebuilt only when
-   * the nearest anchor changes; destroyed when the lift ends.
+   * green (free) or red (blocked). Sits at the flat FOOTPRINT_PREVIEW_DEPTH,
+   * clear of every plot tile, crop and decoration a footprint can overlap,
+   * so a blocked tile ALWAYS reads as red shading over whatever occupies it
+   * - the earlier "just under the lifted structure" depth hid the red under
+   * any plot standing in front of the structure. Rebuilt only when the
+   * nearest anchor changes; destroyed when the lift ends.
    */
   private rebuildStructureFootprintPreview(id: StructureId): void {
     this.structureFootprintGraphics?.destroy();
-    const graphics = this.add
-      .graphics()
-      .setDepth(this.structureImage(id).depth + FOOTPRINT_PREVIEW_DEPTH_OFFSET);
+    const graphics = this.add.graphics().setDepth(FOOTPRINT_PREVIEW_DEPTH);
     this.structureFootprintGraphics = graphics;
     for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
       const col = this.structureDragCol + offset.col;
@@ -4376,7 +4622,7 @@ export class FarmScene extends Phaser.Scene {
       PLACEMENT_GRID_LINE_COLOR,
       PLACEMENT_GRID_LINE_ALPHA,
     );
-    for (const tile of placeablePlotTiles()) {
+    for (const tile of placeablePlotTiles(gameState.getState().regionsUnlocked)) {
       const { x, y } = gridToIso(tile.col, tile.row);
       graphics.beginPath();
       graphics.moveTo(x - TILE_WIDTH / 2, y);
@@ -4738,7 +4984,9 @@ export class FarmScene extends Phaser.Scene {
     this.arrangePlaceNextText.setText(`Place Next x${count}`);
     const enabled =
       session!.kind === 'decor' ||
-      placeablePlotTiles().some((tile) => isPlotTileFree(state, tile.col, tile.row));
+      placeablePlotTiles(state.regionsUnlocked).some((tile) =>
+        isPlotTileFree(state, tile.col, tile.row),
+      );
     this.arrangePlaceNextButton.setAlpha(
       enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
     );
@@ -4988,7 +5236,7 @@ export class FarmScene extends Phaser.Scene {
     const plotCount = state.unplacedPlots;
     const showPlotRow = plotCount > 0;
     if (showPlotRow) anyOwned = true;
-    const anyFreeTile = placeablePlotTiles().some((tile) =>
+    const anyFreeTile = placeablePlotTiles(state.regionsUnlocked).some((tile) =>
       isPlotTileFree(state, tile.col, tile.row),
     );
     this.plotShedRow.icon.setVisible(showPlotRow);
@@ -5261,7 +5509,8 @@ export class FarmScene extends Phaser.Scene {
         this.handleStructureDown(pointer, () => this.hud.toggleOrderBoard());
       },
     );
-    this.noticeBoardShadow = this.createGroundShadow(this.noticeBoardImage);
+    // Non-null: the notice board frame always has a packed shadow companion (T3.art-3).
+    this.noticeBoardShadow = this.createGroundShadow(this.noticeBoardImage)!;
 
     this.noticeBoardBadge = this.add
       .text(0, 0, '!', BADGE_TEXT_STYLE)

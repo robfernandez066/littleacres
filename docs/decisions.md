@@ -23,6 +23,32 @@ one sentence of verdict plus the ruling is enough, the diff is the record):
 
 ---
 
+## 2026-07-17 - T3.3b R1 East Meadow + placement-depth polish SHIPPED (one combined commit)
+
+**Context:** R1 regions plus a run of on-device fixes (base/band seam gap, notice-board footprint, decor/structure depth over plots, fence shadow removal, birdbath reskin) all landed uncommitted in one tree sharing FarmScene/atlas, forcing a combined commit.
+
+**Decision:** USER TEST passed; shipped as ONE commit (schema v19, tests 503): purchasable East Meadow (7,500 coins / L7, +6 plots, cap 22, region sign + dim overlay + one-time two-finger hint), region-aware placement domain with base+band merged (seam gap fixed), 5-tile notice-board footprint, plots re-layered as a y-ordered ground sub-layer below all standing objects so decor/crops/structures render on top (owner pick B), fence casts no shadow, birdbath art. Owner checkpoint (sweep-vs-pan) before R2/R3.
+
+**Art Studio sync flags owed (owner re-syncs tool at leisure):** WORLD_WIDTH 1440->1952; DECOR_X/Y_MIN/MAX now derived from PLOT_PLACEABLE_* (not plain literals); STRUCTURE_FOOTPRINT_OFFSETS.noticeBoard 1->5 tiles (anchor now included); placeable domain is region-aware (new blocker class for the tool's debug panel).
+
+**Trigger:** T3.3b + r1/r2/r3/r3b reports, 2026-07-17.
+
+## 2026-07-17 - T3.3b R1 East Meadow NUMBERS LOCKED (owner picks); prompt issued
+
+**Context:** The land-camera FINAL v3 contract requires owner approval of region numbers at prompt time; R1 geometry was never locked.
+
+**Decision:** R1 = a 4-tile-column east band (world grows 512px east, visible dimmed pre-purchase, camera can pan over it); grants 6 plots via the existing 5C flow with the entitlement cap rising 16 -> 22; price 7,500 coins, level-7 gate; purchase via a region sign (reused sign art) standing inside the locked band. Schema v19 (regionsUnlocked + one-time two-finger-pan-hint flag); decor/fence clamp-bounds growth folds in; tint-dim fallback until overgrowth art lands.
+
+**Trigger:** Owner picks 1A / 2A / 7,500-at-L7 / 4A, 2026-07-17.
+
+## 2026-07-17 - Fence-snap redesign DROPPED (owner)
+
+**Context:** The redesign had been deferred pending an owner Art Studio mockup; the era bundle shipped with current fence behavior.
+
+**Decision:** Dropped entirely - the shipped chain-snap + plot-edge-snap model (with the accepted apex-notch gate look) is final. Removed from the queue; the future fence-gate art piece is a separate owner-paced item and is unaffected.
+
+**Trigger:** Owner instruction, 2026-07-17.
+
 ## 2026-07-17 - T3.3s-r2e review PASS (both rounds) -> USER TEST (2-minute look), then the era-bundle commit
 
 **Context:** Art Studio structure sync applied per the 2026-07-17 owner ruling: farmhouse 2x2 footprint + (137,9) render offset, board single-tile footprint + (116,-11) offset, positions re-derived to (933,521)/(912,1269); anchor tiles now deliberately outside both footprints. Mid-task incident: the coder "repaired" the owner's deliberate single-tile board edit as corruption - owner hand-edits must reach the PM or arrive as change requests (rule recorded in pm-process.md).

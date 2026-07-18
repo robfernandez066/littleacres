@@ -36,6 +36,16 @@ const ROW_SFX_Y = 120;
 const ROW_VIBRATION_Y = 270;
 const ROW_LABEL_X = -PANEL_WIDTH / 2 + 40;
 
+/** Static two-finger-pan tip (T3.3b), between the Vibration row and the save buttons. */
+const HINT_ROW_Y = 355;
+const HINT_TEXT = 'Tip: drag with two fingers to pan from anywhere.';
+const HINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '26px',
+  color: '#4a3218',
+  wordWrap: { width: PANEL_WIDTH - 80 },
+};
+
 const SAVE_BUTTON_ROW_Y = 420;
 const SAVE_BUTTON_WIDTH = 260;
 const SAVE_BUTTON_HEIGHT = 70;
@@ -224,6 +234,13 @@ export class SettingsPanel {
         setOn: (on) => gameState.setHapticsOn(on),
       }),
     );
+
+    // Static two-finger-pan tip (T3.3b) - the same sentence the one-time
+    // post-region-purchase hint shows, kept permanently discoverable here.
+    const hintText = this.scene.add
+      .text(ROW_LABEL_X, HINT_ROW_Y, HINT_TEXT, HINT_STYLE)
+      .setOrigin(0, 0.5);
+    this.container.add(hintText);
 
     this.exportLabel = this.buildSaveButton(SAVE_BUTTON_LEFT_X, 'Export Save', () =>
       this.onExportPress(),

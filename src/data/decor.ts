@@ -3,6 +3,14 @@
  * self-expression system. All game data lives here, never in scene/UI logic.
  */
 
+import {
+  PLOT_PLACEABLE_MAX_X,
+  PLOT_PLACEABLE_MAX_Y,
+  PLOT_PLACEABLE_MIN_X,
+  PLOT_PLACEABLE_MIN_Y,
+  REGIONS,
+} from './farm';
+
 export type DecorCurrency = 'coins' | 'moondust';
 
 export interface DecorItemDef {
@@ -109,11 +117,55 @@ export function fenceOwnedCount(
 export const MAX_DECOR_ITEMS = 50;
 export const MAX_FENCES = 60;
 
-/** `setDecorationTransform` clamp bounds (the arrange mode's drag range). */
-export const DECOR_X_MIN = 0;
-export const DECOR_X_MAX = 1080;
-export const DECOR_Y_MIN = 380;
-export const DECOR_Y_MAX = 1520;
+/**
+ * BASE `setDecorationTransform` clamp bounds (the arrange-mode drag range with
+ * NO region unlocked). T3.3b, two changes rolled together:
+ * (1) SHAPE/VALUE change (flagged - the Art Studio parse surface reads these):
+ *     the legacy hand-tuned rect (x 0..1080, y 380..1520) grew to cover the
+ *     full BASE plot-placeable rect, so decor may sit anywhere a plot may -
+ *     these now DERIVE from PLOT_PLACEABLE_* (west mere reserve and south
+ *     seed-bar dead band respected exactly as the plot rect does), folding in
+ *     the flagged backlog fix.
+ * (2) The LIVE clamp authority is now `decorClampBounds(regionsUnlocked)` (see
+ *     below), region-aware so an unlocked band becomes decoratable. These
+ *     constants remain as the base (no-region) bounds it starts from.
+ */
+export const DECOR_X_MIN = PLOT_PLACEABLE_MIN_X;
+export const DECOR_X_MAX = PLOT_PLACEABLE_MAX_X;
+export const DECOR_Y_MIN = PLOT_PLACEABLE_MIN_Y;
+export const DECOR_Y_MAX = PLOT_PLACEABLE_MAX_Y;
+
+/** The four clamp edges `setDecorationTransform` pins a decoration inside. */
+export interface DecorClampBounds {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+/**
+ * THE decoration clamp authority (T3.3b): the base rect (DECOR_*_MIN/MAX),
+ * UNIONed with the placeableRect of every unlocked region so a purchased band
+ * is decoratable too. Locked-region tiles stay outside the box, so a decor
+ * drag into locked land clamps back to the boundary (the same edge-clamp
+ * feedback the base rect edges already give). `setDecorationTransform` and the
+ * scene's fence-snap candidate filter both go through this one function.
+ */
+export function decorClampBounds(regionsUnlocked: readonly string[]): DecorClampBounds {
+  let minX = DECOR_X_MIN;
+  let maxX = DECOR_X_MAX;
+  let minY = DECOR_Y_MIN;
+  let maxY = DECOR_Y_MAX;
+  for (const region of REGIONS) {
+    if (!regionsUnlocked.includes(region.id)) continue;
+    const rect = region.placeableRect;
+    minX = Math.min(minX, rect.minX);
+    maxX = Math.max(maxX, rect.maxX);
+    minY = Math.min(minY, rect.minY);
+    maxY = Math.max(maxY, rect.maxY);
+  }
+  return { minX, maxX, minY, maxY };
+}
 export const DECOR_SCALE_MIN = 0.35;
 /**
  * The scale ceiling (owner decision 2026-07-13, playtester-requested) for
