@@ -317,6 +317,7 @@ export const DRESSING_PALETTE_FRAMES = [
   'stone_a',
   'stone_b',
   'stone_c',
+  'grass_1',
 ] as const;
 
 /**

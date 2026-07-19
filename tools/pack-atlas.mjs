@@ -197,7 +197,7 @@ const SIGN_NAMES = ['sign'];
 /** Single static objects that sit on a tile like a crop, but have no growth stages. */
 const CHEST_NAMES = ['chest_closed', 'chest_open'];
 /** Decals (T2.28; v2 tufts added 2026-07-12): trim-fit-center square like the icons above, at 96x96. */
-const DECAL_NAMES = ['tuft_1', 'tuft_2', 'tuft_1v2', 'tuft_2v2', 'dirt_wisp'];
+const DECAL_NAMES = ['tuft_1', 'tuft_2', 'tuft_1v2', 'tuft_2v2', 'dirt_wisp', 'grass_1'];
 const DECAL_SIZE = 96;
 /** Decal rock cluster (T2.28), same treatment, at 128x128. */
 const STONE_CLUSTER_NAMES = ['stones_1'];
