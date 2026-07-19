@@ -1,0 +1,17 @@
+{
+  "frame": "farmhouse_shadow",
+  "logicalWidth": 412,
+  "logicalHeight": 385,
+  "sourceFrameRect": {
+    "x": 131,
+    "y": 24,
+    "width": 256,
+    "height": 256
+  },
+  "anchor": {
+    "x": 259,
+    "y": 280
+  },
+  "tuckRatio": 0,
+  "description": "The anchor is the bottom-center of the conceptual 256x256 farmhouse registration frame and maps to farmhouseImage.x/y."
+}

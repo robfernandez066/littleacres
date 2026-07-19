@@ -21,6 +21,7 @@ import {
   type StructureId,
   SHADOW_CANVAS_PAD,
   SHADOW_TUCK_RATIO,
+  SHADOW_PLACEMENT_OVERRIDES,
   TILE_DIAMOND_CENTER_Y,
   TILE_FRAME_HEIGHT,
   WORLD_HEIGHT,
@@ -3796,6 +3797,33 @@ export class FarmScene extends Phaser.Scene {
   ): void {
     const canvasW = shadow.frame.realWidth;
     const canvasH = shadow.frame.realHeight;
+    // Authored-shadow branch (T3.28): a hand-authored `<frame>_shadow` (see
+    // SHADOW_PLACEMENT_OVERRIDES + tools/shadow-overrides) carries its own
+    // contact geometry, so it places its explicit logical anchor directly on the
+    // object's ground point - NO generic tuck, NO SHADOW_CANVAS_PAD origin
+    // formula. The generated-shadow path below is unchanged for every other
+    // object (decor, trophies, notice board, sign).
+    const authored = SHADOW_PLACEMENT_OVERRIDES[String(shadow.frame.name)];
+    if (authored !== undefined) {
+      if (canvasW !== authored.logicalWidth || canvasH !== authored.logicalHeight) {
+        throw new Error(
+          `${shadow.frame.name}: runtime logical size ${canvasW}x${canvasH} does not ` +
+            `match authored metadata ${authored.logicalWidth}x${authored.logicalHeight}`,
+        );
+      }
+      if (opts.flipX) {
+        throw new Error(
+          `${shadow.frame.name}: authored farmhouse shadow does not support horizontal flipping`,
+        );
+      }
+      shadow
+        .setOrigin(authored.anchorX / canvasW, authored.anchorY / canvasH)
+        .setPosition(opts.x, opts.baseY - canvasH * opts.scaleY * authored.tuckRatio)
+        .setScale(opts.scaleX, opts.scaleY)
+        .setFlipX(false)
+        .setDepth(opts.depth);
+      return;
+    }
     const originX = (canvasW - SHADOW_CANVAS_PAD - opts.sourceFrameWidth / 2) / canvasW;
     shadow
       .setOrigin(opts.flipX ? 1 - originX : originX, SHADOW_CANVAS_PAD / canvasH)

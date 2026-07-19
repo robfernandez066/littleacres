@@ -338,5 +338,32 @@ export const DRESSING_PALETTE_FRAMES = [
  *   object frame's own width it locates the un-sheared base edge inside
  *   the shadow's (trim-metadata-restored) canvas.
  */
-export const SHADOW_TUCK_RATIO = 0.45;
+export const SHADOW_TUCK_RATIO = 0.28;
 export const SHADOW_CANVAS_PAD = 12;
+/**
+ * Authored-shadow overrides (T3.28): explicit runtime placement for an authored
+ * `<frame>_shadow` whose companion PNG was hand-authored (tools/shadow-overrides)
+ * rather than generated. Values are EXACT integer logical-canvas pixels, kept in
+ * lockstep with tools/shadow-overrides/farmhouse_shadow.json so the registration
+ * stays inspectable (not normalized). `anchor` is the conceptual 256x256 farmhouse
+ * frame's bottom-center, in logical-canvas pixels; it maps to farmhouseImage.x/y.
+ * tuckRatio is 0: the authored shadow carries its own contact geometry, so the
+ * generic SHADOW_TUCK_RATIO / SHADOW_CANVAS_PAD math must not touch it.
+ */
+export interface ShadowPlacementOverride {
+  logicalWidth: number;
+  logicalHeight: number;
+  anchorX: number;
+  anchorY: number;
+  tuckRatio: number;
+}
+
+export const SHADOW_PLACEMENT_OVERRIDES: Readonly<Record<string, ShadowPlacementOverride>> = {
+  farmhouse_shadow: {
+    logicalWidth: 412,
+    logicalHeight: 385,
+    anchorX: 259,
+    anchorY: 280,
+    tuckRatio: 0,
+  },
+};
