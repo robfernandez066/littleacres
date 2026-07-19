@@ -1,47 +1,76 @@
-# Little Acres - Status (snapshot)
+# Little Acres - Status
 
-Present-tense state only. History lives in decisions.md and git. Process
-rules: private/misc/pm-process.md (PM/owner loop) and CLAUDE.md (canonical coder guide;
-AGENTS.md is a pointer stub for non-Claude agents).
+**Updated:** 2026-07-19
+**Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, and the farmhouse authored cast-shadow all SHIPPED. Authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md) delivered as shadow-workflow-t329.diff - pending owner apply + commit.
+**Schema:** v20 · **Tests:** 525 (526 with the pending workflow diff) · **Live:** robfernandez066.github.io/littleacres/
 
-**Updated:** 2026-07-17
-**Header facts (change ONLY on an owner-confirmed commit):** Schema v19 · Tests 503 · Live: robfernandez066.github.io/littleacres/ · Last confirmed hash: 628807e (T3.3s-r2..r2e); the T3.3b bundle commit's hash fills on the next git log paste
+## Active
 
-## Active (not yet committed+pushed)
-
-- T3.3b R1 East Meadow bundle: USER TEST PASSED, COMMITTING NOW (one combined commit; schema v19, tests 503). Owner runs the commit + push, then pastes git log to fill the header hash. See decisions.md 2026-07-17.
+- **Recent ships (2026-07-18/19):** restoration v1 farmhouse (art-swap, schema v20, commit 1353688); base-anchor structures + dev farmhouse transform knobs (commit 189ffa3, msg T3.26+T3.27); farmhouse authored ground-footprint cast-shadow (committed by owner). Authored-shadow workflow (T3.29) delivered as a diff (git apply --3way), pending apply/commit. Sweep-vs-pan checkpoint CLOSED. Farmhouse flip parked. NOTE: entries below this line are older (pre-2026-07-18) and not fully reconciled.
+- **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
+- **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
+- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a SHIPPED 2026-07-15.** **T3.21a audio race fix SHIPPED pending push** (crossfade/destroy teardown ordering; friend-tester console error closed). **CAMERA PACKAGE SHIPPED 2026-07-15 (T3.4a+b+c):** pan/pinch/bounds/recenter live with deferred structure+crop taps; Tests 379. Real-phone LAN testing (npm run dev -- --host) is the standing pre-commit path for touch work. Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
+- Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
 
 ## Queue
 
-1. Post-commit: phone look at the live deployed site (era bundle + T3.3b).
-2. Owner checkpoint: sweep-vs-pan at scale (protocol parked at docs/design/sweep-vs-pan-checkpoint.md) before R2/R3 lock.
-3. Grid-line alpha on meadow: re-judge on phone; one-constant tune if wanted.
-4. T3.3c mere composite + Shore - needs the owner art batch per docs/design/mere-art-direction.md.
-5. Owner art track (owner-paced): fence gate piece (prompt issued), dressing redress in the new era, remaining decor/trophy regen, mere parts. Staged future assets (coop, moonhen, windmill parts) wait for their features; see decisions archive 2026-07-13/-15 for their picks.
-6. After land/camera ships: full-farm rearrangement design conversation, then restoration design (docs/design/restoration-boundary.md; PM perk menu due then).
+1. T3.3a-r3 + r3b SHIPPED 2026-07-16 (one commit): long-press pickup + 1.5s post-drop grace; arrange mode pan-safe; combined phone pass green. Watch item: iso-depth can put a plot tile atop just-dropped decor on the field, muting grace there (spec-conformant; follow-up only if owner feels it).
+2. T3.3a2 + r3c + r1 SHIPPED 2026-07-17 (3054160; tests 455). T3.art-1 + T3.art-2 reviews PASS - awaiting owner: save sanity-check (SAVE INCIDENT: row-3 crops lost, coins estimated 1500), one owner pack:atlas re-run, then TWO commits (code: art-1+2; art: atlas incl. notice board + crop soil). T3.3s movable structures PROMPT ISSUED (fresh session, schema v18). T3.3s+r1+r1b SHIPPED 2026-07-17 (schema v18, tests 474): movable farmhouse/board with full mutual exclusion. THE ERA BUNDLE (r2+r2b+r2c+r2d) code-complete, ALL reviews PASS, awaiting FINAL owner phone pass then ONE commit: free-follow structure drag (nearest-legal 192px), symmetric 3x3 farmhouse footprint, green/red preview above crops, faint placement grid (grid-snapped lifts only), dev.footprints(), meadow ground world-wide (texture_a default), pack-time directional cast shadows (sun top-right, 18 <frame>_shadow companions, atlas +3.1%), farmhouse 420, board 240, linter ignores for private areas. Owner deferrals: fence-snap redesign awaits owner's Art Studio mockup; grid-line alpha re-judge on meadow. Watch: farmhouse/board tap-feel, stale .git\index.lock. T3.3a2 detail: fences fixed 1.20 + post-overlap chain snap (pitch 85,41 + 4 corner junctions, pixel-proven flush), sizing table, budgets 50/60, schema v17 (tests 451 pending commit). NEW FOLLOW-UP FLAGGED: decor/fence clamp bounds still legacy (y 380..1520) while plots reach the r2 apron - apron plot blocks cannot be fence-outlined; grow decor bounds (fold into T3.3b prompt or small T3.3a2x) -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
+3. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
+4. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
+5. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)
+6. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
+7. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
+
+## Open validations (real-player / device evidence still required, not findings that passed)
+
+- WYWA foreground-summary threshold feel (after T3.20)
+- Camera feel pass on the LIVE site from a real phone (post T3.4 deploy; LAN dev testing covered mechanics)
+
+## Waiting on user (whenever convenient)
+
+- Cleanup on your machine (PM cannot delete files there): the original review copy under your local .codex visualizations folder (dated 2026-07-14), and the repo's _to_delete\ folder (stale git-lock artifact + accumulated review diffs; now gitignored)
+
+## Staged future assets (tools/art-staging, NOT packed - owner picks 2026-07-13)
+
+- MERE SPRITE REJECTED (owner 2026-07-15: too small, doesn't fit; already off-screen long ago - packed but unused) - regenerate AFTER the T3.3 design fixes world dimensions, batched with overgrowth/region art + the restoration dock's ruined stage-0.
+
+- Phase 4A: coop.png (magical-bird roost, open-rail run), moonhen.png (first creature; lays Moon Eggs)
+- Phase 4: windmill_body.png (hub axle in roof dormer) + windmill_blades.png (face-on symmetric cross, rotates in code around its center; slow always, faster while producing) + windmill_static_backup.png (fallback if the split composite disappoints)
+- Naming/frame ids get locked when the features are wired; art generated ahead of design on purpose.
+
+## Backlog nits (fold into convenient tasks)
+
+- T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center; 2026-07-14 review adds a ghost-drag-confirm option), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
+- Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
+- Comment re-attachment: registerDressingEditorHooks's doc comment floats above registerDecorSizingToggle (T3.27 nit, dev.ts) - fix when a task touches dev.ts. (The FarmScene half CLEARED 2026-07-16: T3.3a-r3 coder verified the float healed during the placement-saga rewrites.)
+- DevOverlay 'Edit dressing' toggle renders full-width (block vs inline styling slip; dev-only cosmetic, owner 2026-07-15) - ride the next task touching dev files
+- Decor per-item sizing table DELIVERED (owner, 2026-07-15, via dev.decorSizing): per-item default = max scale, full table in decisions.md - ships as decor.ts config in T3.3a2 (with clamp-down migration for over-max placements)
+- Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice
+- MAX-level polish: order cards still advertise xp at the cap - de-emphasize or annotate (review nit, 2026-07-14)
+- Reduced-motion toggle: explicit earlier candidate (owner, 2026-07-14) - ride a convenient settings task; the T7.5 full accessibility pass must not absorb present-day usability defects (readability/touch targets land with T3.23)
 
 ## Blockers
 
 - None.
 
-## Waiting on owner
+## Watch items
 
-- Run the T3.3b combined commit + push, then paste git log (fills the header hash).
-- Post-deploy phone look at the live site (era bundle + T3.3b).
+- Broader save durability stays open after T3.17 (T3.17 is corruption recovery only): browser eviction + cross-device loss wait for later save work (T7.4 era).
+- PM environment (two stale-read incidents 2026-07-14): never run git through the device VM; never trust VM-mount reads or same-path restages of fresh writes. Standing review channel for fresh coder work: owner runs `git diff > _to_delete\tNNN-review.diff`, PM stages the new path.
 
-## Open validations (device/player evidence still required)
+## Standing notes
 
-- WYWA foreground-summary threshold feel (needs a natural long absence).
-- Camera feel on the LIVE site from a real phone (post-deploy).
-- Era bundle + T3.3b post-deploy look on the live site (after the commit).
-
-## Backlog nits (single home for these; fold into convenient tasks)
-
-- Seed-bar badge drag dead zone on its 96px hit square. (archive 2026-07-14, T3.23 review)
-- MAX-level order cards still advertise xp - de-emphasize. (archive 2026-07-14)
-- Reduced-motion toggle - ride a convenient settings task; T7.5 must not absorb present-day defects. (archive 2026-07-14)
-- DevOverlay "Edit dressing" renders full-width; dev-only cosmetic. (archive 2026-07-15)
-- dev.ts comment float above registerDressingEditorHooks - fix when a task touches dev.ts. (archive 2026-07-16; FarmScene half healed)
-- Dev-only expandFarm-after-overgrant edge - not special-cased. (archive 2026-07-16, T3.3a review)
-- T3.9c decorations polish pass - scope TBD from play. (archive 2026-07-12 entry list)
-- Partial crop selling (tester demand): DEFERRED to inventory-economy time (wave 4 with storage caps). (archive 2026-07-15)
+- PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md after every report/decision.
+- docs/private/ is gitignored: off-repo material lives there (currently the owner's monetization report, unread by decision - the starting point when that conversation opens).
+- Every task prompt carries a model recommendation (Fable5/Opus vs Sonnet) and a session marking; /clear is the default.
+- Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; each green task commits alone (2026-07-14; combined commits only when an intermediate tree would be broken).
+- Every USER TEST verdict ships with explicit numbered test steps - exact console pastes, what to tap, what to expect (owner rule, 2026-07-14).
+- Test scripts that mutate the save start with backup = dev.exportSave() and end with dev.importSave(backup) (2026-07-14).
+- Owner reports any manual art-file edit even if the filename is unchanged - gitignored masters feed the next pack:atlas silently (2026-07-14).
+- PM reviews fresh coder work via the owner-generated diff file (see Watch items); direct Reads only for files not freshly written.
+- Coder sessions may leave dev servers on 5177 - kill before starting your own.
+- Close stray game tabs during coder sessions (two-tab autosave overwrite).
+- Atlas regen script: `npm run pack:atlas`.
+- Authored building shadows (T3.29): a NEW building/structure that needs a shadow follows the assembly line in `docs/SHADOW_WORKFLOW.md` - `shadow:new` (scaffold from the packed source frame) -> draw -> `shadow:validate` -> `pack:atlas` -> `shadow:capture` and eyeball. Do not hand-craft; farmhouse is the reference; small decor keeps the generic generated shadow. The JSON manifest is the source of truth (anchor DERIVED, runtime table GENERATED). Real Phaser image required for approval, never anchorDelta alone.
+- Sprixen workflow: one style-reference image per project - emberpepper_2 while generating crops, swap to the farmhouse for structures/decor batches.

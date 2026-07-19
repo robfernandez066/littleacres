@@ -1,137 +1,190 @@
-# Little Acres - Implementation Roadmap (forward-looking)
+# Little Acres - Implementation Roadmap v0.1 (Claude Code Task Breakdown)
 
 Tech stack: **Phaser 3 + TypeScript + Vite**, web-first PWA, Capacitor wrap in Phase 8.
 
 ## How to use this document
 
-Two-agent loop, human as courier: the PM writes self-contained task prompts
-(all design context baked in, no `docs/` references), the coder (Claude Code)
-implements and files the report template from `CLAUDE.md` (canonical coder
-guide; `AGENTS.md` is a pointer stub for non-Claude agents), the human pastes prompts and
-reports between them and runs all git. The PM reviews every diff and answers
-each report with exactly one verdict: COMMIT / USER TEST / CODER FIX / NEXT
-TASK, then keeps `status.md` (snapshot) and `decisions.md` (log, single
-source of truth). Full process detail: `private/misc/pm-process.md`.
+This project runs through a two-agent workflow with you (the human) in the loop as courier:
 
-This file is FORWARD-LOOKING ONLY: current scope, wave/hold status, and dated
-pointers into `decisions.md` (or its archives). Task history lives in git and
-the decision log. Tasks within a phase are ordered by dependency. After each
-phase: play the game; a phase ends with a "play it" gate and the roadmap may
-change at every gate - it is a plan, not a contract.
+- **The PM (project manager agent)** owns `docs/` - this roadmap, the GDD, `status.md`, and `decisions.md` - and turns roadmap tasks into self-contained prompts.
+- **The coder (Claude Code)** does the implementation. It never reads `docs/`; every piece of design context it needs is baked into the task prompt the PM writes.
+- **You** paste the PM's task prompt into Claude Code, then paste Claude Code's end-of-task report back to the PM.
+
+The loop for each task:
+
+1. **PM writes a self-contained task prompt** for the next task (all design context, acceptance criteria verbatim, no reference to `docs/`).
+2. **You paste it into Claude Code.** Claude Code implements it and returns its end-of-task report (template in `CLAUDE.md`). It does not commit or push.
+3. **You paste the report back to the PM.**
+4. **The PM interprets the report and responds with exactly one of:**
+   - **COMMIT** - report checks out and acceptance is met; commit the working tree as-is (the PM supplies a commit message).
+   - **USER TEST** - acceptance needs human play/feel testing; the PM tells you what to try, and you report back before it decides.
+   - **CODER FIX** - a gap, bug, or unmet criterion; the PM issues a follow-up fix prompt for Claude Code.
+   - **NEXT TASK** - this task is fully resolved; the PM hands over the next task's prompt.
+5. **The PM updates `status.md` and `decisions.md` itself after every report.** You never edit those.
+
+Conventions and process notes:
+
+- `CLAUDE.md` at the repo root is **authored and maintained by the PM** (not created in T0.1). It carries the global conventions below plus the standing rules (never read `docs/`, never commit/push) and the mandatory report template.
+- Tasks within a phase are ordered by dependency; don't parallelize within a phase unless noted.
+- Every task lists **Acceptance criteria** - the PM copies these verbatim into the prompt so the coder knows when it's done.
+- After each phase: play the game yourself. If it isn't fun/feeling right, tell the PM before moving on. Juice problems compound.
+
+### Global conventions (mirrored into CLAUDE.md so the coder applies them to every task automatically)
+
+- TypeScript strict mode; no `any` unless justified in a comment.
+- All game data (crops, orders, levels, prices) lives in typed JSON/TS config files under `src/data/` - never hardcoded in scene logic.
+- Game state is a single serializable object managed by a `GameState` store; scenes render from state, never own it.
+- All timers derive from real timestamps (`Date.now()`), never accumulated frame deltas - this makes offline progress free.
+- Object pooling for particles, floating text, and coin sprites.
+- Target 60fps on mid-range phones; portrait 1080x1920 design resolution with responsive scaling.
+- No em dashes in any user-facing text; use regular dashes.
 
 ---
 
 ## Phase 0 - Skeleton - COMPLETE
 
-Closed 2026-07-07 (T0.1-T0.5: scaffold, PWA + deploy, asset pipeline, GameState store, dev overlay). Task-by-task detail lives in git history and the decisions archive.
+Closed 2026-07-07 (T0.1-T0.5: scaffold, PWA + deploy, asset pipeline, GameState store, dev overlay). Task-by-task detail lives in git history and decisions.md.
 
 ---
 
 ## Phase 1 - MVP Core Loop - COMPLETE
 
-Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game too thin" superseded the week-long gate). Task-by-task detail lives in git history and the decisions archive.
+Closed 2026-07-10 (T1.1-T1.12 + play gate, closed early per decisions - "game too thin" superseded the week-long gate). Task-by-task detail lives in git history and decisions.md.
 
 ---
 
-## Phase 2 - Juice + Quality of Life - COMPLETE
+## Phase 2 - Juice + Quality of Life (originally est. 6-8 tasks; grew to ~18 in the 2026-07-10 re-cut)
 
-Closed with the content-pivot re-cut delivered in full (T2.1-T2.18 + chest v1 + balance sheet) and the playtest gate, rescoped to one tester, whose positive evidence landed 2026-07-14. Detail: git history, decisions archives (2026-07-10 re-cut; 2026-07-14 gate evidence), docs/design-review-2026-07-10.md.
+**Goal:** make the MVP *feel* shippable.
+
+**RE-CUT 2026-07-10 (design-review triage; see docs/design-review-2026-07-10.md + decisions.md):** the gate verdict was "too thin," so content now outranks polish. Phase 2 absorbs a content wave: T2.2 and T2.5 promoted to the active queue; new tasks T2.16 (save durability), T2.17 (SW update toast), T2.18 (content injection: 2 crops + level cap raise + max-level UX, numbers from the balance sheet); the balance spreadsheet moves from "alongside Phase 3" to NOW (PM-built, before T2.18); T2.13's art sitting expands to include the mere backdrop and the plot-tile footprint fix; chest v1 pulled forward from T3.7 (after T2.5); T2.12's escalation cap reduced 10min -> 60s (Pillar 2); Phase 2 closes with an external playtest mini-gate (3-5 fresh installs). Sequencing exploits the two tracks: PM spreadsheet + user Sprixen art run in parallel with small coder tasks, so polish fills coder idle time instead of delaying content. Current order lives in status.md.
+
+- **T2.1** Haptics (Vibration API): light on harvest, medium on order complete, pattern on level-up; settings toggle.
+- **T2.2** Smart replant: after harvesting, a brief "replant Sunwheat?" chip appears; one tap replants all just-harvested plots (if affordable).
+- **T2.3** Squash/stretch + anticipation pass: all buttons, plots, chests; ready-crop idle bounce tuning; screen-edge glow when any crop is ready.
+- **T2.4** Offline summary v2: collect-all button, coins/XP earned display, capped-at line item (future-proofing for storage).
+- **T2.5** Moondust earning: awarded on level-up and rare harvest procs (config-driven rare variant: e.g., 2% Radiant crop = 5x value + sparkle burst + Moondust chance). No sinks yet beyond a "coming soon" shop tab.
+- **T2.6** Real asset pack integration: purchase/import isometric farm pack, swap placeholders, document palette/scale rules in `ASSETS.md`. Include an occupied-plot tile variant: empty plots keep the tilled multi-square look, but a plot with something planted should read differently (gradient or solid brown dirt). Requires a new atlas frame (e.g. `plot_occupied`) and a one-line render switch in FarmScene keyed on plot state (user request, 2026-07-07). Also needs a dedicated `moondust` icon frame - the HUD currently flat-tints the coin frame blue as a placeholder (user request, 2026-07-08).
+- **T2.7** SFX/music v2: sourced or licensed lo-fi loop + polished big-four SFX. Coin fly-in sound flagged weak in the Phase 1 gate notes - replacement chosen by user audition (standing method).
+- **T2.8** Performance pass: profiling on a real mid-range phone, pooling audit, texture memory check.
+- **T2.9** Tutorial rails (from Phase 1 gate notes): full lock - only the current step's action works; sell/bag steps removed; chain 15 -> 10; Order A reward 63 -> 95; plant-mixed per-crop caps; v8 migration.
+- **T2.10** "While you were away" redesign (gate notes): "While You Were Away for X Hr Y min" title, per-crop "n Crop Ready" lines, Confirm button, sweep-hint line removed.
+- **T2.11** Dynamic order-card layout (gate notes): 1 item type = large centered, 2 = centered pair, 3 = smaller single row.
+- **T2.12** Order-skip cooldown escalation (gate notes; MODIFIED 2026-07-10 per design review vs Pillar 2): 3s base, ~5x per skip, cap reduced to 60s (was 10min - a multi-minute lockout for a button we provide punishes, and skipping is often rational with few crops), counter resets when last skip >6h old; all config; schema bump for persisted skip state. Revisit against refresh tokens at T3.6.
+- **T2.13** HUD theming pass (user note 2026-07-10; EXPANDED by design-review triage): unify the top UI into a themed holder (currently a loose assortment - coin, moondust, Audio, Bag, Orders as mismatched floating panels) and re-skin the level number + xp bar to match. Audio demotes to a corner settings gear. The art sitting now ALSO covers: the mere backdrop (dim glowing lake framing the field + a per-level brightness tint step - Pillar 5, pulled from T3.3's ambience; NOT currently on screen - removed long ago, and the old sprite is REJECTED by owner 2026-07-15 as too small; regenerate only after T3.3 fixes the expanded world dimensions, in the land-era art batch), the empty-plot tile footprint fix, a dedicated moondust icon if still missing, and the T2.18 crop sprites - ONE combined Sprixen batch to respect the user's generation time. PM mockups first, user auditions art before the code tasks. DECOUPLING RULE (user directive 2026-07-10): if the T2.13 code task slips for any reason, the mere backdrop + brightness step breaks out as its own task immediately - the game's signature hook must not slide with a HUD reskin.
+- **T2.14** Crop tap countdown (user note 2026-07-10): tapping a growing-but-not-ready crop shows a big readable live countdown above that plot; pooled, one active at a time, auto-hides. Fills the currently-silent tap on unready plots.
+- **T2.15** Seed info button (user note 2026-07-10): "i" on seed bar buttons opens an info card with grow time, seed cost, sell value, xp, and a flavor line (new CropDef field; PM writes copy, user approves). Card pattern designed to be reused by Phase 4 processed goods/recipes.
+- **T2.16** Save durability (design review): call navigator.storage.persist() at boot; surface export/import save in the Settings panel (currently dev-overlay only). IndexedDB mirror evaluated and REJECTED for now (marginal over persist+export until cloud save T7.4). Eviction risk documented in GDD section 10.
+- **T2.17** SW update-available toast (design review): vite-plugin-pwa onNeedRefresh -> small in-game "Update available - tap to restart" toast. Kills the recurring stale-SW failure class (three logged incidents).
+- **T2.18** Content injection (design review + gate verdict): 2 new crops from the Phase 3 list (Moonroot + Emberpepper; art via the user's Sprixen batch) + level cap raised (target ~7-8) with unlock reveals + max-level UX (bar full with "MAX" label, xp keeps accruing in state so later cap raises reconcile naturally). All numbers from the PM balance spreadsheet, approved by the user first. T3.1 shrinks accordingly (Dewmelon, Sagesprig, Moonroot/Emberpepper promoted out).
+- **Chest v1** (pulled forward from T3.7, after T2.5): large orders occasionally grant a chest - wiggle, tap, burst, reveal card granting coins/seeds/Moondust. Minimal ceremony, config-driven contents; the full chest economy stays T3.7.
+- **Balance spreadsheet** (moved from Phase 3 note): PM builds the xlsx (coins/min + xp/min audit per crop, level thresholds 1-8, new-crop numbers, order/expansion sanity), user approves, values export into src/data/. Precedes T2.18. Known finding to fix: Sunwheat currently dominates both coins/min AND xp/min; longer crops keep the AFK niche but need order-demand and xp compensation so active play isn't pure Sunwheat spam.
+- **PHASE 2 GATE (new): external playtest round** - hand the public PWA URL to 3-5 fresh players after the content wave lands; PM triages their notes as a mini-gate. First outside humans before Phase 3.
 
 ---
 
-## Phase 3 - Depth Layer 1
+## Phase 3 - Depth Layer 1 (est. 8-10 tasks)
 
 **Goal:** the optimization game begins.
 
-- **T3.1** Crops 4-8 - DONE across T2.18/T3.11 (Moonroot, Emberpepper, Dewmelon, Sagesprig; cap 8).
-- **T3.2** Storage caps: per-category caps, storage building UI, upgrade tiers; offline production respects caps; overflow harvests auto-sell at a small discount (nothing is ever lost). **WAVE 4 HOLD** - pairs with partial-sell in one inventory-economy package (see decisions archive 2026-07-15).
-- **T3.3** Land expansion: regions with coin prices + level gates, overgrowth-clearing reveal, mere glow brightens per region. **WAVE 3 LEAD**, largely shipped: placeable plots, whole-scene placement, world growth, fences + chain snap, movable structures, meadow/shadow era (T3.3a..T3.3s series; see decisions.md + archive). **Remaining: T3.3b regions (R1 East Meadow + owner checkpoint), T3.3c mere composite + Shore.**
-- **T3.4** Camera: pinch zoom + pan - SHIPPED 2026-07-15 (T3.4a+b+c package under the owner guardrails; see decisions archive 2026-07-15).
-- **T3.5** Crop mastery: per-crop XP, config-driven bonuses, mastery page. **WAVE 4 HOLD** - no demand signal yet (decisions archive 2026-07-15).
-- **T3.6** Order board v2: 5 visible orders, rarity tiers, refresh token economy.
-- **T3.7** Reward chests - v1 shipped early (wave 2); full chest economy remains here.
-- **T3.8** Boost items: 2x growth (30 min), instant-grow single plot, etc.; inventory + activation UI.
+- **T3.1** Crops 4-8 (e.g., Moonroot, Emberpepper, Dewmelon, Sagesprig - Starcorn was promoted to the MVP level-2 crop, replacing Carrot) with varied time/value curves (config only + art).
+- **T3.2** Storage caps: per-category caps (crops), storage building UI, upgrade tiers; offline production respects caps; gentle "storage full" state (never blocks manual harvest into overflow decisions - design detail: harvested crops beyond cap auto-sell at a small discount, so nothing is ever lost). **WAVE 4 HOLD (owner 2026-07-15):** pairs with the owner's partial-sell idea (sell X of a crop, not all-or-nothing) in one inventory-economy package - caps without partial selling would be actively annoying.
+- **T3.3** Land expansion system: unlock adjacent grid regions with coins + level gates; overgrowth-clearing reveal animation; mere glow brightens per region (global tint/lighting step). **WAVE 3 LEAD (owner 2026-07-15):** strongest demand signal on record - the playtest tester and the external review both asked for a bigger farm.
+- **T3.4** Camera: pinch zoom + pan within unlocked bounds; snap-back at edges; UI stays fixed. (Owner emphasis 2026-07-12: panning must be SMOOTH, and bounds tight - enough room to arrange decor/buildings, never oceans of dead space. Positioned late-roadmap as a package with land expansion T3.3 - whichever moves first pulls the other.) **WAVE 3 with T3.3 (owner 2026-07-15), under the owner's 2026-07-14 guardrails:** HUD stays fixed, tight bounds, pinch suppresses taps, one-hand play remains the default, reset/recenter control; readability baseline landed separately with T3.23.
+- **T3.5** Crop mastery: per-crop XP on harvest, mastery levels grant config-driven bonuses (yield/speed/sell); mastery page UI with satisfying progress bars. **WAVE 4 HOLD (owner 2026-07-15):** no player demand signal yet; competes with land/restoration for the same retention slot.
+- **T3.6** Order board v2: 5 visible orders, rarity tiers (bigger rarer orders grant chests), order refresh token economy.
+- **T3.7** Reward chests: chest item + opening ceremony (wiggle, tap, burst, card reveals) granting coins/seeds/Moondust/boost items.
+- **T3.8** Boost items: 2x growth speed (30 min), instant-grow single plot, etc.; inventory + activation UI.
 
-**Wave 2 (2026-07-12) - DONE:** T3.9/a/b decorations + arrange + warehouse, T3.10 quests/bounties v1, T3.11 crops + cap 8, T3.12-T3.14 gate polish. T3.9c polish pass parked as a backlog nit (status.md).
+**WAVE 2 (blessed 2026-07-12, pulled ahead of T3.1-T3.8; see decisions):**
 
-**Wave 3 (blessed 2026-07-15; gate evidence positive):**
+- **T3.9** Decorations v1 (DONE): decor shop opened from the farmhouse (coins/moondust - THE moondust sink), save-persisted placements (schema v10), ground-shadow system, decor art pack; **T3.9a** player arrange mode (store-authoritative transforms); **T3.9b** warehouse model (purchases go to a warehouse, placed from arrange mode at fixed default/max size); **T3.9c** polish pass parked as a backlog nit.
+- **T3.10** Quests/Bounties v1 (DONE): scroll icon returns as the quest board; 7 long cumulative quests + weekly quests (real-clock weekly reset; Weekly Growth is grow-minutes based to resist sunwheat spam); rewards: quest-exclusive trophy decor > chests > moondust; persistent counters (schema v11).
+- **T3.11** Crops + cap 8 (DONE 2026-07-13): Dewmelon L7, Sagesprig L8 (balance sheet v2 numbers; thresholds 3500/5500); seed bar next-locked-teaser rule.
+- **PHASE GATE (ACTIVE, rescoped to 1 tester - see decisions):** running since 2026-07-13; first observed session triaged into T3.12-T3.14.
+- **T3.12** Pre-gate polish (DONE 2026-07-13): vibration settings toggle (schema v12), tutorial structures stay opaque, coin sfx phone-audible.
+- **T3.13** Economy clarity (DONE 2026-07-13): plant cost floats, anchored currency info popups, two-tap sell confirm.
+- **T3.14** Tutorial + quest board guidance (DONE 2026-07-13): notice-board step structure pulse + "!" bounce, quest Claim hidden until claimable, first-open quest explainer (schema v13).
 
-- Lead: **T3.3 + T3.4 as one package** - camera shipped; land in its final stretch (T3.3b, T3.3c).
-- Second: **Restoration chapter v1** - scope contract at docs/design/restoration-boundary.md; prompts only after land/camera ships.
-- Small rider: direct arrange-mode entry - SHIPPED (T3.25).
-- Deferred to wave 4: T3.5, T3.2 + partial-sell; candidates: layout presets + arrange undo, player-placeable paths (decisions archive 2026-07-15).
+**WAVE 3 (blessed 2026-07-15 at the playtest-gate wrap; gate evidence: voluntary return CONFIRMED, level 8, no stuck points):**
+
+- **Lead: T3.3 + T3.4 as one package** (land expansion + camera; see their entries above for the owner's guardrails). Whichever task moves first pulls the other, per the standing note.
+- **Second: Restoration chapter v1** (decorative buildings / farmhouse upgrade territory; direct tester demand). CONTINGENT on a PM boundary doc vs T3.3 - what is "new land" (T3.3) vs "restoring what is already there" (this chapter) - which the owner reviews BEFORE any coder prompt exists. **v1 SHIPPED 2026-07-19** (farmhouse restoration art-swap, schema v20, commit 1353688; the farmhouse authored ground-footprint cast-shadow followed, plus the reusable shadow workflow in docs/SHADOW_WORKFLOW.md).
+- **Small rider: direct arrange-mode entry** (tester wish: edit the layout without going through the shop) - runs between features like T3.24 did.
+- Deferred to wave 4: T3.5 crop mastery, T3.2 storage caps (+ partial-sell pairing) - see their entries. Wave 4 candidates from the 2026-07-15 owner batch: layout presets + arrange-session undo (interacts with the parked full-farm rearrangement); player-placeable stone/dirt paths (terrain decals, free-ish, generous soft caps, maybe a shared fence budget - needs design).
+- In flight at cut time: T3.24 inventory column labels (tester usability find).
 
 ---
 
-## Phase 4 - Production Chains (T3.2 storage caps prerequisite; layered recipes per decisions archive 2026-07-12)
+## Phase 4 - Production Chains (est. 6-8 tasks; REFINED 2026-07-12 per owner direction - layered recipes + quest integration; T3.2 storage caps are the prerequisite since inputs auto-pull from storage)
 
 - **T4.1** Building placement system on grid (hybrid layout: buildings occupy tiles, movable in edit mode).
-- **T4.2** First processors: Mill (Sunwheat -> Sunflour) then Bakery (flour -> bread) as one vertical chain plus one combo recipe (APPROVED sequencing, decisions archive 2026-07-14); Preserve Pot awaits the slice's verdict. Queue-based, timestamp timers, inputs auto-pull from storage. Magical-theming directive applies to all Phase 4 naming/art.
-- **T4.3** Processed goods in economy: higher value, requested by orders AND quests; recipe unlock reveals; per-building recipe depth.
-- **T4.4** Order board v3: mixed raw + processed orders; premium timed orders (opt-in, bonus-only; quiet expiry). 4+ item-type orders may become a "Major Shipments" system (see parked concepts).
+- **T4.2** First processors: Mill (Sunwheat -> Sunflour), Preserve Pot (Glowberry -> Glowjam); queue-based, timestamp timers, collect on tap (no dragging goods - inputs auto-pull from storage).
+- **T4.3** Processed goods in economy: higher value, requested by orders; recipe unlock reveals. LAYERED RECIPES (owner spec 2026-07-12): products chain by building complexity - e.g. wheat -> flour (Mill), flour -> bread (Bakery), flour + other ingredients -> cake; depth varies per building. Orders AND quests updated to request processed items (extends T4.4 and the quest pool).
+- **T4.4** Order board v3: mixed raw + processed orders; premium timed orders (opt-in, bonus-only, clearly marked; expiring quietly replaces them - no failure sting). Concept from Phase 1 gate notes: orders with 4+ item types don't fit the card layout - consider a separate "Major Shipments" system delivered by a special building (magical delivery balloon/train) instead of cramming the board.
 - **T4.5** Building upgrade tiers (speed, queue slots).
-- **T4.6** Mystery merchant: occasional visitor with rotating Moondust/coin offers.
+- **T4.6** Mystery merchant: occasional visitor with rotating Moondust/coin offers (rare seeds, boosts, decorations preview).
 
 ---
 
-## Phase 4A - Animal / Creature Farming (after Phase 4's processing intro)
+## Phase 4A - Animal / Creature Farming (owner spec 2026-07-12; est. 5-7 tasks; after Phase 4's processing intro)
 
-- **T4A.1** Animal building framework: per-type buildings bought with gold; 1 open slot + purchasable locked slots (max per building = owner decision at prompt time).
-- **T4A.2** Harvest loop: long timestamp timers per occupied slot; harvest collects + resets; animals persist.
-- **T4A.pets** (unscheduled): buyable roaming pets + dog house / cat tree decor - waits on a real sprite-animation pipeline (decisions archive 2026-07-15).
-- **T4A.3** Ambient life: static animal sprite near its building, TWEEN JUICE ONLY in v1; true sprite-sheet animation is future polish by owner decision.
-- **T4A.4** v1 scope: 2+ animal types; materials enter orders/quests/recipes.
+- **T4A.1** Animal building framework: each animal TYPE has its own building placed on the farm layout, purchased with gold (v1; "rebuild with materials" variant becomes available once the Mine supplies materials). Inside: 1 open animal slot + additional locked slots purchasable with gold (max per building TBD at prompt time - owner decision).
+- **T4A.2** Harvest loop: each occupied slot produces that animal's material on a LONG timer (timestamp-derived, offline-friendly); harvesting collects and resets the timer; the animal persists (never re-acquired).
+- **T4A.pets** (owner, 2026-07-15, unscheduled annotation): buyable companion pets (dogs/cats) that roam the farm + dog house / cat tree decor (gold variants gated on achievements, trophy precedent). Same roaming/animation dependency as T4A.3's future polish - schedule only when a real sprite-animation pipeline exists.
+- **T4A.3** Ambient life: an animal sprite idles NEAR its building (separate sprite from the building; e.g. eating in front of it), animated in v1 with TWEEN JUICE ONLY (bob/hop/peck loops - the established pattern). True sprite-sheet animation is a future polish item by owner decision (2026-07-12) - no spike, no thought spent until then.
+- **T4A.4** v1 scope: at least 2 animal types = 2 building sprites + 2 static animal sprites; materials enter the economy (orders/quests/recipes per Phase 4 patterns).
 
-## Phase 5 - Magical Workers
+## Phase 5 - Magical Workers (est. 6-8 tasks)
 
-- **T5.1** Worker framework: job types, assignment UI, offline-capable tick simulation.
-- **T5.2** Harvest Golem: auto-harvests an assigned region on a cadence.
-- **T5.3** Broom Courier: auto-fulfills whitelisted order types.
-- **T5.4** Sprout Sprite: auto-replants last crop.
-- **T5.5** Worker upgrades + tiny idle animations/pathing.
-- **T5.6** Tool upgrades: wider harvest sweep, batch-plant size, etc.
+- **T5.1** Worker framework: worker entities with job types, assignment UI, tick logic that also runs offline (timestamp simulation on load).
+- **T5.2** Harvest Golem: auto-harvests ready crops in an assigned region on a cadence.
+- **T5.3** Broom Courier: auto-fulfills selected order types when stock allows (player whitelist - automation the player *tunes*).
+- **T5.4** Sprout Sprite: auto-replants last crop on harvested plots.
+- **T5.5** Worker upgrades (speed/capacity) + tiny idle animations/pathing for life.
+- **T5.6** Tool upgrades: wider harvest sweep radius, batch-plant size, etc.
 
 ---
 
-## Phase 6 - Meta Systems
+## Phase 6 - Meta Systems (est. 5-7 tasks)
 
-- **T6.1** Research tree: branching, config-driven; node-unlock ceremony.
-- **T6.2** Weather ambiance v1: visual-only; later hook for surprise buffs.
+- **T6.1** Research tree: research points from orders/mastery; branching config-driven tree (economy, growth, automation branches); node-unlock ceremony.
+- **T6.2** Weather ambiance v1: visual-only rain/sun/fireflies; later hook for surprise buffs ("Warm rain! Crops grow 20% faster for 10 min").
 - **T6.3** Player-level/account perks (or merge into farm level - decision point).
-- **T6.4** Quests v2 (v1 shipped wave 2): expanded pool, seasonal specials, processed-goods quests.
-- **T6.5** Economy balancing pass with telemetry hooks.
+- **T6.4** Quests/bounties v2 (v1 shipped early as T3.10 - wave 2, 2026-07-12): expand the pool, seasonal/rotating specials, processed-goods quests once Phase 4 lands.
+- **T6.5** Economy balancing pass with telemetry hooks (local analytics log to tune curves).
 
 ---
 
-## Phase 7 - Comfort + Retention
+## Phase 7 - Comfort + Retention (est. 5-6 tasks)
 
-- **T7.1** Day/night cycle tied to real clock; fireflies near the mere.
-- **T7.2** Decorations polish (v1 shipped wave 2): edit-mode juice, sell-back/refund, expanded catalog. Reconcile with the T3.9c backlog-nit list when scheduled.
-- **T7.3** Opt-in notifications (light, max 1/day, full settings control).
-- **T7.4** Cloud save: anonymous account + sync; newest-wins with manual restore. (Broader save-durability watch item lands here.)
-- **T7.5** Accessibility pass: color-blind-safe states, reduced-motion mode, text scaling. Must not absorb present-day usability defects (standing rule, decisions archive 2026-07-14).
+- **T7.1** Day/night visual cycle tied to real clock, gentle lighting shifts, firefly particles at night near the mere.
+- **T7.2** Decorations polish (v1 shipped early as T3.9/T3.9a/T3.9b - wave 2, 2026-07-12): edit-mode juice, sell-back/refund, expanded catalog. Overlaps the T3.9c backlog-nit list - reconcile scopes when scheduled.
+- **T7.3** Opt-in notifications (light): only "big order ready" and "storage full," max 1/day, full settings control.
+- **T7.4** Cloud save: anonymous account + sync (e.g., Supabase/Firebase), conflict resolution = newest-wins with manual restore.
+- **T7.5** Accessibility pass: color-blind-safe ready states, reduced-motion mode, text scaling.
 
 ---
 
-## Phase 8 - Store Release
+## Phase 8 - Store Release (est. 4-6 tasks)
 
-- **T8.1** Capacitor wrap: iOS + Android, native haptics, splash/icons.
+- **T8.1** Capacitor wrap: iOS + Android projects, native haptics upgrade, splash/icons.
 - **T8.2** Store assets: screenshots, listing copy, privacy policy.
 - **T8.3** Device QA matrix + crash reporting (Sentry).
 - **T8.4** Soft-launch build + feedback loop.
-- **T8.5** Monetization decision point: rewarded ads only at first, bonus-framed, never gating the base loop. Starting input: the owner's parked report in private/misc/ (unread by decision).
+- **T8.5** Monetization decision point: if pursued, rewarded ads only at first (chest re-roll, boost extension), designed as bonus - never gating the base loop.
 
 ---
 
 ## Parked concepts (not scheduled; revisit at phase gates)
 
-- **Mine scene**: daily unfailable rapid-mine mini-game feeding materials + mine levels; earliest Phase 6+ (wants buildings, caps, offline framework). Reward-only Mine v1 variant DROPPED (decisions archive 2026-07-14).
-- **Player character**: roaming farmhand NPC; spec locked (decisions archive 2026-07-15); waits on the sprite-animation pipeline; way-future customization sub-item.
-- **Full-farm rearrangement**: everything movable - own design conversation after land/camera ships (decisions archive 2026-07-15). Structures already movable since T3.3s.
-- **Major Shipments**: special-building delivery for 4+ item orders; code dependency: isOrder validator caps items at <= 2 (decisions archive, T2.11 note).
-- **Sweep-vs-pan at scale**: PARKED protocol at docs/design/sweep-vs-pan-checkpoint.md - the R1 checkpoint agenda item.
+- **Mine scene** (user pitch, 2026-07-10) - **reward-only Mine v1 variant DROPPED by owner 2026-07-14 (audit reconciliation); the full parked concept below is unaffected:** a second scene with a daily rapid-mine mini-game (simple, satisfying, deliberately UNFAILABLE - GDD forbids skill/timing requirements; rewards scale with participation, not performance). Grants mine XP + random materials; mine levels raise AFK material yields and rare-material odds. Materials become the supply for building/tool upgrade gates already reserved in the GDD economy. Daily cadence must be bonus-framed: no streaks, no loss for missed days. Earliest sensible slot: Phase 6+ (wants buildings, storage caps, and the offline-production framework to exist first).
+- **Player character** (owner, 2026-07-15): an NPC avatar that walks the farm, never entering/overlapping structures or decor - needs walk-cycle animation + light pathing, so it waits on the same sprite-animation pipeline as Phase 4A's future polish. Way-future sub-item: clothing/accessory customization, preceded by a research task on AI-generating customizable animated sprites. CHARACTER SPEC LOCKED (owner, 2026-07-15): young adult male farmhand, magical straw farming hat (suggested realization: soft moonlight glow at the brim, tying to the mere/moondust fiction), blue-jean overalls over a white long-sleeve shirt, brown farming boots. Owner is experimenting with Scenario (scenario.com) for the base front-facing sprite; pipeline convention: flat-grey background generations, seed/model/prompt metadata saved, output staged in tools/art-staging, base sprite feeds a future custom character model (Scenario's 5-15-reference training) for animation frames.
+- **Full-farm rearrangement** (owner direction, 2026-07-15, from the restoration boundary review): eventually EVERYTHING on the farm should be movable, structures included. Its own design conversation after the T3.3+T3.4 land/camera package ships - interacts with arrange mode (T3.9a), region geometry (T3.3), and camera bounds (T3.4). Restoration v1 stays fixed-landmark and must build nothing that blocks this (in-place art swaps carry over to movable structures unchanged).
+- **Major Shipments** - see T4.4 note. Known code dependency (found in T2.11): gameState.ts's isOrder save-validator hard-caps order items at <= 2 - must be raised when orders ever carry 3+ item types. The order-card UI already renders up to 3 (CLUSTER_TIERS).
 
-## Sequencing notes
+## Sequencing Notes
 
 - Phases 3 and 4 can partially interleave; workers (5) hard-depend on buildings (4.1) and storage (3.2).
-- Balance spreadsheet: docs/balance-v2.xlsx remains the single source of truth exported into `src/data/` (superseded versions in docs/archive/).
+- Every phase ends with a "play it" gate. The roadmap is allowed to change after each gate - it's a plan, not a contract.
+- Balancing spreadsheet: BUILT - docs/balance-v2.xlsx (v1 blessed 2026-07-10, v2 blessed 2026-07-12; superseded versions live in docs/archive/); remains the single source of truth exported into `src/data/`. (Originally planned "alongside Phase 3"; moved to NOW by the 2026-07-10 re-cut.)
