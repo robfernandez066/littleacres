@@ -31,6 +31,14 @@ export interface DevTools {
    * region id).
    */
   unlockRegion(id: string): boolean;
+  /**
+   * Dev-only restoration toggle (T3.25): a straight pipe to
+   * `gameState.devSetFarmhouseRestored` - flips the farmhouse between its
+   * current and restored look (and the Homestead luck perk with it) for free,
+   * in either direction. Returns the new value. The scene re-reads the frame
+   * on its refresh tick, so the swap shows without a reload.
+   */
+  setFarmhouseRestored(restored: boolean): boolean;
   /** Overwrite every order slot with a fresh forced-premium order (T2.27). */
   fillBoardPremium(): void;
   /** Flies n coins from screen center to the HUD corner. Registered by FarmScene. */
@@ -137,6 +145,7 @@ export function installDevTools(store: GameStateStore): void {
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
     grantPlots: (n) => store.grantPlots(n),
     unlockRegion: (id) => store.devUnlockRegion(id),
+    setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };
 }

@@ -10,6 +10,7 @@ import {
   MAX_DECOR_ITEMS,
   MAX_FENCES,
 } from '../data/decor';
+import { RESTORE_PANEL_ENTRY_BUTTON } from '../data/restoration';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -101,6 +102,17 @@ const ARRANGE_BUTTON_WIDTH = 320;
 const ARRANGE_BUTTON_HEIGHT = 90;
 
 /**
+ * "Restore the Homestead" (T3.25): the entry point to the restoration panel,
+ * a full-width row in the panel HEADER, between the title and the grid. The
+ * two-column grid fills the whole middle of the panel and the band below it is
+ * already spoken for by the budgets readout and Arrange Farm, so this gap is
+ * the only place a labeled row fits without re-flowing the grid.
+ */
+const RESTORE_BUTTON_Y = TITLE_Y + 66;
+const RESTORE_BUTTON_WIDTH = 400;
+const RESTORE_BUTTON_HEIGHT = 74;
+
+/**
  * Split-budget readout (T3.3a2), in the band between the grid's last row
  * (bottom edge 425) and the Arrange button (top edge 515): a counts line
  * always, plus a warning notice naming whichever budget is full.
@@ -151,6 +163,13 @@ const OWNED_BADGE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   padding: { left: 8, right: 8, top: 2, bottom: 2 },
 };
 
+const RESTORE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 const ARRANGE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '34px',
@@ -190,6 +209,8 @@ export class DecorShop {
     private readonly scene: Phaser.Scene,
     private readonly audio: AudioManager,
     private readonly onArrange: () => void,
+    /** Opens the Restore the Homestead panel (T3.25). */
+    private readonly onRestore: () => void,
   ) {
     this.backdrop = new ModalBackdrop(scene, () => {
       this.audio.sfx('tap');
@@ -234,6 +255,29 @@ export class DecorShop {
       this.hide();
     });
     this.container.add([bg, title, closeButton]);
+
+    const restoreButton = scene.add
+      .nineslice(
+        0,
+        RESTORE_BUTTON_Y,
+        ATLAS_KEY,
+        'panel',
+        RESTORE_BUTTON_WIDTH,
+        RESTORE_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const restoreText = scene.add
+      .text(0, RESTORE_BUTTON_Y, RESTORE_PANEL_ENTRY_BUTTON, RESTORE_BUTTON_STYLE)
+      .setOrigin(0.5);
+    restoreButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.onRestore();
+    });
+    this.container.add([restoreButton, restoreText]);
 
     DECOR_ITEMS.forEach((item, index) => {
       this.rows.push(this.buildRow(item, index));

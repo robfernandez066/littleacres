@@ -56,6 +56,7 @@ import {
   RADIANT_YIELD_MULT,
 } from '../data/moondust';
 import { OFFLINE_SUMMARY_MIN_MS } from '../data/offline';
+import { effectiveRadiantChance, RESTORE_FARMHOUSE_COST } from '../data/restoration';
 import {
   ONBOARDING_ORDER_A,
   ONBOARDING_ORDER_B,
@@ -190,6 +191,16 @@ export interface StructureAnchor {
 export interface StructuresState {
   farmhouse: StructureAnchor;
   noticeBoard: StructureAnchor;
+}
+
+/**
+ * Permanent restoration upgrades (T3.25, schema v20): 0 = the current look,
+ * 1 = restored. One-way - nothing in the game sets a flag back to 0 (the dev
+ * toggle aside). Purely cosmetic + perk state: it never affects a structure's
+ * anchor, footprint, or movability.
+ */
+export interface RestorationState {
+  farmhouse: 0 | 1;
 }
 
 export interface GameSettings {
@@ -404,6 +415,8 @@ export interface GameStateData {
   warehouse: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
   structures: StructuresState;
+  /** Permanent restoration upgrades (T3.25, schema v20). */
+  restoration: RestorationState;
   /**
    * Purchased regions (T3.3b, schema v19): ids from `REGIONS` (data/farm.ts),
    * no duplicates. Each entry adds its band to the placeable domain and raises
@@ -782,6 +795,13 @@ const v18ToV19: Migration = (raw) => ({
   twoFingerHintShown: false,
 });
 
+/**
+ * v19 -> v20: the Restoration Chapter (T3.25). EVERY existing save loads
+ * un-restored, so nobody's farmhouse changes appearance until they buy the
+ * upgrade themselves - the same default a fresh save gets.
+ */
+const v19ToV20: Migration = (raw) => ({ ...raw, restoration: { farmhouse: 0 } });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -802,6 +822,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v16ToV17,
   v17ToV18,
   v18ToV19,
+  v19ToV20,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -826,6 +847,7 @@ export function createDefaultState(version: number): GameStateData {
     decorations: [],
     warehouse: {},
     structures: createDefaultStructures(),
+    restoration: { farmhouse: 0 },
     regionsUnlocked: [],
     twoFingerHintShown: false,
     quests: createDefaultQuestsState(now),
@@ -1641,6 +1663,14 @@ function isRegionsUnlocked(value: unknown): value is string[] {
   return true;
 }
 
+/**
+ * `restoration` (T3.25): every flag is exactly 0 or 1 - no other number, and
+ * no missing key (the v19 -> v20 migration always supplies one).
+ */
+function isRestorationState(value: unknown): value is RestorationState {
+  return isRecord(value) && (value.farmhouse === 0 || value.farmhouse === 1);
+}
+
 function isOnboardingState(value: unknown): value is OnboardingState {
   return (
     isRecord(value) &&
@@ -1690,6 +1720,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     decorOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECOR_ITEMS &&
     fenceOwnedCount(raw.decorations, raw.warehouse) <= MAX_FENCES &&
     isStructuresState(raw.structures) &&
+    isRestorationState(raw.restoration) &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
     isRecord(raw.settings) &&
@@ -2012,8 +2043,12 @@ export class GameStateStore {
     if (!this.railsAllow('harvest')) return false;
     this.state.plots[plotIndex] = { state: 'empty', col: plot.col, row: plot.row };
     // Radiant is a rare bonus-yield proc, suppressed during the tutorial so
-    // its scripted economy stays deterministic.
-    const isRadiant = this.state.onboarding.completed && this.rng() < RADIANT_CHANCE;
+    // its scripted economy stays deterministic. A restored farmhouse's
+    // Homestead luck perk (T3.25) raises the CHANCE only - the yield and the
+    // moondust roll below are unaffected.
+    const isRadiant =
+      this.state.onboarding.completed &&
+      this.rng() < effectiveRadiantChance(RADIANT_CHANCE, this.state.restoration.farmhouse === 1);
     const yieldAmount = isRadiant ? RADIANT_YIELD_MULT : 1;
     this.state.inventory[plot.cropId] = (this.state.inventory[plot.cropId] ?? 0) + yieldAmount;
     if (isRadiant) {
@@ -2132,6 +2167,52 @@ export class GameStateStore {
     this.grantPlots(region.plotGrant);
     this.save();
     return true;
+  }
+
+  /**
+   * Restore the farmhouse (T3.25) - the one-time, permanent homestead
+   * upgrade. Refuses (false, NOTHING mutated) if it is already restored or if
+   * either currency is short; on success it deducts BOTH currencies exactly
+   * once, flips the flag, and saves. The already-restored check is what makes
+   * a double tap (or a double-fired handler) a no-op rather than a second
+   * charge, so the guard is the anti-double-spend, not the caller.
+   *
+   * Deliberately affects nothing but `coins`, `moondust`, and the flag: the
+   * farmhouse's anchor, footprint, and movability are untouched - the scene
+   * only swaps which frame it draws.
+   */
+  restoreFarmhouse(): boolean {
+    if (this.state.restoration.farmhouse === 1) return false;
+    if (this.state.coins < RESTORE_FARMHOUSE_COST.coins) return false;
+    if (this.state.moondust < RESTORE_FARMHOUSE_COST.moondust) return false;
+    this.state.coins -= RESTORE_FARMHOUSE_COST.coins;
+    this.state.moondust -= RESTORE_FARMHOUSE_COST.moondust;
+    this.state.restoration.farmhouse = 1;
+    this.save();
+    return true;
+  }
+
+  /** Whether the farmhouse restoration is affordable right now (T3.25) - the
+   * single source for the panel's Buy-button enabled state. False once it is
+   * already owned, so the button can never re-arm. */
+  canAffordFarmhouseRestoration(): boolean {
+    return (
+      this.state.restoration.farmhouse === 0 &&
+      this.state.coins >= RESTORE_FARMHOUSE_COST.coins &&
+      this.state.moondust >= RESTORE_FARMHOUSE_COST.moondust
+    );
+  }
+
+  /**
+   * Dev-only restoration toggle (T3.25), mirroring `devUnlockRegion`: flips
+   * the farmhouse's flag with NO cost and no gates, in either direction, so
+   * the look and the perk can be compared back to back. Returns the new
+   * value. Wired to `dev.setFarmhouseRestored`.
+   */
+  devSetFarmhouseRestored(restored: boolean): boolean {
+    this.state.restoration.farmhouse = restored ? 1 : 0;
+    this.save();
+    return restored;
   }
 
   /**

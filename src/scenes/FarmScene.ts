@@ -44,6 +44,11 @@ import { type RegionDef, REGIONS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
+import {
+  FARMHOUSE_FRAME,
+  FARMHOUSE_RESTORED_FRAME,
+  FARMHOUSE_SHADOW_FRAME,
+} from '../data/restoration';
 import { AudioManager } from '../systems/audio';
 import {
   clampScroll,
@@ -103,6 +108,7 @@ import { ParticleBurst } from '../ui/ParticleBurst';
 import { PlotGrantPopup } from '../ui/PlotGrantPopup';
 import { QuestBoard } from '../ui/QuestBoard';
 import { ReplantChip, type ReplantEntry } from '../ui/ReplantChip';
+import { RestorePanel } from '../ui/RestorePanel';
 import { SeedBar } from '../ui/SeedBar';
 import { WeeklyNoticePanel } from '../ui/WeeklyNoticePanel';
 
@@ -240,6 +246,16 @@ const RADIANT_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffd700', fontSize: 
 const RADIANT_LABEL_OFFSET_Y = -140;
 /** Delay before a Radiant proc's second sparkle burst, for a two-stage pop. */
 const RADIANT_SECOND_BURST_DELAY_MS = 150;
+
+/**
+ * Restoration purchase celebration (T3.25) - the Radiant flourish's shape
+ * (two-stage sparkle burst + a gold label), reused over the farmhouse rather
+ * than a plot, so the one-time upgrade lands with a beat of its own without
+ * any new art or pools.
+ */
+const RESTORATION_LABEL = 'Restored!';
+const RESTORATION_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffd700', fontSize: 72 };
+const RESTORATION_SECOND_BURST_DELAY_MS = 180;
 
 /**
  * Notice board + farmhouse (T2.22): both structures share the same packed
@@ -988,6 +1004,7 @@ export class FarmScene extends Phaser.Scene {
    *  moves are sprite-only until the commit). */
   private lastStructureAnchorsJson = '';
   private decorShop!: DecorShop;
+  private restorePanel!: RestorePanel;
   private questBoard!: QuestBoard;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
   private decorationSprites: Phaser.GameObjects.Image[] = [];
@@ -1314,7 +1331,16 @@ export class FarmScene extends Phaser.Scene {
     this.moondustArc = this.inUiLayer(() => new MoondustArc(this));
     this.cropInfoCard = this.inUiLayer(() => new CropInfoCard(this, this.audio));
     this.decorShop = this.inUiLayer(
-      () => new DecorShop(this, this.audio, () => this.enterArrangeMode()),
+      () =>
+        new DecorShop(
+          this,
+          this.audio,
+          () => this.enterArrangeMode(),
+          () => this.openRestorePanel(),
+        ),
+    );
+    this.restorePanel = this.inUiLayer(
+      () => new RestorePanel(this, this.audio, () => this.playRestorationCelebration()),
     );
     this.seedBar = this.inUiLayer(
       () => new SeedBar(this, this.audio, (crop) => this.showCropInfo(crop)),
@@ -1942,7 +1968,13 @@ export class FarmScene extends Phaser.Scene {
       downX: pointer.x,
       downY: pointer.y,
       grabOffsetX: target.x - world.x,
-      grabOffsetY: target.y - world.y,
+      // NOMINAL space (T3.25): a restored farmhouse's sprite sits half its
+      // extra frame height above its anchor-derived position, so the shift is
+      // taken back out here and re-applied only where the sprite is actually
+      // positioned. Everything in between - the free-follow position, the
+      // grid inverse-mapping, the footprint preview, the snap - then works in
+      // the same coordinates for both looks.
+      grabOffsetY: target.y - this.structureRenderShiftY(structureId) - world.y,
       timer: this.time.delayedCall(HOLD_MS, () => this.fireHoldLift()),
     };
   }
@@ -3316,21 +3348,13 @@ export class FarmScene extends Phaser.Scene {
       'farmhouse',
       gameState.getState().structures.farmhouse,
     );
-    const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
     this.farmhouseImage = this.add
-      .image(position.x, position.y, ATLAS_KEY, 'farmhouse')
+      .image(position.x, position.y, ATLAS_KEY, FARMHOUSE_FRAME)
       .setScale(FARMHOUSE_SCALE)
-      .setDepth(position.y)
-      .setInteractive({
-        hitArea: new Phaser.Geom.Rectangle(
-          -pad,
-          -pad,
-          STRUCTURE_FRAME_SIZE + pad * 2,
-          STRUCTURE_FRAME_SIZE + pad * 2,
-        ),
-        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
-        useHandCursor: true,
-      });
+      .setDepth(position.y);
+    // Frame + hit area + position all derive from the restoration flag
+    // (T3.25); at flag 0 this is exactly the historical setup.
+    this.applyFarmhouseLook();
     this.farmhouseImage.on(
       Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
       (pointer: Phaser.Input.Pointer) => {
@@ -3338,8 +3362,72 @@ export class FarmScene extends Phaser.Scene {
         this.handleStructureDown(pointer, () => this.openDecorShop());
       },
     );
-    // Non-null: the farmhouse frame always has a packed shadow companion (T3.art-3).
-    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage)!;
+    // Non-null: the farmhouse frame always has a packed shadow companion
+    // (T3.art-3). Named explicitly (T3.25) - see createGroundShadow.
+    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage, FARMHOUSE_SHADOW_FRAME)!;
+    // The shadow exists only now, so the look pass above could not place it.
+    this.applyStructureStatePosition('farmhouse');
+  }
+
+  /**
+   * Apply the farmhouse's restoration look (T3.25) - THE frame swap, and the
+   * only thing restoration changes about the farmhouse. Both frames are packed
+   * so their bottom STRUCTURE_FRAME_SIZE-tall band holds the building
+   * identically (tools/pack-atlas.mjs processRestoredFarmhouse); the restored
+   * frame is taller only by the overhang its floating moon needs. So:
+   *
+   * - the SCALE is the same for both looks. Reusing FARMHOUSE_DISPLAY_HEIGHT
+   *   as a fixed display height instead would share those pixels between the
+   *   building AND the moon and silently render the building smaller.
+   * - the sprite shifts UP by half the extra height (see
+   *   `farmhouseRestorationOffsetY`), which puts the shared bottom band back
+   *   where the un-restored frame sat. The building's on-screen size, base
+   *   position, depth, and cast shadow are all then unchanged by construction.
+   * - the hit area stays anchored to that bottom band, so tapping the house
+   *   feels identical and the floating moon is not a tap target.
+   *
+   * Safe to call repeatedly; the caller re-places the sprite afterwards.
+   */
+  private applyFarmhouseLook(): void {
+    const restored = gameState.getState().restoration.farmhouse === 1;
+    this.farmhouseImage.setFrame(restored ? FARMHOUSE_RESTORED_FRAME : FARMHOUSE_FRAME);
+    const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
+    const overhang = this.farmhouseImage.frame.realHeight - STRUCTURE_FRAME_SIZE;
+    this.farmhouseImage.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(
+        -pad,
+        overhang - pad,
+        STRUCTURE_FRAME_SIZE + pad * 2,
+        STRUCTURE_FRAME_SIZE + pad * 2,
+      ),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
+    // The rails gating owns interactivity from here; re-assert its verdict so
+    // a look change during the tutorial cannot resurrect a blocked farmhouse.
+    this.farmhouseEnabled = true;
+    this.applyFarmhouseRailsGating();
+  }
+
+  /**
+   * How far up the farmhouse sprite sits relative to its anchor-derived
+   * position (T3.25): half the restored frame's extra height, in display px.
+   * 0 while un-restored. See `applyFarmhouseLook` for why this exactly
+   * cancels the taller frame.
+   */
+  private farmhouseRestorationOffsetY(): number {
+    const overhang = this.farmhouseImage.frame.realHeight - STRUCTURE_FRAME_SIZE;
+    return (-overhang / 2) * FARMHOUSE_SCALE;
+  }
+
+  /**
+   * The render shift for a structure sprite (T3.25): how far its sprite sits
+   * from its nominal, anchor-derived position. Only the restored farmhouse has
+   * one; everything else is 0, so structure code can apply this
+   * unconditionally.
+   */
+  private structureRenderShiftY(id: StructureId | undefined): number {
+    return id === 'farmhouse' ? this.farmhouseRestorationOffsetY() : 0;
   }
 
   /**
@@ -3388,6 +3476,34 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Open the Restore the Homestead panel (T3.25) from the Decor Shop's
+   * Restore button. The shop stays OPEN behind it: the panel sits above both
+   * of the shop's depth tiers (see RestorePanel's PANEL_DEPTH), so closing the
+   * panel returns the player to the shop they came from rather than dumping
+   * them back on the field.
+   */
+  private openRestorePanel(): void {
+    this.restorePanel.show(gameState.getState());
+  }
+
+  /**
+   * Restoration celebration (T3.25): a sparkle burst over the farmhouse plus
+   * a floating label, using the existing pooled world effects - no new art and
+   * no new pools. Fired by the RestorePanel after a successful purchase; the
+   * frame swap itself lands on the next refresh tick.
+   */
+  private playRestorationCelebration(): void {
+    const x = this.farmhouseImage.x;
+    const y = this.farmhouseImage.y;
+    this.worldParticles.burst('sparkle', x, y);
+    this.worldFloatingText.show(x, y, RESTORATION_LABEL, RESTORATION_TEXT_OPTIONS);
+    this.time.delayedCall(RESTORATION_SECOND_BURST_DELAY_MS, () => {
+      this.worldParticles.burst('sparkle', x, y);
+    });
+    buzz(HAPTIC_LIGHT_MS);
+  }
+
+  /**
    * Tutorial rails on the farmhouse, mirroring `applyNoticeBoardRailsGating`
    * exactly: inert (taps blocked) outside the tutorial - which never has a
    * shop step, so this stays inert for its entire duration and never toggles
@@ -3419,8 +3535,15 @@ export class FarmScene extends Phaser.Scene {
    * a frame with no packed `_shadow` companion (T3.art-3: decor_fence casts
    * no shadow) rather than falling back to the whole atlas image.
    */
-  private createGroundShadow(object: Phaser.GameObjects.Image): Phaser.GameObjects.Image | null {
-    const shadowFrame = `${object.frame.name}_shadow`;
+  private createGroundShadow(
+    object: Phaser.GameObjects.Image,
+    shadowFrameOverride?: string,
+  ): Phaser.GameObjects.Image | null {
+    // T3.25: the farmhouse passes an override because its restored look has
+    // no `_shadow` companion of its own - same building base, so both looks
+    // share `farmhouse_shadow` and the derived name would miss on a restored
+    // save at boot.
+    const shadowFrame = shadowFrameOverride ?? `${object.frame.name}_shadow`;
     if (!this.textures.get(ATLAS_KEY).has(shadowFrame)) return null;
     const shadow = this.add.image(0, 0, ATLAS_KEY, shadowFrame);
     this.applyGroundShadowGeometry(shadow, object);
@@ -4440,7 +4563,8 @@ export class FarmScene extends Phaser.Scene {
    */
   private moveStructureSpriteFree(id: StructureId, x: number, y: number): void {
     const image = this.structureImage(id);
-    image.setPosition(x, y).setDepth(y);
+    // `y` is nominal (T3.25) - see beginPendingLift; depth stays nominal too.
+    image.setPosition(x, y + this.structureRenderShiftY(id)).setDepth(y);
     this.applyGroundShadowGeometry(this.structureShadow(id), image);
     if (id === 'noticeBoard') {
       const { x: badgeX, y: badgeY } = this.noticeBoardBadgeBase();
@@ -4462,7 +4586,7 @@ export class FarmScene extends Phaser.Scene {
     this.structureDragId = null;
     this.destroyStructureFootprintPreview();
     const image = this.structureImage(id);
-    const target = this.nearestLegalAnchor(id, image.x, image.y);
+    const target = this.nearestLegalAnchor(id, image.x, image.y - this.structureRenderShiftY(id));
     const moved = target !== null && gameState.moveStructure(id, target.col, target.row);
     this.applyStructureStatePosition(id);
     if (!moved) this.shakeLockedPlot(image);
@@ -4708,7 +4832,10 @@ export class FarmScene extends Phaser.Scene {
   private placeStructureSprite(id: StructureId, anchor: { col: number; row: number }): void {
     const pos = structureRenderPosition(id, anchor);
     const image = this.structureImage(id);
-    image.setPosition(pos.x, pos.y).setDepth(pos.y);
+    // T3.25: the restored farmhouse's frame is taller, so its sprite sits
+    // higher to keep the building on the same spot. DEPTH still uses the raw
+    // anchor y, so the iso sort order is identical either way.
+    image.setPosition(pos.x, pos.y + this.structureRenderShiftY(id)).setDepth(pos.y);
     this.applyGroundShadowGeometry(this.structureShadow(id), image);
     if (id === 'noticeBoard') this.placeNoticeBoardBadge();
   }
@@ -4727,10 +4854,15 @@ export class FarmScene extends Phaser.Scene {
    * untouched until the commit).
    */
   private refreshStructures(): void {
-    const structures = gameState.getState().structures;
-    const json = `${structures.farmhouse.col},${structures.farmhouse.row};${structures.noticeBoard.col},${structures.noticeBoard.row}`;
+    const state = gameState.getState();
+    const structures = state.structures;
+    // T3.25: the restoration flag joins the key, so buying the upgrade (or
+    // flipping `dev.setFarmhouseRestored`, or importing a restored save)
+    // swaps the frame on the very next tick without a reload.
+    const json = `${structures.farmhouse.col},${structures.farmhouse.row};${structures.noticeBoard.col},${structures.noticeBoard.row};${state.restoration.farmhouse}`;
     if (json === this.lastStructureAnchorsJson) return;
     this.lastStructureAnchorsJson = json;
+    this.applyFarmhouseLook();
     this.applyStructureStatePosition('farmhouse');
     this.applyStructureStatePosition('noticeBoard');
   }

@@ -46,6 +46,15 @@
  *   dirt_path: trimmed, fit into a square frame
  *   (192/128/256/256/96/384/256/256/288), centered - same treatment as the
  *   icons above.
+ * - farmhouse_restored (T3.25): the restoration-upgrade farmhouse. It gets its
+ *   own processor because its frame is sized AGAINST the packed `farmhouse`
+ *   frame rather than to a fixed square, so the restored building renders at
+ *   exactly the same on-screen size and base position as the current one and
+ *   only the moon sits higher - see processRestoredFarmhouse for the
+ *   derivation. Deliberately absent from SHADOWED_FRAME_NAMES: it reuses
+ *   `farmhouse_shadow` unchanged. (T3.25-fix: the first staged source was
+ *   opaque "fake transparency" and needed a background key-out here; the
+ *   shipping source has real alpha, so the packer does no keying.)
  * - hud_banner, xpbar_frame, xpbar_fill: trimmed, scaled to a fixed 512px
  *   width keeping aspect - no fixed square frame.
  * - panel: 128x128 nine-slice source. The border thickness and corner
@@ -235,6 +244,13 @@ const SOURCE_FILE_OVERRIDES = {
   mere: 'mere_strip',
   grass_flat: 'grass',
 };
+
+/**
+ * Restoration farmhouse (T3.25) - sized against the packed `farmhouse` frame,
+ * so it is neither a square nor a wide downscale. See
+ * processRestoredFarmhouse.
+ */
+const RESTORED_FARMHOUSE_NAME = 'farmhouse_restored';
 function sourceFileFor(name) {
   return SOURCE_FILE_OVERRIDES[name] ?? name;
 }
@@ -263,6 +279,7 @@ const FRAME_NAMES = [
   ...stagedStoneSingleNames,
   ...Object.keys(SQUARE_DOWNSCALE_SIZES),
   ...Object.keys(WIDE_DOWNSCALE_WIDTHS),
+  RESTORED_FARMHOUSE_NAME,
   'panel',
 ];
 
@@ -270,8 +287,15 @@ const FRAME_NAMES = [
 // Pixel helpers
 // ---------------------------------------------------------------------------
 
-/** Bounding box of pixels with alpha above the threshold, or null if none. */
-function opaqueBounds(image) {
+const fmtBounds = (b) => `x=${b.x} y=${b.y} w=${b.w} h=${b.h}`;
+
+/**
+ * Bounding box of pixels with alpha above `threshold`, or null if none.
+ * `threshold` defaults to ALPHA_THRESHOLD (barely-there pixels count). Pass
+ * SOLID_ALPHA_THRESHOLD to measure a SOLID silhouette instead, ignoring soft
+ * glow - see its comment.
+ */
+function opaqueBounds(image, threshold = ALPHA_THRESHOLD) {
   const { width, height, data } = image.bitmap;
   let x0 = width;
   let y0 = height;
@@ -279,7 +303,7 @@ function opaqueBounds(image) {
   let y1 = -1;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
-      if (data[(y * width + x) * 4 + 3] > ALPHA_THRESHOLD) {
+      if (data[(y * width + x) * 4 + 3] > threshold) {
         if (x < x0) x0 = x;
         if (x > x1) x1 = x;
         if (y < y0) y0 = y;
@@ -584,6 +608,148 @@ function processIcon(image, name, size) {
   return frame;
 }
 
+/**
+ * Bounding boxes of 8-connected opaque components, largest (by pixel count)
+ * first. Used to isolate the restored farmhouse's BUILDING from its detached
+ * floating moon (T3.25).
+ */
+/**
+ * "Solid pixel" cutoff (T3.25). ALPHA_THRESHOLD (8) asks "is anything here at
+ * all", which is right for trimming but wrong for MEASURING a building whose
+ * art carries soft lantern/moon glow: the glow's faint tail would stretch the
+ * bbox and, since that bbox is what the restored farmhouse is scaled by, would
+ * silently render the building too small. Half alpha is the silhouette.
+ */
+const SOLID_ALPHA_THRESHOLD = 127;
+
+function opaqueComponents(image, threshold = ALPHA_THRESHOLD) {
+  const { width, height } = image.bitmap;
+  const label = new Int32Array(width * height).fill(-1);
+  const components = [];
+  for (let seed = 0; seed < width * height; seed++) {
+    if (label[seed] !== -1) continue;
+    const seedX = seed % width;
+    const seedY = (seed - seedX) / width;
+    if (alphaAt(image, seedX, seedY) <= threshold) continue;
+    const id = components.length;
+    const stack = [seed];
+    label[seed] = id;
+    let count = 0;
+    let x0 = width;
+    let y0 = height;
+    let x1 = -1;
+    let y1 = -1;
+    while (stack.length > 0) {
+      const p = stack.pop();
+      const x = p % width;
+      const y = (p - x) / width;
+      count++;
+      if (x < x0) x0 = x;
+      if (x > x1) x1 = x;
+      if (y < y0) y0 = y;
+      if (y > y1) y1 = y;
+      for (const [dx, dy] of NEIGHBOR_OFFSETS_8) {
+        const nx = x + dx;
+        const ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+        const q = ny * width + nx;
+        if (label[q] !== -1) continue;
+        if (alphaAt(image, nx, ny) <= threshold) continue;
+        label[q] = id;
+        stack.push(q);
+      }
+    }
+    components.push({ count, bounds: { x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 } });
+  }
+  components.sort((a, b) => b.count - a.count);
+  return components;
+}
+
+const NEIGHBOR_OFFSETS_8 = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+  [1, 1],
+  [1, -1],
+  [-1, 1],
+  [-1, -1],
+];
+
+/**
+ * Restored farmhouse (T3.25) - THE frame that makes the restoration a pure
+ * art swap. The frame is built so the bottom `refSize`-tall band is
+ * coordinate-identical to the packed `farmhouse` frame and the moon simply
+ * pokes out above it. FarmScene then renders the restored frame at the SAME
+ * scale as the current one, offset upward by half the extra height, which
+ * leaves the building's on-screen size, base position, and cast shadow
+ * (`farmhouse_shadow`, reused unchanged) bit-identical.
+ *
+ * Derivation of the fit:
+ * - WIDTH is the anchor, not height. The moon lies horizontally INSIDE the
+ *   building's span in both arts, so the opaque bbox width of each is a
+ *   moon-independent measure of the same building - and width is what must be
+ *   preserved anyway, since the farmhouse stands on a fixed 2x2 iso footprint.
+ *   (Matching height instead would be moon-contaminated on the current art,
+ *   whose small moon touches the chimney and so cannot be split off by
+ *   component.) The two arts' building aspect ratios differ by a few percent,
+ *   so the restored building lands very slightly shorter than the current one
+ *   at equal width; the logged numbers report the exact delta.
+ * - The restored BUILDING is the largest opaque component (its moon is
+ *   detached); scale = ref bbox width / building width.
+ * - The scaled art is placed so the building's bbox center-x and BOTTOM row
+ *   coincide with the reference bbox's, then the canvas grows upward by
+ *   whatever the moon overhangs.
+ */
+function processRestoredFarmhouse(image, name, ref) {
+  const rawBuilding = opaqueComponents(image, SOLID_ALPHA_THRESHOLD)[0];
+  if (rawBuilding === undefined) throw new Error(`${name}: no opaque content after key-out`);
+  const scale = ref.bounds.w / rawBuilding.bounds.w;
+  const rawWidth = image.bitmap.width;
+  const rawHeight = image.bitmap.height;
+  image.resize({
+    w: Math.max(1, Math.round(rawWidth * scale)),
+    h: Math.max(1, Math.round(rawHeight * scale)),
+  });
+  // Map the building's bbox through the resize ARITHMETICALLY rather than
+  // re-running component detection on the scaled image: at this downscale the
+  // moon's antialiased edge bridges the gap to the roof, so the scaled art is
+  // a single component and a re-measure would silently return building+moon.
+  const sx = image.bitmap.width / rawWidth;
+  const sy = image.bitmap.height / rawHeight;
+  const building = {
+    x: rawBuilding.bounds.x * sx,
+    y: rawBuilding.bounds.y * sy,
+    w: rawBuilding.bounds.w * sx,
+    h: rawBuilding.bounds.h * sy,
+  };
+  const content = opaqueBounds(image);
+  const refCenterX = ref.bounds.x + ref.bounds.w / 2;
+  const refBottomY = ref.bounds.y + ref.bounds.h - 1;
+  // Offsets that map the scaled art onto the reference frame's coordinates.
+  const dx = Math.round(refCenterX - (building.x + building.w / 2));
+  const dy = Math.round(refBottomY - (building.y + building.h - 1));
+  const overhang = Math.max(0, -(content.y + dy));
+  const frameHeight = ref.size + overhang;
+  const frame = blankFrame(ref.size, frameHeight);
+  frame.composite(image, dx, dy + overhang);
+  const left = content.x + dx;
+  const right = content.x + content.w + dx;
+  if (left < 0 || right > ref.size) {
+    console.warn(
+      `note: ${name}: content spans x ${left}..${right} - clipped by the ${ref.size}px frame width`,
+    );
+  }
+  console.log(
+    `${name}: building ${rawBuilding.bounds.w}x${rawBuilding.bounds.h} raw -> ` +
+      `${building.w.toFixed(1)}x${building.h.toFixed(1)} packed (scale ${scale.toFixed(4)}); ` +
+      `reference farmhouse bbox ${fmtBounds(ref.bounds)} (its own small moon included, ` +
+      `so only the WIDTH is a like-for-like comparison); ` +
+      `placed dx=${dx} dy=${dy}, moon overhang ${overhang}px -> frame ${ref.size}x${frameHeight}`,
+  );
+  return frame;
+}
+
 /** Wide "plain downscale, keep aspect": trim, then scale to exactly `width`, no fixed frame. */
 function processWide(image, name, width) {
   trim(image, name);
@@ -843,6 +1009,24 @@ const plotOccupiedRef = await Jimp.read(join(stagingDir, `${sourceFileFor('plot_
 const plotOccupiedTargetBounds = opaqueBounds(processTileBase(plotOccupiedRef, 'plot_occupied'));
 let plotFootprintBefore = null;
 
+// T3.25: pre-measure the packed `farmhouse` frame so the restored variant has
+// a reference to size itself against regardless of iteration order - same
+// pattern as plot_occupied above.
+const farmhouseRefSize = SQUARE_DOWNSCALE_SIZES.farmhouse;
+const farmhouseRef = {
+  size: farmhouseRefSize,
+  // SOLID bounds on both sides, so the restored art is measured against the
+  // current building like for like - see SOLID_ALPHA_THRESHOLD.
+  bounds: opaqueBounds(
+    processIcon(
+      await Jimp.read(join(stagingDir, `${sourceFileFor('farmhouse')}.png`)),
+      'farmhouse',
+      farmhouseRefSize,
+    ),
+    SOLID_ALPHA_THRESHOLD,
+  ),
+};
+
 const sprites = [];
 // Sorted names = fixed, deterministic packing order.
 for (const name of [...FRAME_NAMES].sort()) {
@@ -852,6 +1036,8 @@ for (const name of [...FRAME_NAMES].sort()) {
     const fixed = processPlotFootprintFix(image, name, plotOccupiedTargetBounds);
     frame = fixed.frame;
     plotFootprintBefore = fixed.before;
+  } else if (name === RESTORED_FARMHOUSE_NAME) {
+    frame = processRestoredFarmhouse(image, name, farmhouseRef);
   } else if (TILE_NAMES.includes(name)) frame = processTile(image, name);
   else if (DERIVED_TILE_NAMES.includes(name)) frame = processTileFlat(image, name);
   else if (CROP_NAMES.includes(name)) frame = processCrop(image, name);
@@ -880,7 +1066,6 @@ for (const name of [...SHADOWED_FRAME_NAMES].sort()) {
 
 const plotSprite = sprites.find((s) => s.name === 'plot');
 const plotFootprintAfter = opaqueBounds(plotSprite.image);
-const fmtBounds = (b) => `x=${b.x} y=${b.y} w=${b.w} h=${b.h}`;
 console.log(
   `plot footprint fix: plot_occupied ${fmtBounds(plotOccupiedTargetBounds)}; ` +
     `plot before ${fmtBounds(plotFootprintBefore)}; plot after ${fmtBounds(plotFootprintAfter)}`,
