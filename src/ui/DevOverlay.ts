@@ -69,6 +69,7 @@ export class DevOverlay {
 
     this.root.appendChild(this.buildButtons());
     this.root.appendChild(this.buildDressingEditorControls());
+    this.root.appendChild(this.buildFarmhouseTransformControls());
 
     this.stateEl = document.createElement('pre');
     this.stateEl.style.cssText =
@@ -229,6 +230,69 @@ export class DevOverlay {
     });
 
     container.append(toggleButton, paletteRow, actionRow);
+    return container;
+  }
+
+  /**
+   * Farmhouse transform knobs (T3.26): a tap-friendly front end over the same
+   * dev hooks the console exposes, since diagnosing the building's angle means
+   * sweeping through values and eyeballing each one - far quicker by button
+   * than by retyping `dev.setFarmhouseRotation(...)`. Rotation and scale are
+   * ABSOLUTE here (the row tracks its own value and re-sends it), nudge is
+   * cumulative, and Reset returns to the exact baseline. Nothing persists.
+   */
+  private buildFarmhouseTransformControls(): HTMLDivElement {
+    const container = document.createElement('div');
+    container.style.cssText = 'display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px;';
+
+    const mkButton = (label: string, onClick: () => void): HTMLButtonElement => {
+      const button = document.createElement('button');
+      button.textContent = label;
+      button.style.cssText = 'font-family: monospace; font-size: 12px; padding: 4px 8px;';
+      button.addEventListener('click', onClick);
+      return button;
+    };
+
+    let angle = 0;
+    let scaleMult = 1;
+    const readout = document.createElement('span');
+    readout.style.cssText = 'font-family: monospace; font-size: 12px; padding: 4px 8px;';
+    const updateReadout = (): void => {
+      readout.textContent = `house: ${angle}deg x${scaleMult.toFixed(2)}`;
+    };
+    updateReadout();
+
+    const rotate = (delta: number): void => {
+      angle = Math.round((angle + delta) * 10) / 10;
+      window.dev?.setFarmhouseRotation?.(angle);
+      updateReadout();
+    };
+    const rescale = (delta: number): void => {
+      scaleMult = Math.round((scaleMult + delta) * 100) / 100;
+      window.dev?.setFarmhouseScale?.(scaleMult);
+      updateReadout();
+    };
+
+    container.append(
+      document.createTextNode('farmhouse:'),
+      mkButton('rot -5', () => rotate(-5)),
+      mkButton('rot -1', () => rotate(-1)),
+      mkButton('rot +1', () => rotate(1)),
+      mkButton('rot +5', () => rotate(5)),
+      mkButton('scale -', () => rescale(-0.05)),
+      mkButton('scale +', () => rescale(0.05)),
+      mkButton('left', () => window.dev?.nudgeFarmhouse?.(-4, 0)),
+      mkButton('right', () => window.dev?.nudgeFarmhouse?.(4, 0)),
+      mkButton('up', () => window.dev?.nudgeFarmhouse?.(0, -4)),
+      mkButton('down', () => window.dev?.nudgeFarmhouse?.(0, 4)),
+      mkButton('reset', () => {
+        angle = 0;
+        scaleMult = 1;
+        window.dev?.resetFarmhouseTransform?.();
+        updateReadout();
+      }),
+      readout,
+    );
     return container;
   }
 

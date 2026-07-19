@@ -1115,10 +1115,13 @@ export function structureFootprintTiles(id: StructureId, anchor: StructureAnchor
 }
 
 /**
- * Structure `id`'s sprite position at `anchor` (T3.3s): the anchor tile's
- * center plus the structure's fixed render offset. At the default anchors
- * this reproduces FARMHOUSE_POSITION / NOTICE_BOARD_POSITION exactly
- * (pinned by test).
+ * Structure `id`'s GROUND point at `anchor` (T3.3s; base-anchored since
+ * T3.27): the anchor tile's center plus the structure's fixed render offset.
+ * This is where the building's base meets the ground, and it is exactly where
+ * the scene places the sprite - whose origin is its own base row, so the
+ * building stands on this point and its roof (and the restored farmhouse's
+ * moon) extend upward from it freely. At the default anchors this reproduces
+ * FARMHOUSE_POSITION / NOTICE_BOARD_POSITION exactly (pinned by test).
  */
 export function structureRenderPosition(
   id: StructureId,

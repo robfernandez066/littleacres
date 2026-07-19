@@ -144,8 +144,14 @@ export const QUEST_ICON_POSITION = { x: 700, y: 86 } as const;
  * MEASURED clearances above describe the pre-nudge position; the footprint
  * was reduced to a single tile by the same ruling). Its derivation is pinned
  * by test.
+ *
+ * T3.27: structures are BASE-anchored now, so this is the board's GROUND
+ * point (the foot of its posts), not its sprite centre. The art did not
+ * move - the value rose by half the board's display height (240/2 = 120,
+ * y 1269 -> 1389) purely because it now names a different point on the same
+ * sprite. See STRUCTURE_RENDER_OFFSETS.
  */
-export const NOTICE_BOARD_POSITION = { x: 912, y: 1269 } as const;
+export const NOTICE_BOARD_POSITION = { x: 912, y: 1389 } as const;
 
 /**
  * Screen position (design space) of the decorative farmhouse structure.
@@ -166,8 +172,14 @@ export const NOTICE_BOARD_POSITION = { x: 912, y: 1269 } as const;
  * art (render offset (84,8) -> (137,9)), so this canonical default-anchor
  * position moved with it (the T2.22a MEASURED clearances above describe the
  * pre-nudge position). Its derivation is pinned by test.
+ *
+ * T3.27: structures are BASE-anchored now, so this is the farmhouse's GROUND
+ * point (where the building meets the ground), not its sprite centre. The art
+ * did not move - the value rose by half the farmhouse's display height
+ * (420/2 = 210, y 521 -> 731) purely because it now names a different point
+ * on the same sprite. See STRUCTURE_RENDER_OFFSETS.
  */
-export const FARMHOUSE_POSITION = { x: 933, y: 521 } as const;
+export const FARMHOUSE_POSITION = { x: 933, y: 731 } as const;
 
 /**
  * Movable structures (T3.3s, schema v18): the farmhouse and the notice board
@@ -202,9 +214,23 @@ export const FARMHOUSE_POSITION = { x: 933, y: 521 } as const;
  *   anchor-as-pure-reference convention, for the board only: the anchor tile
  *   sits under the board art, so it must block like any other footprint tile.
  * - STRUCTURE_RENDER_OFFSETS: pixel delta from the anchor tile's CENTER to
- *   the structure sprite's position. At the default anchors:
- *   farmhouse: gridToIso(-1,-3) = (796, 512), +(137, 9) = FARMHOUSE_POSITION;
- *   noticeBoard: gridToIso(5,3) = (796, 1280), +(116, -11) = NOTICE_BOARD_POSITION.
+ *   the structure's GROUND point - where the building's base meets the
+ *   ground. T3.27 re-anchored structures by that base (the sprite's origin is
+ *   its base row, not its centre), so this offset now names a point ON the
+ *   footprint instead of a point floating mid-building. At the default
+ *   anchors:
+ *   farmhouse: gridToIso(-1,-3) = (796, 512), +(137, 219) = FARMHOUSE_POSITION;
+ *   noticeBoard: gridToIso(5,3) = (796, 1280), +(116, 109) = NOTICE_BOARD_POSITION.
+ *
+ *   Each y grew by exactly half that structure's display height over its
+ *   pre-T3.27 value (farmhouse 9 + 420/2 = 219; board -11 + 240/2 = 109),
+ *   which is the centre-to-base distance - so the ART IS PIXEL-IDENTICAL to
+ *   where the 2026-07-17 Art Studio ruling put it; only the point these
+ *   numbers name changed. Both ground points land inside a footprint tile of
+ *   their structure (farmhouse (933,731) is inside its 2x2 block, whose
+ *   diamond spans y 512..768; board (912,1389) is inside tile (6,3), which
+ *   spans y 1280..1408), which is what "the base sits on the footprint"
+ *   means numerically.
  */
 export type StructureId = 'farmhouse' | 'noticeBoard';
 
@@ -233,8 +259,8 @@ export const STRUCTURE_FOOTPRINT_OFFSETS: Record<
 };
 
 export const STRUCTURE_RENDER_OFFSETS: Record<StructureId, { x: number; y: number }> = {
-  farmhouse: { x: 137, y: 9 },
-  noticeBoard: { x: 116, y: -11 },
+  farmhouse: { x: 137, y: 219 },
+  noticeBoard: { x: 116, y: 109 },
 };
 
 /**

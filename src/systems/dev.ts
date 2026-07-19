@@ -113,6 +113,23 @@ export interface DevTools {
    * Console-logs its state like the other probes. Registered by FarmScene.
    */
   footprints?(): void;
+  /**
+   * T3.26 dev-only farmhouse transform knobs, for diagnosing the building's
+   * angle: does an in-plane rotation make it sit right on the iso grid (a tilt
+   * the art can be rotated out of), or not (a perspective mismatch that needs
+   * new art)? All four are NON-PERSISTENT - they move the sprite only, never
+   * state, and a reload clears them. Each logs the live rotation/scale/offset
+   * so the owner can record whatever looks right. Registered by FarmScene.
+   *
+   * - setFarmhouseRotation: absolute degrees, pivoting on the sprite centre.
+   * - setFarmhouseScale: absolute MULTIPLIER over the normal display scale.
+   * - nudgeFarmhouse: CUMULATIVE px offset from the computed position.
+   * - resetFarmhouseTransform: back to the exact baseline render.
+   */
+  setFarmhouseRotation?(degrees: number): void;
+  setFarmhouseScale?(mult: number): void;
+  nudgeFarmhouse?(dx: number, dy: number): void;
+  resetFarmhouseTransform?(): void;
 }
 
 declare global {
@@ -225,6 +242,24 @@ export function registerDecorSizingToggle(toggle: (enabled: boolean) => void): v
  */
 export function registerFootprintsToggle(toggle: () => void): void {
   if (window.dev !== undefined) window.dev.footprints = toggle;
+}
+
+/**
+ * Late-bind the T3.26 farmhouse transform knobs once the Farm scene exists,
+ * bundled like `registerDressingEditorHooks` since the four are always wired
+ * together.
+ */
+export function registerFarmhouseTransformHooks(hooks: {
+  setRotation: (degrees: number) => void;
+  setScale: (mult: number) => void;
+  nudge: (dx: number, dy: number) => void;
+  reset: () => void;
+}): void {
+  if (window.dev === undefined) return;
+  window.dev.setFarmhouseRotation = hooks.setRotation;
+  window.dev.setFarmhouseScale = hooks.setScale;
+  window.dev.nudgeFarmhouse = hooks.nudge;
+  window.dev.resetFarmhouseTransform = hooks.reset;
 }
 
 /**

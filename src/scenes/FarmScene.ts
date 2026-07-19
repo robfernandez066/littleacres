@@ -67,6 +67,7 @@ import {
   registerCoinArcTest,
   registerDecorSizingToggle,
   registerDressingEditorHooks,
+  registerFarmhouseTransformHooks,
   registerFootprintsToggle,
   registerGroundModeCycle,
   registerHitboxToggle,
@@ -277,6 +278,32 @@ const NOTICE_BOARD_SCALE = NOTICE_BOARD_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
  *  prominent top-right spot - see FARMHOUSE_POSITION's comment in config.ts. */
 const FARMHOUSE_DISPLAY_HEIGHT = 420;
 const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+
+/**
+ * The BASE row of each structure's building, in native frame px measured down
+ * from the frame's top (T3.27) - the row where the building meets the ground,
+ * which is what `structureBaseOriginY` turns into the sprite's origin so the
+ * building stands on its ground point instead of hovering around its centre.
+ *
+ * MEASURED (Jimp alpha scan of the packed atlas, threshold 8, same scan
+ * tools/pack-atlas.mjs uses): in `farmhouse` the lowest opaque row is y=255
+ * (the front corner of the base, x 145..150) and in `notice_board` it is y=255
+ * (the foot of the posts, x 163..183) - both frames are bottom-flush because
+ * the packer scales each art to fit its 256 square and both are height-limited
+ * (farmhouse opaque bbox 240x256, board 165x256). So the base EDGE - the row
+ * just below the last opaque one - sits at 256 in both, i.e. the frame's own
+ * bottom edge.
+ *
+ * This is deliberately the bottom edge of the NOMINAL 256 band rather than a
+ * hardcoded "use the frame bottom": `structureBaseOriginY` adds the restored
+ * farmhouse's extra height on top (see there), and an art revision that stops
+ * being bottom-flush only needs this number re-measured, not the origin logic
+ * rewritten.
+ */
+const STRUCTURE_BASE_ROW_NATIVE: Record<StructureId, number> = {
+  farmhouse: 256,
+  noticeBoard: 256,
+};
 
 /**
  * Expand-sign ground shadow geometry (T3.art-2). The sign draws itself from
@@ -972,6 +999,17 @@ export class FarmScene extends Phaser.Scene {
   /** Cached rails gating, mirrors `noticeBoardEnabled`. */
   private farmhouseEnabled = true;
   /**
+   * Dev-only farmhouse transform knobs (T3.26), for diagnosing whether the
+   * building's angle is an in-plane tilt (fixable by rotation) or a
+   * perspective mismatch (needs new art). Deliberately NOT part of
+   * `GameStateData` and never saved - a reload clears them. See
+   * `applyFarmhouseDevTransform`.
+   */
+  private farmhouseDevAngle = 0;
+  private farmhouseDevScaleMult = 1;
+  private farmhouseDevOffsetX = 0;
+  private farmhouseDevOffsetY = 0;
+  /**
    * The selected structure in arrange mode (T3.3s), or null - mutually
    * exclusive with `selectedDecorationIndex`/`selectedPlotIndex`, same
    * one-selection rule. While one is selected, Scale/Flip/Put Away all dim
@@ -1379,9 +1417,11 @@ export class FarmScene extends Phaser.Scene {
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     // Live board position (T3.3s - the board is movable), read at pulse time.
+    // T3.27: the ring is a centred box, so it wants the board's visual centre -
+    // the sprite's own y is its GROUND point now and would ring its feet.
     registerPulseTarget('orders-button', () => ({
       x: this.noticeBoardImage.x,
-      y: this.noticeBoardImage.y,
+      y: this.structureCenterY(this.noticeBoardImage),
       width: NOTICE_BOARD_PULSE_SIZE,
       height: NOTICE_BOARD_PULSE_SIZE,
       object: this.noticeBoardImage,
@@ -1472,6 +1512,13 @@ export class FarmScene extends Phaser.Scene {
     registerDecorSizingToggle((enabled) => this.setDecorSizingEnabled(enabled));
     // T3.3s-r2 dev restrictions overlay - see `toggleDevFootprints`.
     registerFootprintsToggle(() => this.toggleDevFootprints());
+    // T3.26 farmhouse angle diagnosis - see `applyFarmhouseDevTransform`.
+    registerFarmhouseTransformHooks({
+      setRotation: (degrees) => this.setFarmhouseDevRotation(degrees),
+      setScale: (mult) => this.setFarmhouseDevScale(mult),
+      nudge: (dx, dy) => this.nudgeFarmhouseDev(dx, dy),
+      reset: () => this.resetFarmhouseDevTransform(),
+    });
   }
 
   /**
@@ -1968,13 +2015,12 @@ export class FarmScene extends Phaser.Scene {
       downX: pointer.x,
       downY: pointer.y,
       grabOffsetX: target.x - world.x,
-      // NOMINAL space (T3.25): a restored farmhouse's sprite sits half its
-      // extra frame height above its anchor-derived position, so the shift is
-      // taken back out here and re-applied only where the sprite is actually
-      // positioned. Everything in between - the free-follow position, the
-      // grid inverse-mapping, the footprint preview, the snap - then works in
-      // the same coordinates for both looks.
-      grabOffsetY: target.y - this.structureRenderShiftY(structureId) - world.y,
+      // T3.27: no space conversion any more. A base-anchored sprite's position
+      // IS its ground point for both looks, so the free-follow position, the
+      // grid inverse-mapping, the footprint preview and the snap all already
+      // share one coordinate system - which is what T3.25's nominal-space
+      // add/subtract was faking.
+      grabOffsetY: target.y - world.y,
       timer: this.time.delayedCall(HOLD_MS, () => this.fireHoldLift()),
     };
   }
@@ -3351,9 +3397,9 @@ export class FarmScene extends Phaser.Scene {
     this.farmhouseImage = this.add
       .image(position.x, position.y, ATLAS_KEY, FARMHOUSE_FRAME)
       .setScale(FARMHOUSE_SCALE)
-      .setDepth(position.y);
-    // Frame + hit area + position all derive from the restoration flag
-    // (T3.25); at flag 0 this is exactly the historical setup.
+      .setDepth(this.structureDepthFor('farmhouse', position.y));
+    // Frame + hit area + ORIGIN all derive from the restoration flag (T3.25,
+    // origin since T3.27); at flag 0 this is exactly the historical setup.
     this.applyFarmhouseLook();
     this.farmhouseImage.on(
       Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
@@ -3379,10 +3425,13 @@ export class FarmScene extends Phaser.Scene {
    * - the SCALE is the same for both looks. Reusing FARMHOUSE_DISPLAY_HEIGHT
    *   as a fixed display height instead would share those pixels between the
    *   building AND the moon and silently render the building smaller.
-   * - the sprite shifts UP by half the extra height (see
-   *   `farmhouseRestorationOffsetY`), which puts the shared bottom band back
-   *   where the un-restored frame sat. The building's on-screen size, base
-   *   position, depth, and cast shadow are all then unchanged by construction.
+   * - the ORIGIN is re-derived to the (taller) frame's own base row, so the
+   *   building's base stays pinned to the ground point and the moon's extra
+   *   height grows upward off-screen-ward instead of dragging the building up
+   *   with it. The building's on-screen size, base position, depth, and cast
+   *   shadow are all then unchanged by construction. (T3.27 - this replaced
+   *   T3.25's half-overhang counter-shove, which existed only because centre
+   *   anchoring made the taller frame move the building.)
    * - the hit area stays anchored to that bottom band, so tapping the house
    *   feels identical and the floating moon is not a tap target.
    *
@@ -3391,8 +3440,16 @@ export class FarmScene extends Phaser.Scene {
   private applyFarmhouseLook(): void {
     const restored = gameState.getState().restoration.farmhouse === 1;
     this.farmhouseImage.setFrame(restored ? FARMHOUSE_RESTORED_FRAME : FARMHOUSE_FRAME);
+    // After the frame swap, so the taller restored frame's base row is used.
+    this.farmhouseImage.setOrigin(0.5, this.structureBaseOriginY(this.farmhouseImage, 'farmhouse'));
     const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
     const overhang = this.farmhouseImage.frame.realHeight - STRUCTURE_FRAME_SIZE;
+    // Unchanged by T3.27's origin move: hitArea rectangles are FRAME-relative
+    // (Phaser adds displayOrigin back before testing - see the convention note
+    // in CLAUDE.md), so they describe a region of the art, not of the sprite's
+    // placement. The art's position within its frame did not change, so this
+    // rect - the bottom 256 band, i.e. the building, moon excluded - is still
+    // exactly right.
     this.farmhouseImage.setInteractive({
       hitArea: new Phaser.Geom.Rectangle(
         -pad,
@@ -3410,24 +3467,63 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * How far up the farmhouse sprite sits relative to its anchor-derived
-   * position (T3.25): half the restored frame's extra height, in display px.
-   * 0 while un-restored. See `applyFarmhouseLook` for why this exactly
-   * cancels the taller frame.
+   * The origin-y that BASE-anchors a structure sprite (T3.27): the fraction of
+   * the frame's height at which the building meets the ground, so
+   * `setPosition` places the base on the ground point and everything above it
+   * - roof, chimney, the restored farmhouse's floating moon - extends upward
+   * on its own.
+   *
+   * The base row is STRUCTURE_BASE_ROW_NATIVE plus however much TALLER than
+   * the nominal 256 band this particular frame is. That second term is what
+   * makes the restored farmhouse work without a special case: the packer
+   * builds `farmhouse_restored` so its bottom 256-tall band is
+   * coordinate-identical to `farmhouse` and the moon simply grows the canvas
+   * UPWARD (tools/pack-atlas.mjs processRestoredFarmhouse), so the building's
+   * base row moves down the frame by exactly the overhang. This is what
+   * replaced T3.25's `farmhouseRestorationOffsetY` half-overhang shove: under
+   * centre anchoring a taller frame dragged the building with it and had to be
+   * pushed back; under base anchoring the base is the fixed point by
+   * construction and nothing needs correcting.
+   *
+   * Currently 1.0 for every structure and look (both frames are bottom-flush,
+   * and 256 + 28 = 284 = the restored frame's own height), but derived rather
+   * than hardcoded so re-measured art keeps working.
    */
-  private farmhouseRestorationOffsetY(): number {
-    const overhang = this.farmhouseImage.frame.realHeight - STRUCTURE_FRAME_SIZE;
-    return (-overhang / 2) * FARMHOUSE_SCALE;
+  private structureBaseOriginY(image: Phaser.GameObjects.Image, id: StructureId): number {
+    const overhang = image.frame.realHeight - STRUCTURE_FRAME_SIZE;
+    return (STRUCTURE_BASE_ROW_NATIVE[id] + overhang) / image.frame.realHeight;
   }
 
   /**
-   * The render shift for a structure sprite (T3.25): how far its sprite sits
-   * from its nominal, anchor-derived position. Only the restored farmhouse has
-   * one; everything else is 0, so structure code can apply this
-   * unconditionally.
+   * The y of a base-anchored structure sprite's visual CENTRE (T3.27) - for
+   * the few things that want the middle of the building rather than its
+   * ground point: the tutorial's pulse ring and the restoration sparkle
+   * burst. Origin-aware, so it survives an origin re-derive.
    */
-  private structureRenderShiftY(id: StructureId | undefined): number {
-    return id === 'farmhouse' ? this.farmhouseRestorationOffsetY() : 0;
+  private structureCenterY(image: Phaser.GameObjects.Image): number {
+    return image.y + image.displayHeight * (0.5 - image.originY);
+  }
+
+  /**
+   * The DEPTH a structure sorts at, given its ground point `baseY` (T3.27).
+   *
+   * Deliberately NOT `baseY`: re-anchoring must not reshuffle the iso
+   * interleave (a structure that used to pass behind a crop must still pass
+   * behind it), so the sort key stays the exact quantity it was before this
+   * task - the sprite's old CENTRE y, which is `baseY` minus half the
+   * structure's un-restored display height. Restoration does not enter into
+   * it, matching T3.25, where depth was taken from the nominal position and
+   * the taller frame changed nothing.
+   *
+   * Moving the sort to the true ground y would be more correct iso-wise (the
+   * farmhouse currently sorts 210px above where it stands) but it is a
+   * visible, PM-owned change to what passes in front of what - see the task
+   * report for T3.27.
+   */
+  private structureDepthFor(id: StructureId, baseY: number): number {
+    const displayHeight =
+      id === 'farmhouse' ? FARMHOUSE_DISPLAY_HEIGHT : NOTICE_BOARD_DISPLAY_HEIGHT;
+    return baseY - displayHeight / 2;
   }
 
   /**
@@ -3476,6 +3572,74 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Apply the dev-only farmhouse transform knobs (T3.26) on top of the
+   * sprite's normal placement. Called at the END of every path that places the
+   * farmhouse, so a refresh tick, a restoration frame swap, or a drag commit
+   * re-asserts the knobs instead of silently dropping them.
+   *
+   * Safe to call repeatedly ONLY straight after a baseline placement, which is
+   * exactly how it is wired: the offset is added to the position the caller
+   * just computed, so calling it twice without re-placing would double the
+   * offset. Every setter below therefore re-runs the full placement rather
+   * than poking the sprite, which keeps one code path and no drift.
+   *
+   * Rotation pivots on the sprite's origin, which is the building's BASE
+   * since T3.27 - so a rotation knob now swings the roof about the ground
+   * point instead of about mid-building, which is the more useful pivot for
+   * the angle question this exists to answer. Nothing here touches state, the
+   * anchor, the footprint, the depth, or the shadow.
+   */
+  private applyFarmhouseDevTransform(): void {
+    this.farmhouseImage
+      .setAngle(this.farmhouseDevAngle)
+      .setScale(FARMHOUSE_SCALE * this.farmhouseDevScaleMult)
+      .setPosition(
+        this.farmhouseImage.x + this.farmhouseDevOffsetX,
+        this.farmhouseImage.y + this.farmhouseDevOffsetY,
+      );
+  }
+
+  /** Re-place the farmhouse (re-applying the knobs) and log the live values. */
+  private refreshFarmhouseDevTransform(): void {
+    this.applyStructureStatePosition('farmhouse');
+    console.log(
+      `farmhouse transform: rotation ${this.farmhouseDevAngle}deg, ` +
+        `scale x${this.farmhouseDevScaleMult} (${(
+          FARMHOUSE_SCALE * this.farmhouseDevScaleMult
+        ).toFixed(3)}), ` +
+        `offset (${this.farmhouseDevOffsetX}, ${this.farmhouseDevOffsetY}) - not saved`,
+    );
+  }
+
+  /** T3.26 dev knob: absolute rotation in degrees, about the sprite centre. */
+  private setFarmhouseDevRotation(degrees: number): void {
+    this.farmhouseDevAngle = degrees;
+    this.refreshFarmhouseDevTransform();
+  }
+
+  /** T3.26 dev knob: absolute scale MULTIPLIER over the normal FARMHOUSE_SCALE. */
+  private setFarmhouseDevScale(mult: number): void {
+    this.farmhouseDevScaleMult = mult;
+    this.refreshFarmhouseDevTransform();
+  }
+
+  /** T3.26 dev knob: CUMULATIVE pixel nudge from the computed position. */
+  private nudgeFarmhouseDev(dx: number, dy: number): void {
+    this.farmhouseDevOffsetX += dx;
+    this.farmhouseDevOffsetY += dy;
+    this.refreshFarmhouseDevTransform();
+  }
+
+  /** T3.26 dev knob: back to the exact baseline - angle 0, FARMHOUSE_SCALE, no offset. */
+  private resetFarmhouseDevTransform(): void {
+    this.farmhouseDevAngle = 0;
+    this.farmhouseDevScaleMult = 1;
+    this.farmhouseDevOffsetX = 0;
+    this.farmhouseDevOffsetY = 0;
+    this.refreshFarmhouseDevTransform();
+  }
+
+  /**
    * Open the Restore the Homestead panel (T3.25) from the Decor Shop's
    * Restore button. The shop stays OPEN behind it: the panel sits above both
    * of the shop's depth tiers (see RestorePanel's PANEL_DEPTH), so closing the
@@ -3494,7 +3658,9 @@ export class FarmScene extends Phaser.Scene {
    */
   private playRestorationCelebration(): void {
     const x = this.farmhouseImage.x;
-    const y = this.farmhouseImage.y;
+    // T3.27: the burst belongs OVER the building, and the sprite's own y is
+    // its ground point now - centre it explicitly.
+    const y = this.structureCenterY(this.farmhouseImage);
     this.worldParticles.burst('sparkle', x, y);
     this.worldFloatingText.show(x, y, RESTORATION_LABEL, RESTORATION_TEXT_OPTIONS);
     this.time.delayedCall(RESTORATION_SECOND_BURST_DELAY_MS, () => {
@@ -3567,6 +3733,33 @@ export class FarmScene extends Phaser.Scene {
     this.placeCastShadow(shadow, {
       x: object.x,
       baseY: object.y + object.displayHeight * (1 - object.originY),
+      sourceFrameWidth: object.frame.realWidth,
+      scaleX: object.scaleX,
+      scaleY: object.scaleY,
+      flipX: object.flipX,
+      depth: object.depth - 1,
+    });
+  }
+
+  /**
+   * The structure flavour of `applyGroundShadowGeometry` (T3.27). Identical
+   * except for where the base is read from: a base-anchored structure's
+   * position IS its ground point, so the shadow grounds on `object.y` rather
+   * than on the bottom of the frame.
+   *
+   * For today's art the two agree exactly (both structure frames are
+   * bottom-flush, so the base row IS the frame bottom - see
+   * STRUCTURE_BASE_ROW_NATIVE), but they stop agreeing the moment an art
+   * revision leaves transparent padding under a building, and it is the
+   * ground point, not the frame, that the shadow belongs under.
+   */
+  private applyStructureShadowGeometry(
+    shadow: Phaser.GameObjects.Image,
+    object: Phaser.GameObjects.Image,
+  ): void {
+    this.placeCastShadow(shadow, {
+      x: object.x,
+      baseY: object.y,
       sourceFrameWidth: object.frame.realWidth,
       scaleX: object.scaleX,
       scaleY: object.scaleY,
@@ -4563,9 +4756,13 @@ export class FarmScene extends Phaser.Scene {
    */
   private moveStructureSpriteFree(id: StructureId, x: number, y: number): void {
     const image = this.structureImage(id);
-    // `y` is nominal (T3.25) - see beginPendingLift; depth stays nominal too.
-    image.setPosition(x, y + this.structureRenderShiftY(id)).setDepth(y);
-    this.applyGroundShadowGeometry(this.structureShadow(id), image);
+    // T3.27: (x, y) is the dragged GROUND point, in the same coordinates
+    // `structureRenderPosition` returns - the T3.25 nominal-vs-shifted split is
+    // gone, so a drag needs no per-look bookkeeping.
+    image.setPosition(x, y).setDepth(this.structureDepthFor(id, y));
+    this.applyStructureShadowGeometry(this.structureShadow(id), image);
+    // T3.26: keep the dev knobs applied through a drag - see placeStructureSprite.
+    if (id === 'farmhouse') this.applyFarmhouseDevTransform();
     if (id === 'noticeBoard') {
       const { x: badgeX, y: badgeY } = this.noticeBoardBadgeBase();
       this.noticeBoardBadge.setPosition(badgeX, badgeY).setDepth(y + 1);
@@ -4586,7 +4783,7 @@ export class FarmScene extends Phaser.Scene {
     this.structureDragId = null;
     this.destroyStructureFootprintPreview();
     const image = this.structureImage(id);
-    const target = this.nearestLegalAnchor(id, image.x, image.y - this.structureRenderShiftY(id));
+    const target = this.nearestLegalAnchor(id, image.x, image.y);
     const moved = target !== null && gameState.moveStructure(id, target.col, target.row);
     this.applyStructureStatePosition(id);
     if (!moved) this.shakeLockedPlot(image);
@@ -4832,12 +5029,16 @@ export class FarmScene extends Phaser.Scene {
   private placeStructureSprite(id: StructureId, anchor: { col: number; row: number }): void {
     const pos = structureRenderPosition(id, anchor);
     const image = this.structureImage(id);
-    // T3.25: the restored farmhouse's frame is taller, so its sprite sits
-    // higher to keep the building on the same spot. DEPTH still uses the raw
-    // anchor y, so the iso sort order is identical either way.
-    image.setPosition(pos.x, pos.y + this.structureRenderShiftY(id)).setDepth(pos.y);
-    this.applyGroundShadowGeometry(this.structureShadow(id), image);
+    // T3.27: `pos` is the GROUND point and the sprite's origin is its base, so
+    // this seats the building on it directly - no per-look correction, whatever
+    // the frame's height (see `structureBaseOriginY`).
+    image.setPosition(pos.x, pos.y).setDepth(this.structureDepthFor(id, pos.y));
+    this.applyStructureShadowGeometry(this.structureShadow(id), image);
     if (id === 'noticeBoard') this.placeNoticeBoardBadge();
+    // T3.26: the dev knobs stack on top of the FINISHED baseline placement,
+    // and deliberately after the shadow has been derived from it - so the
+    // shadow keeps sitting where the un-transformed building would.
+    if (id === 'farmhouse') this.applyFarmhouseDevTransform();
   }
 
   /** `placeStructureSprite` at the structure's COMMITTED (saved) anchor. */
@@ -5623,7 +5824,12 @@ export class FarmScene extends Phaser.Scene {
     this.noticeBoardImage = this.add
       .image(position.x, position.y, ATLAS_KEY, 'notice_board')
       .setScale(NOTICE_BOARD_SCALE)
-      .setDepth(position.y)
+      .setDepth(this.structureDepthFor('noticeBoard', position.y));
+    // T3.27: base-anchored, so `position` (the ground point) puts the posts'
+    // feet on the footprint. The hit rect below is unaffected - it is
+    // FRAME-relative, and the art did not move within its frame.
+    this.noticeBoardImage
+      .setOrigin(0.5, this.structureBaseOriginY(this.noticeBoardImage, 'noticeBoard'))
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
           -pad,
@@ -5677,8 +5883,16 @@ export class FarmScene extends Phaser.Scene {
    * The badge's base position for the board's CURRENT sprite position - the
    * eave-tip anchor math shared by `placeNoticeBoardBadge` (settled, with
    * the bounce tween) and `moveStructureSpriteFree` (mid-drag, tween-free).
+   *
+   * The two NATIVE constants are frame coordinates (px from the frame's top-
+   * left), so each is converted by subtracting the frame coordinate the
+   * sprite's ORIGIN sits at and scaling. T3.27 moved that origin from the
+   * frame's centre to its base row, so x still subtracts the half-width but y
+   * now subtracts the base row - the badge therefore rides the eave exactly
+   * where it always did.
    */
   private noticeBoardBadgeBase(): { x: number; y: number } {
+    const baseRow = STRUCTURE_BASE_ROW_NATIVE.noticeBoard;
     return {
       x:
         this.noticeBoardImage.x +
@@ -5686,7 +5900,7 @@ export class FarmScene extends Phaser.Scene {
         BADGE_CORNER_NUDGE,
       y:
         this.noticeBoardImage.y +
-        (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - STRUCTURE_FRAME_SIZE / 2) * NOTICE_BOARD_SCALE -
+        (NOTICE_BOARD_CONTENT_RIGHT_Y_NATIVE - baseRow) * NOTICE_BOARD_SCALE -
         BADGE_CORNER_NUDGE,
     };
   }

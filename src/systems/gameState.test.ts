@@ -4573,14 +4573,33 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
   });
 
   it('PIXEL IDENTITY: the default anchors reproduce the canonical render positions exactly', () => {
+    // DELIBERATE RE-PIN (T3.27): structures are BASE-anchored now, so
+    // `structureRenderPosition` returns the building's GROUND point instead of
+    // its sprite centre, and both canonical constants moved down by half their
+    // structure's display height. The ART did not move - the sprite's origin
+    // moved from its centre to its base row by the same amount.
+    //
+    //   farmhouse:   gridToIso(-1,-3) = (540 + (-1 - -3) * 128, 768 + (-1 + -3) * 64)
+    //                                 = (796, 512)
+    //                + STRUCTURE_RENDER_OFFSETS.farmhouse (137, 219)
+    //                = (933, 731)          [was (933, 521); 219 = 9 + 420/2]
+    //   noticeBoard: gridToIso(5,3)   = (540 + (5 - 3) * 128, 768 + (5 + 3) * 64)
+    //                                 = (796, 1280)
+    //                + STRUCTURE_RENDER_OFFSETS.noticeBoard (116, 109)
+    //                = (912, 1389)         [was (912, 1269); 109 = -11 + 240/2]
+    //
+    // Asserted against literals, not just the constants, so an accidental edit
+    // to STRUCTURE_RENDER_OFFSETS cannot move both sides at once and pass.
     expect(structureRenderPosition('farmhouse', STRUCTURE_DEFAULT_ANCHORS.farmhouse)).toEqual({
-      x: FARMHOUSE_POSITION.x,
-      y: FARMHOUSE_POSITION.y,
+      x: 933,
+      y: 731,
     });
     expect(structureRenderPosition('noticeBoard', STRUCTURE_DEFAULT_ANCHORS.noticeBoard)).toEqual({
-      x: NOTICE_BOARD_POSITION.x,
-      y: NOTICE_BOARD_POSITION.y,
+      x: 912,
+      y: 1389,
     });
+    expect(FARMHOUSE_POSITION).toEqual({ x: 933, y: 731 });
+    expect(NOTICE_BOARD_POSITION).toEqual({ x: 912, y: 1389 });
   });
 
   it('the default anchors reproduce the pinned blocked-tile sets tile for tile', () => {
