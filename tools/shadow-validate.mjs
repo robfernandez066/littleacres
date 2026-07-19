@@ -66,9 +66,18 @@ async function validateOne(building) {
         frame: { w: packed.image.bitmap.width, h: packed.image.bitmap.height },
       };
       const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-      if (!same(frame.sourceSize, expect.sourceSize)) errors.push(`atlas sourceSize ${JSON.stringify(frame.sourceSize)} != expected ${JSON.stringify(expect.sourceSize)}`);
-      if (!same(frame.spriteSourceSize, expect.spriteSourceSize)) errors.push(`atlas spriteSourceSize ${JSON.stringify(frame.spriteSourceSize)} != expected ${JSON.stringify(expect.spriteSourceSize)}`);
-      if (frame.frame.w !== expect.frame.w || frame.frame.h !== expect.frame.h) errors.push(`atlas frame ${frame.frame.w}x${frame.frame.h} != expected ${expect.frame.w}x${expect.frame.h}`);
+      if (!same(frame.sourceSize, expect.sourceSize))
+        errors.push(
+          `atlas sourceSize ${JSON.stringify(frame.sourceSize)} != expected ${JSON.stringify(expect.sourceSize)}`,
+        );
+      if (!same(frame.spriteSourceSize, expect.spriteSourceSize))
+        errors.push(
+          `atlas spriteSourceSize ${JSON.stringify(frame.spriteSourceSize)} != expected ${JSON.stringify(expect.spriteSourceSize)}`,
+        );
+      if (frame.frame.w !== expect.frame.w || frame.frame.h !== expect.frame.h)
+        errors.push(
+          `atlas frame ${frame.frame.w}x${frame.frame.h} != expected ${expect.frame.w}x${expect.frame.h}`,
+        );
     }
   }
 
@@ -96,7 +105,10 @@ for (const b of buildings) {
   const ok = r.errors.length === 0;
   console.log(`\n${ok ? 'PASS' : 'FAIL'}  ${b}`);
   if (r.anchor) console.log(`  derived anchor: (${r.anchor.x}, ${r.anchor.y})`);
-  if (r.stats) console.log(`  alpha bounds: ${r.stats.bounds ? `x${r.stats.bounds.x} y${r.stats.bounds.y} w${r.stats.bounds.w} h${r.stats.bounds.h}` : '(empty)'}  maxAlpha ${r.stats.maxAlpha}  components ${r.stats.components}`);
+  if (r.stats)
+    console.log(
+      `  alpha bounds: ${r.stats.bounds ? `x${r.stats.bounds.x} y${r.stats.bounds.y} w${r.stats.bounds.w} h${r.stats.bounds.h}` : '(empty)'}  maxAlpha ${r.stats.maxAlpha}  components ${r.stats.components}`,
+    );
   for (const w of r.warnings) console.log(`  warn: ${w}`);
   for (const e of r.errors) console.log(`  error: ${e}`);
   if (!ok) failed++;

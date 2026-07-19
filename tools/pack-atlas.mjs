@@ -112,11 +112,7 @@ import { fileURLToPath } from 'node:url';
 
 import { Jimp } from 'jimp';
 
-import {
-  buildPackedOverride,
-  readManifest,
-  validateAuthoredImage,
-} from './shadow-lib.mjs';
+import { buildPackedOverride, readManifest, validateAuthoredImage } from './shadow-lib.mjs';
 
 // ---------------------------------------------------------------------------
 // Frame conventions (keep in sync with src/config.ts and src/data/crops.ts)
@@ -900,18 +896,24 @@ async function loadAuthoredShadowOverride(name) {
   const pngPath = join(shadowOverrideDir, `${name}_shadow.png`);
   const metadataPath = join(shadowOverrideDir, `${name}_shadow.json`);
   if (!existsSync(pngPath)) {
-    if (existsSync(metadataPath)) throw new Error(`${name}: shadow metadata exists without its PNG`);
+    if (existsSync(metadataPath))
+      throw new Error(`${name}: shadow metadata exists without its PNG`);
     return null;
   }
-  if (!existsSync(metadataPath)) throw new Error(`${name}: authored shadow PNG exists without metadata`);
+  if (!existsSync(metadataPath))
+    throw new Error(`${name}: authored shadow PNG exists without metadata`);
   const manifest = readManifest(metadataPath);
   if (manifest.building !== name || manifest.frame !== `${name}_shadow`) {
-    throw new Error(`${name}: manifest building/frame (${manifest.building}/${manifest.frame}) does not match`);
+    throw new Error(
+      `${name}: manifest building/frame (${manifest.building}/${manifest.frame}) does not match`,
+    );
   }
   const image = await Jimp.read(pngPath);
   const report = validateAuthoredImage(image, manifest);
   if (!report.ok) {
-    throw new Error(`${name}: authored shadow failed validation:\n  - ${report.errors.join('\n  - ')}`);
+    throw new Error(
+      `${name}: authored shadow failed validation:\n  - ${report.errors.join('\n  - ')}`,
+    );
   }
   return buildPackedOverride(image, manifest);
 }

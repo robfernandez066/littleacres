@@ -17,7 +17,14 @@ import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-import { Jimp, deriveAnchor, manifestPath, opaqueBounds, overrideDir, pngPath } from './shadow-lib.mjs';
+import {
+  Jimp,
+  deriveAnchor,
+  manifestPath,
+  opaqueBounds,
+  overrideDir,
+  pngPath,
+} from './shadow-lib.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -37,14 +44,18 @@ const previewScale = Number(arg('--scale', '1')) || 1;
 const outJson = manifestPath(repoRoot, building);
 const outPng = pngPath(repoRoot, building);
 if (existsSync(outJson) || existsSync(outPng)) {
-  console.error(`refusing to overwrite existing ${building} shadow. Delete it first if you mean to re-scaffold.`);
+  console.error(
+    `refusing to overwrite existing ${building} shadow. Delete it first if you mean to re-scaffold.`,
+  );
   process.exit(1);
 }
 
 const atlasJson = JSON.parse(readFileSync(join(repoRoot, 'assets', 'atlas.json'), 'utf8'));
 const f = atlasJson.frames[sourceFrame];
 if (!f) {
-  console.error(`atlas has no frame "${sourceFrame}". Run npm run pack:atlas, or pass --source <frame>.`);
+  console.error(
+    `atlas has no frame "${sourceFrame}". Run npm run pack:atlas, or pass --source <frame>.`,
+  );
   process.exit(1);
 }
 
@@ -85,7 +96,8 @@ const manifest = {
   previewScale,
   tuckRatio: 0,
   validation: { minAlpha: 8, requireSingleComponent: true, requireUpperEdgeAboveAnchor: true },
-  description: 'Scaffolded by shadow:new. Draw the shadow into the PNG (pure black, authored alpha), then npm run shadow:validate and pack:atlas. Adjust sourceGroundPoint/previewScale if the guide looks off.',
+  description:
+    'Scaffolded by shadow:new. Draw the shadow into the PNG (pure black, authored alpha), then npm run shadow:validate and pack:atlas. Adjust sourceGroundPoint/previewScale if the guide looks off.',
 };
 const anchor = deriveAnchor(manifest);
 
@@ -126,13 +138,24 @@ for (let k = -10; k <= 10; k++) {
   setPx(anchor.x + k, anchor.y, 255, 0, 255);
   setPx(anchor.x, anchor.y + k, 255, 0, 255);
 }
-writeFileSync(join(overrideDir(repoRoot), `${building}_shadow.registration.png`), await guide.getBuffer('image/png'));
+writeFileSync(
+  join(overrideDir(repoRoot), `${building}_shadow.registration.png`),
+  await guide.getBuffer('image/png'),
+);
 
-console.log(`scaffolded authored shadow for "${building}" (source frame "${sourceFrame}", ${srcW}x${srcH}):`);
+console.log(
+  `scaffolded authored shadow for "${building}" (source frame "${sourceFrame}", ${srcW}x${srcH}):`,
+);
 console.log(`  logical canvas : ${logicalWidth} x ${logicalHeight}`);
 console.log(`  sourceFrameRect: (${rect.x},${rect.y},${rect.width},${rect.height})`);
-console.log(`  groundPoint    : (${groundPoint.x},${groundPoint.y})  ->  derived anchor (${anchor.x},${anchor.y})`);
+console.log(
+  `  groundPoint    : (${groundPoint.x},${groundPoint.y})  ->  derived anchor (${anchor.x},${anchor.y})`,
+);
 console.log(`  wrote: ${outPng}`);
 console.log(`         ${outJson}`);
-console.log(`         ${building}_shadow.registration.png  (open this to draw the shadow against the base)`);
-console.log(`  next: draw the shadow -> npm run shadow:validate -- ${building} -> npm run shadow:gen -> npm run pack:atlas`);
+console.log(
+  `         ${building}_shadow.registration.png  (open this to draw the shadow against the base)`,
+);
+console.log(
+  `  next: draw the shadow -> npm run shadow:validate -- ${building} -> npm run shadow:gen -> npm run pack:atlas`,
+);

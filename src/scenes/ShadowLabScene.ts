@@ -37,11 +37,16 @@ export class ShadowLabScene extends Phaser.Scene {
     const requested = params.get('shadowlab') || Object.keys(SHADOW_LAB_ENTRIES)[0] || '';
     const entry = SHADOW_LAB_ENTRIES[requested];
     if (entry === undefined) {
-      this.add.text(40, 40, `ShadowLab: unknown building "${requested}".\nKnown: ${Object.keys(SHADOW_LAB_ENTRIES).join(', ') || '(none)'}`, {
-        fontFamily: 'monospace',
-        fontSize: '28px',
-        color: '#ffffff',
-      });
+      this.add.text(
+        40,
+        40,
+        `ShadowLab: unknown building "${requested}".\nKnown: ${Object.keys(SHADOW_LAB_ENTRIES).join(', ') || '(none)'}`,
+        {
+          fontFamily: 'monospace',
+          fontSize: '28px',
+          color: '#ffffff',
+        },
+      );
       return;
     }
     const wantVariant = params.get('variant');
@@ -80,7 +85,10 @@ export class ShadowLabScene extends Phaser.Scene {
     const overhang = variantH - entry.sourceFrameHeight;
     building
       .setScale(entry.previewScale)
-      .setOrigin(entry.groundPointX / entry.sourceFrameWidth, (entry.groundPointY + overhang) / variantH)
+      .setOrigin(
+        entry.groundPointX / entry.sourceFrameWidth,
+        (entry.groundPointY + overhang) / variantH,
+      )
       .setDepth(100);
 
     // The shadow, placed by the SAME code the game uses.
@@ -143,7 +151,10 @@ export class ShadowLabScene extends Phaser.Scene {
       };
       // logical-canvas + packed-alpha outlines via the shadow's transform.
       const tp = (lx: number, ly: number): Phaser.Math.Vector2 =>
-        matrix.transformPoint(lx - shadow.displayOriginX, ly - shadow.displayOriginY) as Phaser.Math.Vector2;
+        matrix.transformPoint(
+          lx - shadow.displayOriginX,
+          ly - shadow.displayOriginY,
+        ) as Phaser.Math.Vector2;
       const outline = (color: number, x0: number, y0: number, w: number, h: number): void => {
         const a = tp(x0, y0);
         const b = tp(x0 + w, y0);
@@ -161,12 +172,17 @@ export class ShadowLabScene extends Phaser.Scene {
       cross(0xff0000, cx, cy, 40, 8); // red: real ground point
       cross(0xff00ff, anchorWorld.x, anchorWorld.y, 26, 5); // magenta: transformed anchor
       this.add
-        .text(cx - 220, cy + 60, `anchorDelta=(${diagnostic.anchorDelta.x.toFixed(3)}, ${diagnostic.anchorDelta.y.toFixed(3)})  ${entry.frame}${useVariant ? ' / ' + useVariant : ''}`, {
-          fontFamily: 'monospace',
-          fontSize: '20px',
-          color: '#ffffff',
-          backgroundColor: '#000000cc',
-        })
+        .text(
+          cx - 220,
+          cy + 60,
+          `anchorDelta=(${diagnostic.anchorDelta.x.toFixed(3)}, ${diagnostic.anchorDelta.y.toFixed(3)})  ${entry.frame}${useVariant ? ' / ' + useVariant : ''}`,
+          {
+            fontFamily: 'monospace',
+            fontSize: '20px',
+            color: '#ffffff',
+            backgroundColor: '#000000cc',
+          },
+        )
         .setDepth(1_000_001);
     }
   }

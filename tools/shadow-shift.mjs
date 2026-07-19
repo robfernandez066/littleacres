@@ -40,7 +40,9 @@ const src = await Jimp.read(path);
 const W = src.bitmap.width;
 const H = src.bitmap.height;
 if (W !== manifest.logicalWidth || H !== manifest.logicalHeight) {
-  console.error(`PNG is ${W}x${H} but manifest says ${manifest.logicalWidth}x${manifest.logicalHeight}`);
+  console.error(
+    `PNG is ${W}x${H} but manifest says ${manifest.logicalWidth}x${manifest.logicalHeight}`,
+  );
   process.exit(1);
 }
 
@@ -83,6 +85,10 @@ const { writeFileSync } = await import('node:fs');
 writeFileSync(path, buf);
 
 const after = opaqueBounds(out, manifest.validation?.minAlpha ?? 8);
-console.log(`shifted ${building} by (${dx},${dy}); anchor unchanged at (${manifest.anchor.x},${manifest.anchor.y}).`);
-console.log(`  new alpha bounds: ${after ? `x${after.x} y${after.y} w${after.w} h${after.h}` : '(empty)'}`);
+console.log(
+  `shifted ${building} by (${dx},${dy}); anchor unchanged at (${manifest.anchor.x},${manifest.anchor.y}).`,
+);
+console.log(
+  `  new alpha bounds: ${after ? `x${after.x} y${after.y} w${after.w} h${after.h}` : '(empty)'}`,
+);
 console.log(`  next: npm run shadow:validate -- ${building}   then   npm run pack:atlas`);

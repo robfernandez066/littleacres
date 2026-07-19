@@ -4,7 +4,11 @@ import overrideJsonRaw from '../../tools/shadow-overrides/farmhouse_shadow.json?
 import atlasJsonRaw from '../../assets/atlas.json?raw';
 import { SHADOW_PLACEMENT_OVERRIDES, SHADOW_TUCK_RATIO } from '../config';
 import { SHADOW_LAB_ENTRIES } from '../generated/shadowLab';
-import { FARMHOUSE_FRAME, FARMHOUSE_RESTORED_FRAME, FARMHOUSE_SHADOW_FRAME } from '../data/restoration';
+import {
+  FARMHOUSE_FRAME,
+  FARMHOUSE_RESTORED_FRAME,
+  FARMHOUSE_SHADOW_FRAME,
+} from '../data/restoration';
 
 /**
  * Authored building-shadow workflow (T3.28, generalized T3.29). The manifest

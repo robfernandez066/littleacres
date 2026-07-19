@@ -53,23 +53,34 @@ export function validateManifestShape(m) {
   const errs = [];
   const num = (v) => typeof v === 'number' && Number.isFinite(v);
   const int = (v) => num(v) && Number.isInteger(v);
-  if (typeof m.building !== 'string' || m.building.length === 0) errs.push('building must be a non-empty string');
-  if (typeof m.frame !== 'string' || !m.frame.endsWith('_shadow')) errs.push('frame must be a string ending in "_shadow"');
-  if (typeof m.sourceFrame !== 'string' || m.sourceFrame.length === 0) errs.push('sourceFrame must be a non-empty string');
-  if (m.variants !== undefined && !Array.isArray(m.variants)) errs.push('variants, if present, must be an array of frame names');
-  if (!int(m.logicalWidth) || m.logicalWidth <= 0) errs.push('logicalWidth must be a positive integer');
-  if (!int(m.logicalHeight) || m.logicalHeight <= 0) errs.push('logicalHeight must be a positive integer');
+  if (typeof m.building !== 'string' || m.building.length === 0)
+    errs.push('building must be a non-empty string');
+  if (typeof m.frame !== 'string' || !m.frame.endsWith('_shadow'))
+    errs.push('frame must be a string ending in "_shadow"');
+  if (typeof m.sourceFrame !== 'string' || m.sourceFrame.length === 0)
+    errs.push('sourceFrame must be a non-empty string');
+  if (m.variants !== undefined && !Array.isArray(m.variants))
+    errs.push('variants, if present, must be an array of frame names');
+  if (!int(m.logicalWidth) || m.logicalWidth <= 0)
+    errs.push('logicalWidth must be a positive integer');
+  if (!int(m.logicalHeight) || m.logicalHeight <= 0)
+    errs.push('logicalHeight must be a positive integer');
   const r = m.sourceFrameRect;
-  if (!r || !int(r.x) || !int(r.y) || !int(r.width) || !int(r.height)) errs.push('sourceFrameRect needs integer x,y,width,height');
+  if (!r || !int(r.x) || !int(r.y) || !int(r.width) || !int(r.height))
+    errs.push('sourceFrameRect needs integer x,y,width,height');
   const g = m.sourceGroundPoint;
   if (!g || !int(g.x) || !int(g.y)) errs.push('sourceGroundPoint needs integer x,y');
   if (!num(m.tuckRatio)) errs.push('tuckRatio must be a number');
   if (errs.length > 0) return errs;
   // Geometry: the registration rect and ground point must sit inside the canvas.
   if (r.x < 0 || r.y < 0 || r.x + r.width > m.logicalWidth || r.y + r.height > m.logicalHeight)
-    errs.push(`sourceFrameRect (${r.x},${r.y},${r.width},${r.height}) lies outside the ${m.logicalWidth}x${m.logicalHeight} canvas`);
+    errs.push(
+      `sourceFrameRect (${r.x},${r.y},${r.width},${r.height}) lies outside the ${m.logicalWidth}x${m.logicalHeight} canvas`,
+    );
   if (g.x < 0 || g.x > r.width || g.y < 0 || g.y > r.height)
-    errs.push(`sourceGroundPoint (${g.x},${g.y}) lies outside the source frame (${r.width}x${r.height})`);
+    errs.push(
+      `sourceGroundPoint (${g.x},${g.y}) lies outside the source frame (${r.width}x${r.height})`,
+    );
   const a = deriveAnchor(m);
   if (a.x < 0 || a.x > m.logicalWidth || a.y < 0 || a.y > m.logicalHeight)
     errs.push(`derived anchor (${a.x},${a.y}) lies outside the logical canvas`);
@@ -97,7 +108,11 @@ export function opaqueBounds(image, threshold = DEFAULT_MIN_ALPHA) {
 }
 
 /** Count connected components (4-neighbour) of alpha>threshold larger than minSize. */
-export function majorComponents(image, threshold = DEFAULT_MIN_ALPHA, minSize = MAJOR_COMPONENT_MIN_PX) {
+export function majorComponents(
+  image,
+  threshold = DEFAULT_MIN_ALPHA,
+  minSize = MAJOR_COMPONENT_MIN_PX,
+) {
   const { width, height, data } = image.bitmap;
   const seen = new Uint8Array(width * height);
   const stack = [];
@@ -137,7 +152,9 @@ export function majorComponents(image, threshold = DEFAULT_MIN_ALPHA, minSize = 
 export function touchesEdge(image, threshold = DEFAULT_MIN_ALPHA) {
   const b = opaqueBounds(image, threshold);
   if (b === null) return false;
-  return b.x <= 0 || b.y <= 0 || b.x + b.w >= image.bitmap.width || b.y + b.h >= image.bitmap.height;
+  return (
+    b.x <= 0 || b.y <= 0 || b.x + b.w >= image.bitmap.width || b.y + b.h >= image.bitmap.height
+  );
 }
 
 /**
@@ -164,21 +181,30 @@ export function validateAuthoredImage(image, m) {
     if (a > maxAlpha) maxAlpha = a;
     if (a > 0 && (data[i] !== 0 || data[i + 1] !== 0 || data[i + 2] !== 0)) nonBlack++;
   }
-  if (nonBlack > 0) warnings.push(`${nonBlack} visible pixel(s) are not pure black (the packer will force black)`);
+  if (nonBlack > 0)
+    warnings.push(`${nonBlack} visible pixel(s) are not pure black (the packer will force black)`);
 
   const bounds = opaqueBounds(image, minAlpha);
   if (bounds === null) {
     errors.push('shadow is empty (no alpha above the minAlpha floor)');
-    return { ok: false, errors, warnings, stats: { anchor, maxAlpha, bounds: null, components: 0 } };
+    return {
+      ok: false,
+      errors,
+      warnings,
+      stats: { anchor, maxAlpha, bounds: null, components: 0 },
+    };
   }
-  if (touchesEdge(image, minAlpha)) errors.push('shadow clips the logical-canvas edge; enlarge the canvas or shift inward');
+  if (touchesEdge(image, minAlpha))
+    errors.push('shadow clips the logical-canvas edge; enlarge the canvas or shift inward');
 
   const components = majorComponents(image, minAlpha);
   if ((v.requireSingleComponent ?? false) && components !== 1)
     errors.push(`shadow forms ${components} major components; must be one continuous shape`);
 
   if ((v.requireUpperEdgeAboveAnchor ?? false) && bounds.y >= anchor.y)
-    errors.push(`shadow's upper edge (y=${bounds.y}) is not above its ground anchor (y=${anchor.y}); it would render detached below the building`);
+    errors.push(
+      `shadow's upper edge (y=${bounds.y}) is not above its ground anchor (y=${anchor.y}); it would render detached below the building`,
+    );
 
   return {
     ok: errors.length === 0,

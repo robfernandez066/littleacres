@@ -26,7 +26,9 @@ const BASE = 'http://localhost:5177/littleacres/';
 
 const building = process.argv[2];
 if (!building || building.startsWith('--')) {
-  console.error(`usage: node tools/shadow-capture.mjs <building>   (known: ${listBuildings(repoRoot).join(', ') || 'none'})`);
+  console.error(
+    `usage: node tools/shadow-capture.mjs <building>   (known: ${listBuildings(repoRoot).join(', ') || 'none'})`,
+  );
   process.exit(1);
 }
 const manifest = readManifest(manifestPath(repoRoot, building));
@@ -35,12 +37,15 @@ let chromium;
 try {
   ({ chromium } = await import('playwright-core'));
 } catch {
-  console.error('shadow:capture needs playwright-core. Install it (dev only):\n  npm i -D playwright-core\nand a chromium:\n  npx playwright install chromium   (or set CHROME_PATH to a chrome/chromium binary)');
+  console.error(
+    'shadow:capture needs playwright-core. Install it (dev only):\n  npm i -D playwright-core\nand a chromium:\n  npx playwright install chromium   (or set CHROME_PATH to a chrome/chromium binary)',
+  );
   process.exit(2);
 }
 
 function findChrome() {
-  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH)) return process.env.CHROME_PATH;
+  if (process.env.CHROME_PATH && existsSync(process.env.CHROME_PATH))
+    return process.env.CHROME_PATH;
   try {
     const p = chromium.executablePath();
     if (p && existsSync(p)) return p;
@@ -58,7 +63,9 @@ function findChrome() {
 }
 const execPath = findChrome();
 if (!execPath) {
-  console.error('shadow:capture found no chromium. Run `npx playwright install chromium` or set CHROME_PATH.');
+  console.error(
+    'shadow:capture found no chromium. Run `npx playwright install chromium` or set CHROME_PATH.',
+  );
   process.exit(2);
 }
 
@@ -80,7 +87,12 @@ async function ensureServer() {
   console.log('starting dev server (vite)...');
   // Spawn the vite binary directly (not `npm run dev`) so a single child process
   // can be killed cleanly without a process-group kill.
-  const viteBin = join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'vite.cmd' : 'vite');
+  const viteBin = join(
+    repoRoot,
+    'node_modules',
+    '.bin',
+    process.platform === 'win32' ? 'vite.cmd' : 'vite',
+  );
   devProc = spawn(viteBin, [], { cwd: repoRoot, stdio: 'ignore' });
   for (let i = 0; i < 60; i++) {
     await new Promise((r) => setTimeout(r, 1000));
@@ -109,7 +121,10 @@ const browser = await chromium.launch({
 });
 const results = {};
 try {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 1500 }, deviceScaleFactor: 1 });
+  const page = await browser.newPage({
+    viewport: { width: 1200, height: 1500 },
+    deviceScaleFactor: 1,
+  });
   const CLIP = { x: 290, y: 470, width: 620, height: 620 };
   const shot = async (query, file, clip) => {
     await page.goto(`${BASE}?shadowlab=${building}${query}`, { waitUntil: 'load', timeout: 60000 });
@@ -138,5 +153,7 @@ if (results.variant) {
   const dv = results.variant.anchorDelta;
   console.log(`  anchorDelta (${manifest.variants[0]}): (${dv.x}, ${dv.y})`);
 }
-console.log('  NOTE: numeric anchorDelta ~0 is necessary but NOT sufficient - eyeball base-zoom.png to confirm the shadow reads as grounded.');
+console.log(
+  '  NOTE: numeric anchorDelta ~0 is necessary but NOT sufficient - eyeball base-zoom.png to confirm the shadow reads as grounded.',
+);
 if (!ok) process.exit(1);
