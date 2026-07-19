@@ -5,6 +5,7 @@ import { DESIGN_HEIGHT, DESIGN_WIDTH } from './config';
 import { BootScene } from './scenes/BootScene';
 import { FarmScene } from './scenes/FarmScene';
 import { PreloadScene } from './scenes/PreloadScene';
+import { ShadowLabScene } from './scenes/ShadowLabScene';
 import { installDevTools } from './systems/dev';
 import { gameState } from './systems/gameState';
 import { DevOverlay } from './ui/DevOverlay';
@@ -52,7 +53,12 @@ const config: Phaser.Types.Core.GameConfig = {
     width: DESIGN_WIDTH,
     height: DESIGN_HEIGHT,
   },
-  scene: [BootScene, PreloadScene, FarmScene],
+  // Dev-only authored-shadow preview route (T3.29). `import.meta.env.DEV` folds
+  // to false in production builds, so ShadowLabScene tree-shakes out entirely.
+  scene:
+    import.meta.env.DEV && new URLSearchParams(location.search).has('shadowlab')
+      ? [ShadowLabScene]
+      : [BootScene, PreloadScene, FarmScene],
 };
 
 const game = new Phaser.Game(config);

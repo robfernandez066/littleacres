@@ -50,6 +50,7 @@ import {
   FARMHOUSE_RESTORED_FRAME,
   FARMHOUSE_SHADOW_FRAME,
 } from '../data/restoration';
+import { placeAuthoredShadow } from '../systems/authoredShadowPlacement';
 import { AudioManager } from '../systems/audio';
 import {
   clampScroll,
@@ -3805,23 +3806,14 @@ export class FarmScene extends Phaser.Scene {
     // object (decor, trophies, notice board, sign).
     const authored = SHADOW_PLACEMENT_OVERRIDES[String(shadow.frame.name)];
     if (authored !== undefined) {
-      if (canvasW !== authored.logicalWidth || canvasH !== authored.logicalHeight) {
-        throw new Error(
-          `${shadow.frame.name}: runtime logical size ${canvasW}x${canvasH} does not ` +
-            `match authored metadata ${authored.logicalWidth}x${authored.logicalHeight}`,
-        );
-      }
-      if (opts.flipX) {
-        throw new Error(
-          `${shadow.frame.name}: authored farmhouse shadow does not support horizontal flipping`,
-        );
-      }
-      shadow
-        .setOrigin(authored.anchorX / canvasW, authored.anchorY / canvasH)
-        .setPosition(opts.x, opts.baseY - canvasH * opts.scaleY * authored.tuckRatio)
-        .setScale(opts.scaleX, opts.scaleY)
-        .setFlipX(false)
-        .setDepth(opts.depth);
+      placeAuthoredShadow(shadow, authored, {
+        x: opts.x,
+        baseY: opts.baseY,
+        scaleX: opts.scaleX,
+        scaleY: opts.scaleY,
+        flipX: opts.flipX,
+        depth: opts.depth,
+      });
       return;
     }
     const originX = (canvasW - SHADOW_CANVAS_PAD - opts.sourceFrameWidth / 2) / canvasW;

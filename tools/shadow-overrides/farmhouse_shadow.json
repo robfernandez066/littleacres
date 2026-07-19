@@ -1,17 +1,18 @@
 {
+  "building": "farmhouse",
   "frame": "farmhouse_shadow",
+  "sourceFrame": "farmhouse",
+  "variants": ["farmhouse_restored"],
   "logicalWidth": 412,
   "logicalHeight": 385,
-  "sourceFrameRect": {
-    "x": 131,
-    "y": 24,
-    "width": 256,
-    "height": 256
-  },
-  "anchor": {
-    "x": 259,
-    "y": 280
-  },
+  "sourceFrameRect": { "x": 131, "y": 24, "width": 256, "height": 256 },
+  "sourceGroundPoint": { "x": 128, "y": 256 },
+  "previewScale": 1.640625,
   "tuckRatio": 0,
-  "description": "The anchor is the bottom-center of the conceptual 256x256 farmhouse registration frame and maps to farmhouseImage.x/y."
+  "validation": {
+    "minAlpha": 8,
+    "requireSingleComponent": true,
+    "requireUpperEdgeAboveAnchor": true
+  },
+  "description": "Authored building cast-shadow. The anchor is DERIVED: sourceFrameRect + sourceGroundPoint = (131+128, 24+256) = (259,280). It is the building's ground point and maps to the sprite's world x/y at runtime. Variants (e.g. farmhouse_restored) share this one shadow frame."
 }

@@ -340,30 +340,20 @@ export const DRESSING_PALETTE_FRAMES = [
  */
 export const SHADOW_TUCK_RATIO = 0.28;
 export const SHADOW_CANVAS_PAD = 12;
-/**
- * Authored-shadow overrides (T3.28): explicit runtime placement for an authored
- * `<frame>_shadow` whose companion PNG was hand-authored (tools/shadow-overrides)
- * rather than generated. Values are EXACT integer logical-canvas pixels, kept in
- * lockstep with tools/shadow-overrides/farmhouse_shadow.json so the registration
- * stays inspectable (not normalized). `anchor` is the conceptual 256x256 farmhouse
- * frame's bottom-center, in logical-canvas pixels; it maps to farmhouseImage.x/y.
- * tuckRatio is 0: the authored shadow carries its own contact geometry, so the
- * generic SHADOW_TUCK_RATIO / SHADOW_CANVAS_PAD math must not touch it.
- */
-export interface ShadowPlacementOverride {
-  logicalWidth: number;
-  logicalHeight: number;
-  anchorX: number;
-  anchorY: number;
-  tuckRatio: number;
-}
 
-export const SHADOW_PLACEMENT_OVERRIDES: Readonly<Record<string, ShadowPlacementOverride>> = {
-  farmhouse_shadow: {
-    logicalWidth: 412,
-    logicalHeight: 385,
-    anchorX: 259,
-    anchorY: 280,
-    tuckRatio: 0,
-  },
-};
+/**
+ * Authored building-shadow runtime placement (T3.28, generalized T3.29).
+ *
+ * The table below is GENERATED from the authored-shadow manifests
+ * (tools/shadow-overrides/<building>_shadow.json) by tools/gen-shadow-placements.mjs
+ * and re-exported here so scene code keeps importing it from `config`. Each
+ * entry's anchor is the building's ground point in logical-canvas pixels, derived
+ * as sourceFrameRect + sourceGroundPoint - never hand-written here, so JSON and
+ * TypeScript cannot drift. tuckRatio is per-building (0 for the farmhouse: its
+ * authored shape carries its own contact, so generic SHADOW_TUCK_RATIO /
+ * SHADOW_CANVAS_PAD math must not touch it). See docs/SHADOW_WORKFLOW.md.
+ */
+export {
+  SHADOW_PLACEMENT_OVERRIDES,
+  type ShadowPlacementOverride,
+} from './generated/shadowPlacements';
