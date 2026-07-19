@@ -19,7 +19,10 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
-
+## 2026-07-19 - grass_1 dressing decal added
+**Context:** Owner had a transparent grass sprite to add as a ground decal, like the tufts.
+**Decision:** Added `grass_1` as scene DRESSING (not a shop decor item, and shadowless - dressing decals never cast). Registered in DECAL_NAMES (tools/pack-atlas.mjs, trim-fit to 96x96) and DRESSING_PALETTE_FRAMES (src/config.ts) so it spawns in the dev "Edit dressing" palette. Master at tools/art-staging/grass_1.png (1024px, gitignored). Committed d8b85e8. The DRESSING array is still empty - live placement + "Copy layout" bake is a pending follow-up.
+**Trigger:** owner request.
 ## 2026-07-19 - Authored building-shadow workflow built (reusable assembly line, T3.29)
 **Context:** After the farmhouse shadow landed, owner asked for a repeatable process so future buildings don't need a bespoke shadow.
 **Decision:** Added the workflow (docs/SHADOW_WORKFLOW.md): one PNG + one JSON manifest per building; anchor DERIVED (sourceFrameRect + sourceGroundPoint); runtime table GENERATED (src/generated/shadowPlacements.ts) so JSON/TS can't drift; shared tools/shadow-lib.mjs; scripts shadow:new/validate/shift/capture; dev-only ShadowLabScene (?shadowlab, tree-shaken from prod). Farmhouse is the reference; small decor keeps the generic generated shadow. SHIPPED: files written to disk via the device bridge (avoiding a config.ts git apply --3way conflict on SHADOW_TUCK_RATIO); owner ran shadow:gen (creates src/generated/), pack:atlas, tsc, test (526 pass) and committed. The two generated files are tool-owned (not bridged).
