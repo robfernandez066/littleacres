@@ -22,7 +22,7 @@ Format:
 
 ## 2026-07-19 - Authored building-shadow workflow built (reusable assembly line, T3.29)
 **Context:** After the farmhouse shadow landed, owner asked for a repeatable process so future buildings don't need a bespoke shadow.
-**Decision:** Added the workflow (docs/SHADOW_WORKFLOW.md): one PNG + one JSON manifest per building; anchor DERIVED (sourceFrameRect + sourceGroundPoint); runtime table GENERATED (src/generated/shadowPlacements.ts) so JSON/TS can't drift; shared tools/shadow-lib.mjs; scripts shadow:new/validate/shift/capture; dev-only ShadowLabScene (?shadowlab, tree-shaken from prod). Farmhouse is the reference; small decor keeps the generic generated shadow. Delivered as shadow-workflow-t329.diff (git apply --3way); pending owner apply/commit.
+**Decision:** Added the workflow (docs/SHADOW_WORKFLOW.md): one PNG + one JSON manifest per building; anchor DERIVED (sourceFrameRect + sourceGroundPoint); runtime table GENERATED (src/generated/shadowPlacements.ts) so JSON/TS can't drift; shared tools/shadow-lib.mjs; scripts shadow:new/validate/shift/capture; dev-only ShadowLabScene (?shadowlab, tree-shaken from prod). Farmhouse is the reference; small decor keeps the generic generated shadow. SHIPPED: files written to disk via the device bridge (avoiding a config.ts git apply --3way conflict on SHADOW_TUCK_RATIO); owner ran shadow:gen (creates src/generated/), pack:atlas, tsc, test (526 pass) and committed. The two generated files are tool-owned (not bridged).
 **Trigger:** owner request.
 
 ## 2026-07-19 - Farmhouse authored cast-shadow (ground-footprint override) shipped
