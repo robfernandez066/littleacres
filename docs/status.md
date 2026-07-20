@@ -1,11 +1,12 @@
 # Little Acres - Status
 
-**Updated:** 2026-07-19
-**Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, the farmhouse authored cast-shadow, and the authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md) all SHIPPED.
-**Schema:** v20 · **Tests:** 526 · **Live:** robfernandez066.github.io/littleacres/
+**Updated:** 2026-07-20
+**Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, the farmhouse authored cast-shadow, and the authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md), and the Goals hub (long-term goals menu) all SHIPPED.
+**Schema:** v21 · **Tests:** 558 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
+- **Goals hub SHIPPED 2026-07-20 (T3.30 + r1 + r2, commit fb7788b; tests 558):** new "Goals" HUD menu (star icon) surfacing the long-horizon save-toward objectives - homestead restoration + region unlock - as a tracker/launcher over the existing flows (buys nothing). Actionable rows carry a CTA: "Restore" opens the RestorePanel, "Go There" glides to the region sign; locked/completed rows inert (completed sink to bottom, faded + green wash). One-time "!" discovery nudge via schema v21 goalsSeen (shown after onboarding). REGIONS-derived level-up card announces a region at its gate. Two-line progress copy. Data-driven off restoration.ts + REGIONS. Design doc: docs/design/goals-hub.md.
 - **Recent ships (2026-07-18/19):** restoration v1 farmhouse (art-swap, schema v20, commit 1353688); base-anchor structures + dev farmhouse transform knobs (commit 189ffa3, msg T3.26+T3.27); farmhouse authored ground-footprint cast-shadow (committed by owner). Authored-shadow workflow (T3.29) SHIPPED - written to disk via bridge, owner ran shadow:gen/pack:atlas/tsc/test (526) and committed. Sweep-vs-pan checkpoint CLOSED. Farmhouse flip parked. NOTE: entries below this line are older (pre-2026-07-18) and not fully reconciled. grass_1 dressing decal wired + committed (dev palette + packer, 96px decal, commit d8b85e8; docs log 4db9217). Live placement + Copy-layout bake PARKED (owner 2026-07-19: not re-dressing this pass; DRESSING array stays empty by choice) - fold into a future new-art-era re-dress.
 - **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
 - **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.

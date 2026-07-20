@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-20 - Goals hub shipped (T3.30 + r1 + r2)
+**Context:** Restoration and region unlock both worked but were undiscoverable - restoration buried in the Decor Shop, regions only on the field. Owner asked for a menu home for long-horizon goals.
+**Decision:** New "Goals" HUD menu (star icon; schema v21 `goalsSeen` drives a one-time "!" nudge, shown after onboarding) listing the save-toward objectives - homestead restoration and region unlock - as a tracker/launcher over the existing flows, data-driven off restoration.ts + REGIONS (single source, no duplicated prices/gates). Actionable rows carry a CTA: "Restore" opens the RestorePanel, "Go There" glides to the region sign; locked/completed rows are inert (completed sink to the bottom, faded + green wash). A REGIONS-derived level-up card announces a region at its gate level. Progress reads two lines, one currency each. Design doc: docs/design/goals-hub.md.
+**Verdict:** COMMIT fb7788b (one combined commit; atlas regenerated for the `goals` frame; tests 558). Nit deferred: a couple of stale "past-tense title" comments in GoalsPanel (the title stays plain).
+**Trigger:** owner discovery-gap report (mid-session).
+
 ## 2026-07-19 - grass_1 dressing decal added
 **Context:** Owner had a transparent grass sprite to add as a ground decal, like the tufts.
 **Decision:** Added `grass_1` as scene DRESSING (not a shop decor item, and shadowless - dressing decals never cast). Registered in DECAL_NAMES (tools/pack-atlas.mjs, trim-fit to 96x96) and DRESSING_PALETTE_FRAMES (src/config.ts) so it spawns in the dev "Edit dressing" palette. Master at tools/art-staging/grass_1.png (1024px, gitignored). Committed d8b85e8. The DRESSING array is still empty - live placement + "Copy layout" bake is a pending follow-up.
