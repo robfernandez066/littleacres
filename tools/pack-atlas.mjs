@@ -38,8 +38,9 @@
  *   their height target are logged.
  * - chest_closed, chest_open: crop treatment with no growth stage - a single
  *   static object placed at the full (stage-2-equivalent) height target.
- * - coin, moondust, bag, scroll, note, pouch: trimmed, fit into 96x96,
- *   centered. `pouch` is packed as a reserved frame - unused in code today.
+ * - coin, moondust, bag, scroll, note, pouch, goals, sunflour: trimmed, fit
+ *   into 96x96, centered. `pouch` is packed as a reserved frame - unused in
+ *   code today. `sunflour` is the first processed-good icon (T4.0).
  * - sign: trimmed, fit into 192x192, centered.
  * - hud_crest, gear_icon, button_push, button_slot, button_close (staged as
  *   xbutton), mere (staged as mere_strip), notice_board, farmhouse,
@@ -192,7 +193,7 @@ const CROP_NAMES = [
   'sagesprig_1',
   'sagesprig_2',
 ];
-const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch', 'goals'];
+const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch', 'goals', 'sunflour'];
 const SIGN_NAMES = ['sign'];
 /** Single static objects that sit on a tile like a crop, but have no growth stages. */
 const CHEST_NAMES = ['chest_closed', 'chest_open'];

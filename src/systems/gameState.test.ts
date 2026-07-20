@@ -18,6 +18,7 @@ import {
   plotEntitlementCap,
   REGIONS,
 } from '../data/farm';
+import { GOODS } from '../data/goods';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
   MOONDUST_PER_LEVEL,
@@ -445,7 +446,9 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(20);
+    // DELIBERATE RE-PIN (T4.0): v21ToV22 (goods) appended, so the chain is one
+    // longer and the current version is migrations.length + 1 = 22.
+    expect(MIGRATIONS).toHaveLength(21);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -456,7 +459,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -479,7 +482,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -489,8 +492,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(21);
-    expect(store.getState().version).toBe(21);
+    expect(store.currentVersion).toBe(22);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -526,7 +529,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -570,7 +573,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -610,7 +613,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -698,7 +701,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -738,7 +741,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -772,7 +775,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -813,7 +816,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -828,7 +831,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -3764,8 +3767,8 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
     // Stamped at the CURRENT schema version so the load performs no migration
-    // and the round-trip really is byte-identical (T3.30: 20 -> 21).
-    const saved = createDefaultState(21);
+    // and the round-trip really is byte-identical (T4.0: 21 -> 22).
+    const saved = createDefaultState(22);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4271,7 +4274,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4298,7 +4301,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4327,7 +4330,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4358,7 +4361,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4372,7 +4375,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4388,7 +4391,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4403,7 +4406,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4435,7 +4438,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4452,7 +4455,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(21);
+    expect(state.version).toBe(22);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4502,8 +4505,8 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
-      version: 21,
+      // DELIBERATE RE-PIN (T4.0): the chain now ends at v22 (goods).
+      version: 22,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4567,8 +4570,8 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
-      version: 21,
+      // DELIBERATE RE-PIN (T4.0): the chain now ends at v22 (goods).
+      version: 22,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4665,7 +4668,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().structures).toEqual(defaultStructures());
     expect(store.getState().regionsUnlocked).toEqual([]);
     expect(store.getState().twoFingerHintShown).toBe(false);
@@ -4684,8 +4687,8 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
-      version: 21,
+      // DELIBERATE RE-PIN (T4.0): the chain now ends at v22 (goods).
+      version: 22,
       restoration: { farmhouse: 0 },
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4697,7 +4700,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().restoration).toEqual({ farmhouse: 0 });
   });
 
@@ -4724,39 +4727,177 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
 
 describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
   it('a v20 save (no goalsSeen field) gains goalsSeen false, no warnings', () => {
-    const saved = createDefaultState(21) as unknown as Record<string, unknown>;
+    const saved = createDefaultState(22) as unknown as Record<string, unknown>;
     saved.version = 20;
     delete saved.goalsSeen; // a genuine v20 save never had this field
     saved.coins = 4321;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 21, goalsSeen: false });
+    expect(store.getState()).toEqual({ ...saved, version: 22, goalsSeen: false });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
-  it('a full-chain v1 save lands at version 21 having not seen the goals menu', () => {
+  it('a full-chain v1 save lands at version 22 having not seen the goals menu', () => {
     const saved = createDefaultState(1) as unknown as Record<string, unknown>;
     delete saved.goalsSeen;
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(21);
+    expect(store.getState().version).toBe(22);
     expect(store.getState().goalsSeen).toBe(false);
   });
 
   it('a fresh save has not seen the goals menu either', () => {
-    expect(createDefaultState(21).goalsSeen).toBe(false);
+    expect(createDefaultState(22).goalsSeen).toBe(false);
   });
 
   it('validation rejects a missing or non-boolean goalsSeen', () => {
-    expect(isValidState(createDefaultState(21), 21)).toBe(true);
-    const missing = createDefaultState(21) as unknown as Record<string, unknown>;
+    expect(isValidState(createDefaultState(22), 22)).toBe(true);
+    const missing = createDefaultState(22) as unknown as Record<string, unknown>;
     delete missing.goalsSeen;
-    expect(isValidState(missing, 21)).toBe(false);
-    const wrongType = createDefaultState(21) as unknown as Record<string, unknown>;
+    expect(isValidState(missing, 22)).toBe(false);
+    const wrongType = createDefaultState(22) as unknown as Record<string, unknown>;
     wrongType.goalsSeen = 1;
-    expect(isValidState(wrongType, 21)).toBe(false);
+    expect(isValidState(wrongType, 22)).toBe(false);
+  });
+});
+
+describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
+  it('a v21 save (no goods field) gains an empty goods map, no warnings', () => {
+    const saved = createDefaultState(22) as unknown as Record<string, unknown>;
+    saved.version = 21;
+    delete saved.goods; // a genuine v21 save never had this field
+    saved.coins = 1234;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual({ ...saved, version: 22, goods: {} });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a full-chain v1 save lands at version 22 with an empty goods map', () => {
+    const saved = createDefaultState(1) as unknown as Record<string, unknown>;
+    delete saved.goods;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(22);
+    expect(store.getState().goods).toEqual({});
+  });
+
+  it('a fresh save starts with no goods either', () => {
+    expect(createDefaultState(22).goods).toEqual({});
+  });
+
+  it('the migration leaves the crop maps entirely alone', () => {
+    const saved = createDefaultState(22) as unknown as Record<string, unknown>;
+    saved.version = 21;
+    delete saved.goods;
+    saved.inventory = { sunwheat: 3 };
+    saved.seeds = { starcorn: 2 };
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().inventory).toEqual({ sunwheat: 3 });
+    expect(store.getState().seeds).toEqual({ starcorn: 2 });
+  });
+
+  it('validation rejects a missing goods map, a non-GOODS key, or a non-numeric count', () => {
+    expect(isValidState(createDefaultState(22), 22)).toBe(true);
+    const missing = createDefaultState(22) as unknown as Record<string, unknown>;
+    delete missing.goods;
+    expect(isValidState(missing, 22)).toBe(false);
+    // A CROP id is not a good id - the two registries are disjoint.
+    const cropKey = createDefaultState(22) as unknown as Record<string, unknown>;
+    cropKey.goods = { sunwheat: 1 };
+    expect(isValidState(cropKey, 22)).toBe(false);
+    const unknownKey = createDefaultState(22) as unknown as Record<string, unknown>;
+    unknownKey.goods = { mysteryjam: 1 };
+    expect(isValidState(unknownKey, 22)).toBe(false);
+    const badCount = createDefaultState(22) as unknown as Record<string, unknown>;
+    badCount.goods = { sunflour: 'lots' };
+    expect(isValidState(badCount, 22)).toBe(false);
+    const populated = createDefaultState(22) as unknown as Record<string, unknown>;
+    populated.goods = { sunflour: 4 };
+    expect(isValidState(populated, 22)).toBe(true);
+  });
+});
+
+describe('sellGood / devGrantGood (T4.0)', () => {
+  /** A post-tutorial store (the 'sell' rail is closed while onboarding runs). */
+  function sellingStore(storage: SaveStorage = makeStorage()): GameStateStore {
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    return store;
+  }
+
+  it('devGrantGood adds to the stack and persists', () => {
+    const storage = makeStorage();
+    const store = sellingStore(storage);
+    store.devGrantGood('sunflour', 3);
+    store.devGrantGood('sunflour', 2);
+    expect(store.getState().goods.sunflour).toBe(5);
+    const persisted = JSON.parse(storage.data.get(SAVE_KEY) as string) as {
+      goods: Record<string, number>;
+    };
+    expect(persisted.goods.sunflour).toBe(5);
+  });
+
+  it('sells the whole stack for count * sellValue, zeroes it, and saves', () => {
+    const storage = makeStorage();
+    const store = sellingStore(storage);
+    const before = store.getState().coins;
+    store.devGrantGood('sunflour', 4);
+    // 4 * GOODS.sunflour.sellValue (25) = 100.
+    expect(store.sellGood('sunflour')).toBe(4 * GOODS.sunflour.sellValue);
+    expect(store.getState().coins).toBe(before + 100);
+    expect(store.getState().goods.sunflour).toBe(0);
+    const persisted = JSON.parse(storage.data.get(SAVE_KEY) as string) as {
+      goods: Record<string, number>;
+      coins: number;
+    };
+    expect(persisted.goods.sunflour).toBe(0);
+    expect(persisted.coins).toBe(before + 100);
+  });
+
+  it('an empty (or never-granted) stack sells for 0 and mutates nothing', () => {
+    const store = sellingStore();
+    const before = store.getState().coins;
+    expect(store.sellGood('sunflour')).toBe(0);
+    expect(store.getState().coins).toBe(before);
+    expect(store.getState().goods).toEqual({});
+    store.devGrantGood('sunflour', 1);
+    store.sellGood('sunflour');
+    expect(store.sellGood('sunflour')).toBe(0);
+    expect(store.getState().goods.sunflour).toBe(0);
+  });
+
+  it('is gated by the same sell rail as sellCrop - no sale during the tutorial', () => {
+    const store = new GameStateStore({ storage: null }); // onboarding still running
+    store.devGrantGood('sunflour', 2);
+    const before = store.getState().coins;
+    expect(store.sellGood('sunflour')).toBe(0);
+    expect(store.getState().coins).toBe(before);
+    expect(store.getState().goods.sunflour).toBe(2);
+  });
+
+  it('selling a good never touches the crop inventory', () => {
+    const store = sellingStore();
+    (store.getState() as GameStateData).inventory.sunwheat = 6;
+    store.devGrantGood('sunflour', 2);
+    store.sellGood('sunflour');
+    expect(store.getState().inventory.sunwheat).toBe(6);
+  });
+
+  it('a granted good survives a save/reload round-trip', () => {
+    const storage = makeStorage();
+    const store = sellingStore(storage);
+    store.devGrantGood('sunflour', 7);
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().goods.sunflour).toBe(7);
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });
 
@@ -4940,8 +5081,8 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
-      version: 21,
+      // DELIBERATE RE-PIN (T4.0): the chain now ends at v22 (goods).
+      version: 22,
       regionsUnlocked: [],
       twoFingerHintShown: false,
     });

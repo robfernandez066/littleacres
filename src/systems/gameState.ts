@@ -48,6 +48,7 @@ import {
   REGION_IDS,
   REGIONS,
 } from '../data/farm';
+import { GOODS, type GoodId } from '../data/goods';
 import { levelForXp } from '../data/levels';
 import {
   MOONDUST_PER_LEVEL,
@@ -398,6 +399,13 @@ export interface GameStateData {
   expanded: boolean;
   inventory: Partial<Record<CropId, number>>;
   seeds: Partial<Record<CropId, number>>;
+  /**
+   * Processed goods on hand (T4.0, schema v22). A SEPARATE map from
+   * `inventory`, keyed by GoodId - never a widening of the crop maps, so the
+   * crop economy stays entirely CropId-keyed as goods grow. Empty until a
+   * producer exists (the flour mill lands next).
+   */
+  goods: Partial<Record<GoodId, number>>;
   /** Reserved currency slot; nothing earns or spends it yet. */
   moondust: number;
   /** The order board, always exactly ORDER_SLOTS entries. */
@@ -817,6 +825,13 @@ const v19ToV20: Migration = (raw) => ({ ...raw, restoration: { farmhouse: 0 } })
  */
 const v20ToV21: Migration = (raw) => ({ ...raw, goalsSeen: false });
 
+/**
+ * v21 -> v22: the goods economy foundation (T4.0). Every existing save gains
+ * an empty `goods` map, exactly like a fresh one - nothing produces a good
+ * yet, so there is no legacy stock to reconstruct.
+ */
+const v21ToV22: Migration = (raw) => ({ ...raw, goods: {} });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -839,6 +854,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v18ToV19,
   v19ToV20,
   v20ToV21,
+  v21ToV22,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -857,6 +873,7 @@ export function createDefaultState(version: number): GameStateData {
     expanded: false,
     inventory: {},
     seeds: {},
+    goods: {},
     moondust: 0,
     orders: createPendingOrderSlots(),
     orderSkips: { count: 0, lastAt: 0 },
@@ -1537,6 +1554,14 @@ function isCropCountMap(value: unknown): value is Partial<Record<CropId, number>
   );
 }
 
+/** Good-keyed count map (T4.0), e.g. `goods`. Never mixed with the crop maps. */
+function isGoodCountMap(value: unknown): value is Partial<Record<GoodId, number>> {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(([key, count]) => key in GOODS && isFiniteNumber(count))
+  );
+}
+
 function isOrderItem(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -1727,6 +1752,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     raw.plots.length + raw.unplacedPlots <= plotEntitlementCap(raw.regionsUnlocked) &&
     isCropCountMap(raw.inventory) &&
     isCropCountMap(raw.seeds) &&
+    isGoodCountMap(raw.goods) &&
     isFiniteNumber(raw.moondust) &&
     Array.isArray(raw.orders) &&
     raw.orders.length === ORDER_SLOTS &&
@@ -2468,6 +2494,35 @@ export class GameStateStore {
     this.state.inventory[cropId] = 0;
     this.save();
     return gained;
+  }
+
+  /**
+   * Sell the entire stack of one processed good (T4.0): the exact mirror of
+   * `sellCrop`, against the separate `goods` map and `GOODS[id].sellValue`.
+   * Coins gain count * sellValue, the stack empties, and the change persists.
+   * Returns the coins gained (0 without mutating anything if the stack is
+   * already empty, or while the tutorial rails are active - the same 'sell'
+   * gate crops use).
+   */
+  sellGood(goodId: GoodId): number {
+    if (!this.railsAllow('sell')) return 0;
+    const count = this.state.goods[goodId] ?? 0;
+    if (count <= 0) return 0;
+    const gained = count * GOODS[goodId].sellValue;
+    this.state.coins += gained;
+    this.state.goods[goodId] = 0;
+    this.save();
+    return gained;
+  }
+
+  /**
+   * Grant goods directly (dev tooling, T4.0). Nothing produces a good until
+   * the mill ships, so this is the only way to put one in the bag and
+   * exercise `sellGood`. Adds to the existing stack and persists.
+   */
+  devGrantGood(goodId: GoodId, count: number): void {
+    this.state.goods[goodId] = (this.state.goods[goodId] ?? 0) + count;
+    this.save();
   }
 
   /**
