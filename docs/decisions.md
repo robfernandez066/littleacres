@@ -19,6 +19,18 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-20 - Flour mill placeable building + authored shadow (T4.1)
+**Context:** Phase 4 production building #1: a placeable mill that will turn Sunwheat into Sunflour, using the static windmill cottage art.
+**Decision:** Added a building placement system parallel to structures - `buildings[]` (schema v22->v23, additive migration), `buyBuilding`/`moveBuilding`, and a shared footprint core (`permanentFootprints`/`isAnchorFree`) that structures and buildings both delegate to - plus the `flour_mill` def (2x2 footprint). Its ground shadow is authored via SHADOW_WORKFLOW (not the generic cast): previewScale matched to the game scale, pixels shifted (0,-32) so it tucks under the base and spills back-left, verified on real Phaser + field (not anchorDelta alone). Dev-only (`dev.buildMill()`), no shop entry, inert until the T4.2 milling loop; authoredShadow tests re-pinned to the two-building override set.
+**Verdict:** COMMIT a133b98 (tests 605; atlas repacked). Follow-ups: gitignore `*_shadow.registration.png` (regenerable scaffold, left untracked); eyeball footprint/display size vs the cottage.
+**Trigger:** Phase 4 kickoff (owner: production building #1, flourmill, "let's do this clean").
+
+## 2026-07-20 - Goods economy foundation (T4.0)
+**Context:** Phase 4 needs a processed-good economy before the mill can produce anything, and goods must not be forced into the crop (CropId) maps.
+**Decision:** Added a separate goods layer - `GoodId`/`GOODS` (src/data/goods.ts) with Sunflour as the first good, a distinct `goods` inventory map on state (schema v21->v22, additive migration), and `sellGood` (goods sellable as a fallback to orders) - kept deliberately apart from the crop maps so crop logic stays untouched.
+**Verdict:** COMMIT d569c3d, schema v22 (atlas gained the sunflour icon). Logged here late, alongside T4.1.
+**Trigger:** owner "let's make sure we do this clean" - clean goods architecture before wiring the mill.
+
 ## 2026-07-20 - Goals hub shipped (T3.30 + r1 + r2)
 **Context:** Restoration and region unlock both worked but were undiscoverable - restoration buried in the Decor Shop, regions only on the field. Owner asked for a menu home for long-horizon goals.
 **Decision:** New "Goals" HUD menu (star icon; schema v21 `goalsSeen` drives a one-time "!" nudge, shown after onboarding) listing the save-toward objectives - homestead restoration and region unlock - as a tracker/launcher over the existing flows, data-driven off restoration.ts + REGIONS (single source, no duplicated prices/gates). Actionable rows carry a CTA: "Restore" opens the RestorePanel, "Go There" glides to the region sign; locked/completed rows are inert (completed sink to the bottom, faded + green wash). A REGIONS-derived level-up card announces a region at its gate level. Progress reads two lines, one currency each. Design doc: docs/design/goals-hub.md.
