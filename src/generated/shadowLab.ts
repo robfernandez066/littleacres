@@ -24,4 +24,5 @@ export interface ShadowLabEntry {
 
 export const SHADOW_LAB_ENTRIES: Readonly<Record<string, ShadowLabEntry>> = {
   "farmhouse": {"building":"farmhouse","frame":"farmhouse_shadow","sourceFrame":"farmhouse","variants":["farmhouse_restored"],"logicalWidth":412,"logicalHeight":385,"sourceFrameWidth":256,"sourceFrameHeight":256,"groundPointX":128,"groundPointY":256,"anchorX":259,"anchorY":280,"tuckRatio":0,"previewScale":1.640625},
+  "flour_mill": {"building":"flour_mill","frame":"flour_mill_shadow","sourceFrame":"flour_mill","variants":[],"logicalWidth":410,"logicalHeight":390,"sourceFrameWidth":256,"sourceFrameHeight":256,"groundPointX":129,"groundPointY":255,"anchorX":257,"anchorY":281,"tuckRatio":0,"previewScale":1.640625},
 };

@@ -29,6 +29,7 @@ import {
   WORLD_MIN_Y,
   WORLD_WIDTH,
 } from '../config';
+import { BUILDINGS } from '../data/buildings';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
 import {
   DECOR_ITEMS,
@@ -77,7 +78,10 @@ import {
 } from '../systems/dev';
 import {
   bestBatchStartTile,
+  buildingFootprintTiles,
+  buildingRenderPosition,
   gameState,
+  isBuildingAnchorFree,
   isPlotTileFree,
   isStructureAnchorFree,
   nextChainPlotTile,
@@ -307,6 +311,57 @@ const STRUCTURE_BASE_ROW_NATIVE: Record<StructureId, number> = {
   farmhouse: 256,
   noticeBoard: 256,
 };
+
+/**
+ * Buildings (T4.1) render as structure-class sprites: the packer sizes
+ * `flour_mill` through the identical 256-square path `farmhouse` takes
+ * (tools/pack-atlas.mjs SQUARE_DOWNSCALE_SIZES), so the same frame size, base
+ * row and shadow machinery apply unchanged.
+ *
+ * MEASURED (Jimp alpha scan of the packed atlas, threshold 8 - the same scan
+ * the structure constants above were measured with): `flour_mill`'s opaque
+ * bbox is x 33..222, y 0..255, i.e. the frame is bottom-flush exactly like
+ * `farmhouse` (240x256) and `notice_board` (165x256), so its base EDGE - the
+ * row just below the last opaque one - sits at 256, the frame's own bottom.
+ *
+ * BUILDING_DISPLAY_HEIGHT is PROVISIONAL and FLAGGED FOR AN OWNER EYEBALL:
+ * it deliberately equals FARMHOUSE_DISPLAY_HEIGHT, since the mill's footprint
+ * is the farmhouse's 2x2 and its art comes through the same pipeline at the
+ * same staged 512x512 - so "as big as the farmhouse" is the honest baseline to
+ * judge the mill's real size against, not a tuned value.
+ */
+const BUILDING_BASE_ROW_NATIVE = 256;
+const BUILDING_DISPLAY_HEIGHT = FARMHOUSE_DISPLAY_HEIGHT;
+const BUILDING_SCALE = BUILDING_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+/** Hit-area pad around a building's frame, in DISPLAY px - the notice board's
+ *  convention (its own frame-relative rect + pad), same generous grab target. */
+const BUILDING_HIT_PAD_DISPLAY_PX = 24;
+
+/**
+ * WHICH movable, anchor-based object a lift/selection is about (T4.1). Before
+ * buildings existed this was just a `StructureId`; a building is anchored,
+ * footprinted and dragged by the exact same machinery but lives in an
+ * indexed collection, so every path that used to take an id now takes this.
+ *
+ * `index` is an index into `state.buildings`, NOT a sprite reference - safe
+ * because nothing removes a building (no "store a building" path exists), so
+ * indices are stable for a session. If buildings ever become removable this
+ * must become the reference-not-index pattern `decorationSprites` uses, for
+ * exactly the reason documented on `pendingLift`.
+ */
+type MovableAnchorRef =
+  { kind: 'structure'; id: StructureId } | { kind: 'building'; index: number };
+
+const FARMHOUSE_REF: MovableAnchorRef = { kind: 'structure', id: 'farmhouse' };
+const NOTICE_BOARD_REF: MovableAnchorRef = { kind: 'structure', id: 'noticeBoard' };
+
+/** Whether two movable refs point at the same object. */
+function sameMovableRef(a: MovableAnchorRef | null, b: MovableAnchorRef | null): boolean {
+  if (a === null || b === null) return a === b;
+  if (a.kind === 'structure' && b.kind === 'structure') return a.id === b.id;
+  if (a.kind === 'building' && b.kind === 'building') return a.index === b.index;
+  return false;
+}
 
 /**
  * Expand-sign ground shadow geometry (T3.art-2). The sign draws itself from
@@ -1018,9 +1073,21 @@ export class FarmScene extends Phaser.Scene {
    * one-selection rule. While one is selected, Scale/Flip/Put Away all dim
    * (structures move only - never scale, flip, or store).
    */
-  private selectedStructureId: StructureId | null = null;
-  /** The structure being drag-moved right now (T3.3s), or null outside a lift. */
-  private structureDragId: StructureId | null = null;
+  private selectedStructureId: MovableAnchorRef | null = null;
+  /** The structure or building being drag-moved right now (T3.3s; T4.1 widened
+   *  it to a MovableAnchorRef), or null outside a lift. */
+  private structureDragId: MovableAnchorRef | null = null;
+  /**
+   * Placed buildings (T4.1), parallel arrays indexed exactly like
+   * `state.buildings` - the sprite, and its generated cast shadow. Rebuilt
+   * wholesale by `refreshBuildings` when the saved list changes (buildings are
+   * bought and moved, never stored, so a rebuild is rare).
+   */
+  private buildingImages: Phaser.GameObjects.Image[] = [];
+  private buildingShadows: Phaser.GameObjects.Image[] = [];
+  /** Last-rendered `state.buildings`, serialized - `refreshBuildings`
+   *  rebuilds only on change, so it never fights a live building drag. */
+  private lastBuildingsJson = '';
   /** The anchor NEAREST the in-flight free-form drag position (T3.3s-r2) -
    *  legal or not; it drives the live green/red footprint preview, and the
    *  COMMIT independently searches for the nearest LEGAL anchor. */
@@ -1217,10 +1284,10 @@ export class FarmScene extends Phaser.Scene {
     pointer: Phaser.Input.Pointer;
     kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
-    /** Which structure, when kind is 'structure' (T3.3s) - identified at
-     *  down time by sprite reference, carried so the lift paths never
-     *  re-derive it. */
-    structureId?: StructureId;
+    /** WHICH movable, when kind is 'structure' (T3.3s; a building since T4.1,
+     *  which shares the 'structure' lift kind) - identified at down time by
+     *  sprite reference, carried so the lift paths never re-derive it. */
+    structureId?: MovableAnchorRef;
     downX: number;
     downY: number;
     grabOffsetX: number;
@@ -1429,6 +1496,10 @@ export class FarmScene extends Phaser.Scene {
     this.hud.setGoalsPanel(this.goalsPanel);
     this.createFarmhouse();
     this.createNoticeBoard();
+    // Placed buildings (T4.1) - none on a fresh save; `refreshBuildings` picks
+    // up a later purchase on the refresh tick.
+    this.createBuildings();
+    this.lastBuildingsJson = JSON.stringify(gameState.getState().buildings);
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     // Live board position (T3.3s - the board is movable), read at pulse time.
@@ -1647,6 +1718,9 @@ export class FarmScene extends Phaser.Scene {
     // when a saved anchor changed (dev import/reset) - a cheap string
     // compare otherwise, and inert during a live drag by construction.
     this.refreshStructures();
+    // Buildings (T4.1): same deal - a `dev.buildMill()` or a dev import shows
+    // the new building on the next tick, without a reload.
+    this.refreshBuildings();
     // dev.footprints() overlay (T3.3s-r2): re-derive from live state on the
     // same tick so it tracks structure moves and the expansion purchase.
     if (this.devFootprintsEnabled) this.rebuildDevFootprints();
@@ -1964,17 +2038,27 @@ export class FarmScene extends Phaser.Scene {
   private movableLiftTarget(currentlyOver: readonly Phaser.GameObjects.GameObject[]): {
     kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
-    structureId?: StructureId;
+    structureId?: MovableAnchorRef;
   } | null {
     for (const object of currentlyOver) {
       const image = object as Phaser.GameObjects.Image;
       if (this.decorationSprites.includes(image)) return { kind: 'decor', target: image };
       if (this.plotTileSprites.includes(image)) return { kind: 'plot', target: image };
       if (image === this.farmhouseImage) {
-        return { kind: 'structure', target: image, structureId: 'farmhouse' };
+        return { kind: 'structure', target: image, structureId: FARMHOUSE_REF };
       }
       if (image === this.noticeBoardImage) {
-        return { kind: 'structure', target: image, structureId: 'noticeBoard' };
+        return { kind: 'structure', target: image, structureId: NOTICE_BOARD_REF };
+      }
+      // Buildings share the 'structure' lift kind (T4.1) - identical
+      // anchor/footprint/snap machinery, so the classifier needs no new case.
+      const buildingIndex = this.buildingImages.indexOf(image);
+      if (buildingIndex !== -1) {
+        return {
+          kind: 'structure',
+          target: image,
+          structureId: { kind: 'building', index: buildingIndex },
+        };
       }
     }
     return null;
@@ -1989,7 +2073,7 @@ export class FarmScene extends Phaser.Scene {
   private isSelectedMovable(movable: {
     kind: 'decor' | 'plot' | 'structure';
     target: Phaser.GameObjects.Image;
-    structureId?: StructureId;
+    structureId?: MovableAnchorRef;
   }): boolean {
     if (movable.kind === 'decor') {
       return (
@@ -1998,7 +2082,10 @@ export class FarmScene extends Phaser.Scene {
       );
     }
     if (movable.kind === 'structure') {
-      return this.selectedStructureId !== null && this.selectedStructureId === movable.structureId;
+      return (
+        movable.structureId !== undefined &&
+        sameMovableRef(this.selectedStructureId, movable.structureId)
+      );
     }
     return (
       this.selectedPlotIndex !== null &&
@@ -2019,7 +2106,7 @@ export class FarmScene extends Phaser.Scene {
     pointer: Phaser.Input.Pointer,
     kind: 'decor' | 'plot' | 'structure',
     target: Phaser.GameObjects.Image,
-    structureId?: StructureId,
+    structureId?: MovableAnchorRef,
   ): void {
     const world = this.fieldPointerWorld(pointer);
     this.pendingLift = {
@@ -2060,7 +2147,7 @@ export class FarmScene extends Phaser.Scene {
     target: Phaser.GameObjects.Image,
     grabOffsetX: number,
     grabOffsetY: number,
-    structureId?: StructureId,
+    structureId?: MovableAnchorRef,
   ): boolean {
     if (kind === 'plot') {
       const plotIndex = this.plotTileSprites.indexOf(target);
@@ -2079,7 +2166,10 @@ export class FarmScene extends Phaser.Scene {
       // no locked state; the nearest-anchor tracker starts at the saved
       // anchor (the sprite has not moved yet).
       if (structureId === undefined) return false;
-      const anchor = gameState.getState().structures[structureId];
+      const anchor = this.movableAnchor(structureId);
+      // T4.1: a stale building ref (the list changed under the lift) has no
+      // anchor - refuse the lift rather than drag a sprite with no state.
+      if (anchor === null) return false;
       this.setStructureSelection(structureId);
       this.structureDragId = structureId;
       this.structureDragCol = anchor.col;
@@ -2087,7 +2177,7 @@ export class FarmScene extends Phaser.Scene {
       // The badge follows the free-form drag directly (T3.3s-r2); its
       // absolute-y bounce tween would fight that, so it dies for the
       // lift's duration - the commit's placeNoticeBoardBadge rebuilds it.
-      if (structureId === 'noticeBoard') {
+      if (structureId.kind === 'structure' && structureId.id === 'noticeBoard') {
         this.noticeBoardBadgeTween?.remove();
         this.noticeBoardBadgeTween = null;
       }
@@ -2190,7 +2280,7 @@ export class FarmScene extends Phaser.Scene {
         // The preview's depth no longer tracks the structure (T3.3b-r2): it
         // is the flat FOOTPRINT_PREVIEW_DEPTH, above every field object the
         // drag can cross, so nothing here has to follow the move.
-        const offset = STRUCTURE_RENDER_OFFSETS[id];
+        const offset = this.movableRenderOffset(id);
         const grid = isoToGrid(freeX - offset.x, freeY - offset.y);
         const col = Math.round(grid.col);
         const row = Math.round(grid.row);
@@ -2309,7 +2399,7 @@ export class FarmScene extends Phaser.Scene {
   private resolveLiftTap(
     kind: 'decor' | 'plot' | 'structure',
     target: Phaser.GameObjects.Image,
-    structureId?: StructureId,
+    structureId?: MovableAnchorRef,
   ): void {
     if (kind === 'decor') {
       const index = this.decorationSprites.indexOf(target);
@@ -3438,7 +3528,7 @@ export class FarmScene extends Phaser.Scene {
     this.farmhouseImage = this.add
       .image(position.x, position.y, ATLAS_KEY, FARMHOUSE_FRAME)
       .setScale(FARMHOUSE_SCALE)
-      .setDepth(this.structureDepthFor('farmhouse', position.y));
+      .setDepth(this.structureDepthFor(FARMHOUSE_REF, position.y));
     // Frame + hit area + ORIGIN all derive from the restoration flag (T3.25,
     // origin since T3.27); at flag 0 this is exactly the historical setup.
     this.applyFarmhouseLook();
@@ -3453,7 +3543,7 @@ export class FarmScene extends Phaser.Scene {
     // (T3.art-3). Named explicitly (T3.25) - see createGroundShadow.
     this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage, FARMHOUSE_SHADOW_FRAME)!;
     // The shadow exists only now, so the look pass above could not place it.
-    this.applyStructureStatePosition('farmhouse');
+    this.applyStructureStatePosition(FARMHOUSE_REF);
   }
 
   /**
@@ -3561,9 +3651,16 @@ export class FarmScene extends Phaser.Scene {
    * visible, PM-owned change to what passes in front of what - see the task
    * report for T3.27.
    */
-  private structureDepthFor(id: StructureId, baseY: number): number {
+  private structureDepthFor(ref: MovableAnchorRef, baseY: number): number {
+    // T4.1: buildings sort by the same rule - ground point minus half their
+    // display height - so a building interleaves with crops, plots and
+    // structures exactly as a structure of that size would.
     const displayHeight =
-      id === 'farmhouse' ? FARMHOUSE_DISPLAY_HEIGHT : NOTICE_BOARD_DISPLAY_HEIGHT;
+      ref.kind === 'building'
+        ? BUILDING_DISPLAY_HEIGHT
+        : ref.id === 'farmhouse'
+          ? FARMHOUSE_DISPLAY_HEIGHT
+          : NOTICE_BOARD_DISPLAY_HEIGHT;
     return baseY - displayHeight / 2;
   }
 
@@ -3642,7 +3739,7 @@ export class FarmScene extends Phaser.Scene {
 
   /** Re-place the farmhouse (re-applying the knobs) and log the live values. */
   private refreshFarmhouseDevTransform(): void {
-    this.applyStructureStatePosition('farmhouse');
+    this.applyStructureStatePosition(FARMHOUSE_REF);
     console.log(
       `farmhouse transform: rotation ${this.farmhouseDevAngle}deg, ` +
         `scale x${this.farmhouseDevScaleMult} (${(
@@ -4611,6 +4708,10 @@ export class FarmScene extends Phaser.Scene {
     this.selectedStructureId = null;
     this.seedBar.setVisible(false);
     for (const sprite of this.decorationSprites) sprite.setInteractive();
+    // Buildings become hit-testable only while arranging (T4.1) - they have no
+    // tap action of their own, so outside the mode they stay fully inert.
+    // No-arg setInteractive PRESERVES the custom hit area (CLAUDE.md).
+    for (const image of this.buildingImages) image.setInteractive();
     this.setArrangeControlsVisible(true);
     this.updateArrangeItemButtonsState();
     this.updatePlaceNextButton();
@@ -4669,9 +4770,14 @@ export class FarmScene extends Phaser.Scene {
     // A structure lift abandoned mid-exit never committed: snap both
     // structures back to their saved anchors (a no-op when nothing moved -
     // the state-change refresh can't catch this, state never changed).
-    this.applyStructureStatePosition('farmhouse');
-    this.applyStructureStatePosition('noticeBoard');
+    this.applyStructureStatePosition(FARMHOUSE_REF);
+    this.applyStructureStatePosition(NOTICE_BOARD_REF);
+    // Same for a building lift abandoned mid-exit (T4.1).
+    for (let index = 0; index < this.buildingImages.length; index++) {
+      this.applyStructureStatePosition({ kind: 'building', index });
+    }
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
+    for (const image of this.buildingImages) image.disableInteractive();
     // Plot tiles go inert again (T3.3a). They are exempt from the enter
     // sweep (see `arrangeExemptObjects`), so the restore pass below can
     // never re-enable them behind this - root-caused live: a once-arranged
@@ -4696,6 +4802,9 @@ export class FarmScene extends Phaser.Scene {
       // can open through them mid-arrange.
       this.farmhouseImage,
       this.noticeBoardImage,
+      // Buildings (T4.1): same rule - enterArrangeMode turns them on and the
+      // sweep must not turn them back off behind it.
+      ...this.buildingImages,
       // Owned entirely by refreshArrangePlotInteractivity/exitArrangeMode
       // (T3.3a) - the sweep must neither disable nor, crucially, RESTORE
       // them (see exitArrangeMode's comment).
@@ -4813,16 +4922,19 @@ export class FarmScene extends Phaser.Scene {
    * lift start; the commit's `placeNoticeBoardBadge` rebuilds it) so the
    * absolute-y yoyo cannot fight the drag.
    */
-  private moveStructureSpriteFree(id: StructureId, x: number, y: number): void {
-    const image = this.structureImage(id);
+  private moveStructureSpriteFree(ref: MovableAnchorRef, x: number, y: number): void {
+    const image = this.structureImage(ref);
+    if (image === null) return;
     // T3.27: (x, y) is the dragged GROUND point, in the same coordinates
     // `structureRenderPosition` returns - the T3.25 nominal-vs-shifted split is
     // gone, so a drag needs no per-look bookkeeping.
-    image.setPosition(x, y).setDepth(this.structureDepthFor(id, y));
-    this.applyStructureShadowGeometry(this.structureShadow(id), image);
+    image.setPosition(x, y).setDepth(this.structureDepthFor(ref, y));
+    const shadow = this.structureShadow(ref);
+    if (shadow !== null) this.applyStructureShadowGeometry(shadow, image);
+    if (ref.kind !== 'structure') return;
     // T3.26: keep the dev knobs applied through a drag - see placeStructureSprite.
-    if (id === 'farmhouse') this.applyFarmhouseDevTransform();
-    if (id === 'noticeBoard') {
+    if (ref.id === 'farmhouse') this.applyFarmhouseDevTransform();
+    if (ref.id === 'noticeBoard') {
       const { x: badgeX, y: badgeY } = this.noticeBoardBadgeBase();
       this.noticeBoardBadge.setPosition(badgeX, badgeY).setDepth(y + 1);
     }
@@ -4837,16 +4949,24 @@ export class FarmScene extends Phaser.Scene {
    * stays selected, so it regrabs instantly (the plot convention).
    */
   private commitStructureDrag(): void {
-    const id = this.structureDragId;
-    if (id === null) return;
+    const ref = this.structureDragId;
+    if (ref === null) return;
     this.structureDragId = null;
     this.destroyStructureFootprintPreview();
-    const image = this.structureImage(id);
-    const target = this.nearestLegalAnchor(id, image.x, image.y);
-    const moved = target !== null && gameState.moveStructure(id, target.col, target.row);
-    this.applyStructureStatePosition(id);
+    const image = this.structureImage(ref);
+    if (image === null) return;
+    const target = this.nearestLegalAnchor(ref, image.x, image.y);
+    // T4.1: buildings commit through `moveBuilding`, the building twin of
+    // `moveStructure` - both re-validate and persist, so the store stays the
+    // single rule authority for either kind.
+    const moved =
+      target !== null &&
+      (ref.kind === 'structure'
+        ? gameState.moveStructure(ref.id, target.col, target.row)
+        : gameState.moveBuilding(ref.index, target.col, target.row));
+    this.applyStructureStatePosition(ref);
     if (!moved) this.shakeLockedPlot(image);
-    this.setStructureSelection(id);
+    this.setStructureSelection(ref);
   }
 
   /**
@@ -4860,11 +4980,11 @@ export class FarmScene extends Phaser.Scene {
    * legality authority.
    */
   private nearestLegalAnchor(
-    id: StructureId,
+    ref: MovableAnchorRef,
     x: number,
     y: number,
   ): { col: number; row: number } | null {
-    const offset = STRUCTURE_RENDER_OFFSETS[id];
+    const offset = this.movableRenderOffset(ref);
     const idealX = x - offset.x;
     const idealY = y - offset.y;
     const center = isoToGrid(idealX, idealY);
@@ -4886,7 +5006,7 @@ export class FarmScene extends Phaser.Scene {
         const c = gridToIso(col, row);
         const distSq = (c.x - idealX) ** 2 + (c.y - idealY) ** 2;
         if (distSq > bestDistSq) continue;
-        if (!isStructureAnchorFree(state, id, col, row)) continue;
+        if (!this.movableAnchorFree(ref, state, col, row)) continue;
         bestDistSq = distSq;
         best = { col, row };
       }
@@ -4920,18 +5040,17 @@ export class FarmScene extends Phaser.Scene {
    * the expand sign while it stands; decor never blocks structures) - an
    * anchor is legal exactly when every footprint tile passes this.
    */
-  private structureTileFree(id: StructureId, col: number, row: number): boolean {
+  private structureTileFree(ref: MovableAnchorRef, col: number, row: number): boolean {
     const state = gameState.getState();
     if (!this.getPlaceableTileKeys().has(`${col},${row}`)) return false;
     for (const plot of state.plots) {
       if (plot.col === col && plot.row === row) return false;
     }
-    const otherId: StructureId = id === 'farmhouse' ? 'noticeBoard' : 'farmhouse';
-    const otherAnchor = state.structures[otherId];
-    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[otherId]) {
-      if (otherAnchor.col + offset.col === col && otherAnchor.row + offset.row === row) {
-        return false;
-      }
+    // Every OTHER permanent footprint blocks (T4.1: both fixed structures and
+    // every other building) - the lifted piece is exempt from its own, exactly
+    // the self-exemption the store's authority applies.
+    for (const other of this.otherFootprintTiles(ref, state)) {
+      if (other.col === col && other.row === row) return false;
     }
     if (!state.expanded) {
       for (const tile of EXPAND_SIGN_BLOCKED_TILES) {
@@ -4939,6 +5058,44 @@ export class FarmScene extends Phaser.Scene {
       }
     }
     return true;
+  }
+
+  /**
+   * The absolute footprint tiles of every permanent object EXCEPT `ref`
+   * (T4.1) - the preview's mirror of the store's `permanentFootprints`
+   * self-exemption. MUST MATCH `isStructureAnchorFree`/`isBuildingAnchorFree`,
+   * which is exactly why `movableAnchorFree` below delegates to them for the
+   * real verdict and this only explains WHICH tile refuses.
+   */
+  private otherFootprintTiles(
+    ref: MovableAnchorRef,
+    state: Readonly<ReturnType<typeof gameState.getState>>,
+  ): { col: number; row: number }[] {
+    const tiles: { col: number; row: number }[] = [];
+    for (const id of ['farmhouse', 'noticeBoard'] as const) {
+      if (ref.kind === 'structure' && ref.id === id) continue;
+      tiles.push(...structureFootprintTiles(id, state.structures[id]));
+    }
+    for (let index = 0; index < state.buildings.length; index++) {
+      if (ref.kind === 'building' && ref.index === index) continue;
+      const placement = state.buildings[index]!;
+      tiles.push(...buildingFootprintTiles(placement.type, placement));
+    }
+    return tiles;
+  }
+
+  /** THE legality verdict for a movable's anchor - straight through to the
+   *  store's per-kind authority, never re-derived here. */
+  private movableAnchorFree(
+    ref: MovableAnchorRef,
+    state: Readonly<ReturnType<typeof gameState.getState>>,
+    col: number,
+    row: number,
+  ): boolean {
+    if (ref.kind === 'structure') return isStructureAnchorFree(state, ref.id, col, row);
+    const placement = state.buildings[ref.index];
+    if (placement === undefined) return false;
+    return isBuildingAnchorFree(state, placement.type, col, row, ref.index);
   }
 
   /**
@@ -4952,14 +5109,14 @@ export class FarmScene extends Phaser.Scene {
    * any plot standing in front of the structure. Rebuilt only when the
    * nearest anchor changes; destroyed when the lift ends.
    */
-  private rebuildStructureFootprintPreview(id: StructureId): void {
+  private rebuildStructureFootprintPreview(ref: MovableAnchorRef): void {
     this.structureFootprintGraphics?.destroy();
     const graphics = this.add.graphics().setDepth(FOOTPRINT_PREVIEW_DEPTH);
     this.structureFootprintGraphics = graphics;
-    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
+    for (const offset of this.movableFootprintOffsets(ref)) {
       const col = this.structureDragCol + offset.col;
       const row = this.structureDragRow + offset.row;
-      const free = this.structureTileFree(id, col, row);
+      const free = this.structureTileFree(ref, col, row);
       graphics.fillStyle(
         free ? FOOTPRINT_FREE_COLOR : FOOTPRINT_BLOCKED_COLOR,
         FOOTPRINT_FILL_ALPHA,
@@ -5063,6 +5220,13 @@ export class FarmScene extends Phaser.Scene {
         this.fillTileDiamond(graphics, tile.col, tile.row);
       }
     }
+    // T4.1: buildings block like structures, so the restrictions overlay shows
+    // their footprints too - otherwise the mill would read as free ground.
+    for (const placement of state.buildings) {
+      for (const tile of buildingFootprintTiles(placement.type, placement)) {
+        this.fillTileDiamond(graphics, tile.col, tile.row);
+      }
+    }
     if (!state.expanded) {
       for (const tile of EXPAND_SIGN_BLOCKED_TILES) {
         this.fillTileDiamond(graphics, tile.col, tile.row);
@@ -5070,14 +5234,58 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
-  /** The structure's sprite (T3.3s) - reference lookup, the fixed pair. */
-  private structureImage(id: StructureId): Phaser.GameObjects.Image {
-    return id === 'farmhouse' ? this.farmhouseImage : this.noticeBoardImage;
+  /**
+   * The movable's sprite (T3.3s; ref-keyed since T4.1) - the fixed structure
+   * pair by id, a placed building by index. Returns null only for a stale
+   * building index (the list changed under a lift); every caller that can see
+   * one handles it.
+   */
+  private structureImage(ref: MovableAnchorRef): Phaser.GameObjects.Image | null {
+    if (ref.kind === 'structure') {
+      return ref.id === 'farmhouse' ? this.farmhouseImage : this.noticeBoardImage;
+    }
+    return this.buildingImages[ref.index] ?? null;
   }
 
-  /** The structure's ground shadow (T3.3s) - travels with the sprite. */
-  private structureShadow(id: StructureId): Phaser.GameObjects.Image {
-    return id === 'farmhouse' ? this.farmhouseShadow : this.noticeBoardShadow;
+  /** The movable's ground shadow (T3.3s) - travels with the sprite. */
+  private structureShadow(ref: MovableAnchorRef): Phaser.GameObjects.Image | null {
+    if (ref.kind === 'structure') {
+      return ref.id === 'farmhouse' ? this.farmhouseShadow : this.noticeBoardShadow;
+    }
+    return this.buildingShadows[ref.index] ?? null;
+  }
+
+  /** The movable's COMMITTED anchor from state, or null for a stale ref. */
+  private movableAnchor(ref: MovableAnchorRef): { col: number; row: number } | null {
+    const state = gameState.getState();
+    if (ref.kind === 'structure') return state.structures[ref.id];
+    return state.buildings[ref.index] ?? null;
+  }
+
+  /** The movable's fixed anchor-center-to-ground-point render offset. */
+  private movableRenderOffset(ref: MovableAnchorRef): { x: number; y: number } {
+    if (ref.kind === 'structure') return STRUCTURE_RENDER_OFFSETS[ref.id];
+    const placement = gameState.getState().buildings[ref.index];
+    return placement === undefined ? { x: 0, y: 0 } : BUILDINGS[placement.type].renderOffset;
+  }
+
+  /** The movable's anchor-relative footprint offsets. */
+  private movableFootprintOffsets(ref: MovableAnchorRef): readonly { col: number; row: number }[] {
+    if (ref.kind === 'structure') return STRUCTURE_FOOTPRINT_OFFSETS[ref.id];
+    const placement = gameState.getState().buildings[ref.index];
+    return placement === undefined ? [] : BUILDINGS[placement.type].footprintOffsets;
+  }
+
+  /** The movable's GROUND point at `anchor` - the store's one derivation. */
+  private movableRenderPosition(
+    ref: MovableAnchorRef,
+    anchor: { col: number; row: number },
+  ): { x: number; y: number } {
+    if (ref.kind === 'structure') return structureRenderPosition(ref.id, anchor);
+    const placement = gameState.getState().buildings[ref.index];
+    return placement === undefined
+      ? { x: 0, y: 0 }
+      : buildingRenderPosition(placement.type, anchor);
   }
 
   /**
@@ -5085,24 +5293,29 @@ export class FarmScene extends Phaser.Scene {
    * position for `anchor` (T3.3s): position and y-derived depth re-derive
    * together so the structure iso-sorts correctly wherever it stands.
    */
-  private placeStructureSprite(id: StructureId, anchor: { col: number; row: number }): void {
-    const pos = structureRenderPosition(id, anchor);
-    const image = this.structureImage(id);
+  private placeStructureSprite(ref: MovableAnchorRef, anchor: { col: number; row: number }): void {
+    const image = this.structureImage(ref);
+    if (image === null) return;
+    const pos = this.movableRenderPosition(ref, anchor);
     // T3.27: `pos` is the GROUND point and the sprite's origin is its base, so
     // this seats the building on it directly - no per-look correction, whatever
     // the frame's height (see `structureBaseOriginY`).
-    image.setPosition(pos.x, pos.y).setDepth(this.structureDepthFor(id, pos.y));
-    this.applyStructureShadowGeometry(this.structureShadow(id), image);
-    if (id === 'noticeBoard') this.placeNoticeBoardBadge();
-    // T3.26: the dev knobs stack on top of the FINISHED baseline placement,
-    // and deliberately after the shadow has been derived from it - so the
-    // shadow keeps sitting where the un-transformed building would.
-    if (id === 'farmhouse') this.applyFarmhouseDevTransform();
+    image.setPosition(pos.x, pos.y).setDepth(this.structureDepthFor(ref, pos.y));
+    const shadow = this.structureShadow(ref);
+    if (shadow !== null) this.applyStructureShadowGeometry(shadow, image);
+    if (ref.kind === 'structure') {
+      if (ref.id === 'noticeBoard') this.placeNoticeBoardBadge();
+      // T3.26: the dev knobs stack on top of the FINISHED baseline placement,
+      // and deliberately after the shadow has been derived from it - so the
+      // shadow keeps sitting where the un-transformed building would.
+      if (ref.id === 'farmhouse') this.applyFarmhouseDevTransform();
+    }
   }
 
-  /** `placeStructureSprite` at the structure's COMMITTED (saved) anchor. */
-  private applyStructureStatePosition(id: StructureId): void {
-    this.placeStructureSprite(id, gameState.getState().structures[id]);
+  /** `placeStructureSprite` at the movable's COMMITTED (saved) anchor. */
+  private applyStructureStatePosition(ref: MovableAnchorRef): void {
+    const anchor = this.movableAnchor(ref);
+    if (anchor !== null) this.placeStructureSprite(ref, anchor);
   }
 
   /**
@@ -5113,6 +5326,91 @@ export class FarmScene extends Phaser.Scene {
    * never fight an in-flight structure drag (sprite-only moves; state is
    * untouched until the commit).
    */
+  /**
+   * Build every placed building's sprite + cast shadow from state (T4.1),
+   * destroying whatever was there first - the whole-list rebuild
+   * `refreshDecorations` uses, and cheap for the same reason (a save holds at
+   * most a handful of buildings, and the list only changes on a purchase).
+   *
+   * Buildings are base-anchored structure-class sprites: same 256 frame, same
+   * `structureBaseOriginY` derivation, same generated `<frame>_shadow`
+   * companion. They start NON-interactive - arrange mode owns their
+   * hit-testing, exactly like `decorationSprites` (see `enterArrangeMode`) -
+   * because the mill is inert this task: it has no tap action at all.
+   */
+  private createBuildings(): void {
+    for (const image of this.buildingImages) image.destroy();
+    for (const shadow of this.buildingShadows) shadow.destroy();
+    this.buildingImages = [];
+    this.buildingShadows = [];
+    const state = gameState.getState();
+    for (let index = 0; index < state.buildings.length; index++) {
+      const placement = state.buildings[index]!;
+      const def = BUILDINGS[placement.type];
+      const image = this.add
+        .image(0, 0, ATLAS_KEY, def.frame)
+        .setScale(BUILDING_SCALE)
+        .setOrigin(0.5, this.buildingBaseOriginY(this.textures.get(ATLAS_KEY).get(def.frame)));
+      // FRAME-relative hit rect + pad, the notice board's convention (see its
+      // comment on why an origin-centered rect silently misses part of the
+      // sprite). The packer trim-fits building art into its 256 square, so the
+      // frame IS the art's bounds to within the centering slack.
+      const pad = BUILDING_HIT_PAD_DISPLAY_PX / BUILDING_SCALE;
+      image.setInteractive({
+        hitArea: new Phaser.Geom.Rectangle(
+          -pad,
+          -pad,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+          STRUCTURE_FRAME_SIZE + pad * 2,
+        ),
+        hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+        useHandCursor: true,
+      });
+      image.disableInteractive();
+      this.buildingImages.push(image);
+      // Non-null: every building frame is packed with a generated shadow
+      // companion (tools/pack-atlas.mjs SHADOWED_FRAME_NAMES, T4.1).
+      this.buildingShadows.push(this.createGroundShadow(image)!);
+      this.applyStructureStatePosition({ kind: 'building', index });
+    }
+  }
+
+  /**
+   * The origin-y that BASE-anchors a building sprite (T4.1) - the building
+   * twin of `structureBaseOriginY`, same derivation over
+   * BUILDING_BASE_ROW_NATIVE. Takes the FRAME rather than the image so it can
+   * run before the sprite's origin is set.
+   *
+   * Currently 1.0 (building art is bottom-flush in its 256 square, measured -
+   * see BUILDING_BASE_ROW_NATIVE), but derived rather than hardcoded so a
+   * future building whose art leaves room under it keeps standing correctly.
+   */
+  private buildingBaseOriginY(frame: Phaser.Textures.Frame): number {
+    const overhang = frame.realHeight - STRUCTURE_FRAME_SIZE;
+    return (BUILDING_BASE_ROW_NATIVE + overhang) / frame.realHeight;
+  }
+
+  /**
+   * Re-derive the placed buildings from state on the refresh tick (T4.1) - the
+   * building counterpart of `refreshStructures`. Rebuilds only when the saved
+   * list actually changed, so `dev.buildMill()` and a dev import both show up
+   * without a reload, and an in-flight building drag (sprite-only until its
+   * commit) is never fought.
+   */
+  private refreshBuildings(): void {
+    const json = JSON.stringify(gameState.getState().buildings);
+    if (json === this.lastBuildingsJson) return;
+    this.lastBuildingsJson = json;
+    // A rebuild invalidates every index-based ref, so drop any selection or
+    // in-flight drag pointing at a building before the sprites vanish.
+    if (this.selectedStructureId?.kind === 'building') this.setStructureSelection(null);
+    if (this.structureDragId?.kind === 'building') this.structureDragId = null;
+    this.createBuildings();
+    if (this.arrangeModeActive) {
+      for (const image of this.buildingImages) image.setInteractive();
+    }
+  }
+
   private refreshStructures(): void {
     const state = gameState.getState();
     const structures = state.structures;
@@ -5123,8 +5421,8 @@ export class FarmScene extends Phaser.Scene {
     if (json === this.lastStructureAnchorsJson) return;
     this.lastStructureAnchorsJson = json;
     this.applyFarmhouseLook();
-    this.applyStructureStatePosition('farmhouse');
-    this.applyStructureStatePosition('noticeBoard');
+    this.applyStructureStatePosition(FARMHOUSE_REF);
+    this.applyStructureStatePosition(NOTICE_BOARD_REF);
   }
 
   /**
@@ -5133,8 +5431,8 @@ export class FarmScene extends Phaser.Scene {
    * `setDecorationSelection`/`setPlotSelection`, driving the same per-item
    * button re-derive (Scale/Flip/Put Away all dim - structures move only).
    */
-  private setStructureSelection(id: StructureId | null): void {
-    if (id !== null) {
+  private setStructureSelection(ref: MovableAnchorRef | null): void {
+    if (ref !== null) {
       if (this.selectedDecorationIndex !== null) {
         this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
         this.selectedDecorationIndex = null;
@@ -5142,15 +5440,15 @@ export class FarmScene extends Phaser.Scene {
       this.clearPlotSelectionTint();
     }
     this.clearStructureSelectionTint();
-    this.selectedStructureId = id;
-    if (id !== null) this.structureImage(id).setTint(DRESSING_SELECTED_TINT);
+    this.selectedStructureId = ref;
+    if (ref !== null) this.structureImage(ref)?.setTint(DRESSING_SELECTED_TINT);
     this.updateArrangeItemButtonsState();
   }
 
-  /** Clear the selected structure's tint and forget the selection. */
+  /** Clear the selected movable's tint and forget the selection. */
   private clearStructureSelectionTint(): void {
     if (this.selectedStructureId === null) return;
-    this.structureImage(this.selectedStructureId).clearTint();
+    this.structureImage(this.selectedStructureId)?.clearTint();
     this.selectedStructureId = null;
   }
 
@@ -5883,7 +6181,7 @@ export class FarmScene extends Phaser.Scene {
     this.noticeBoardImage = this.add
       .image(position.x, position.y, ATLAS_KEY, 'notice_board')
       .setScale(NOTICE_BOARD_SCALE)
-      .setDepth(this.structureDepthFor('noticeBoard', position.y));
+      .setDepth(this.structureDepthFor(NOTICE_BOARD_REF, position.y));
     // T3.27: base-anchored, so `position` (the ground point) puts the posts'
     // feet on the footprint. The hit rect below is unaffected - it is
     // FRAME-relative, and the art did not move within its frame.

@@ -44,9 +44,10 @@
  * - sign: trimmed, fit into 192x192, centered.
  * - hud_crest, gear_icon, button_push, button_slot, button_close (staged as
  *   xbutton), mere (staged as mere_strip), notice_board, farmhouse,
- *   dirt_path: trimmed, fit into a square frame
- *   (192/128/256/256/96/384/256/256/288), centered - same treatment as the
- *   icons above.
+ *   flour_mill, dirt_path: trimmed, fit into a square frame
+ *   (192/128/256/256/96/384/256/256/256/288), centered - same treatment as the
+ *   icons above. `flour_mill` is the first BUILDING (T4.1) - structure-class
+ *   art, sized and shadowed exactly like `farmhouse`.
  * - farmhouse_restored (T3.25): the restoration-upgrade farmhouse. It gets its
  *   own processor because its frame is sized AGAINST the packed `farmhouse`
  *   frame rather than to a fixed square, so the restored building renders at
@@ -218,6 +219,10 @@ const SQUARE_DOWNSCALE_SIZES = {
   mere: 384,
   notice_board: 256,
   farmhouse: 256,
+  // T4.1: the flour mill is a BUILDING - structure-class art, packed exactly
+  // like the farmhouse (same 512x512 staged source, same 256 square), never
+  // a 96x96 icon.
+  flour_mill: 256,
   dirt_path: 288,
   decor_bench: 128,
   decor_flowerbed: 128,
@@ -799,8 +804,8 @@ const SHADOW_BAKED_ALPHA = 0.3;
 const SHADOW_BLUR_PAD = SHADOW_BLUR_PX * 2;
 
 /** Every frame that gets a generated `<frame>_shadow` companion (T3.3s-r2d):
- *  all decor + trophy frames, the two structures, and the expand sign. Crops
- *  and tiles stay shadowless, as always. decor_fence is deliberately absent
+ *  all decor + trophy frames, the two structures, the expand sign, and every
+ *  building (T4.1). Crops and tiles stay shadowless, as always. decor_fence is deliberately absent
  *  (T3.art-3: fences cast no shadow, owner ruling) - FarmScene.createGroundShadow
  *  tolerates the missing companion frame. */
 const SHADOWED_FRAME_NAMES = [
@@ -821,6 +826,8 @@ const SHADOWED_FRAME_NAMES = [
   'farmhouse',
   'notice_board',
   'sign',
+  // T4.1: buildings cast shadows like the structures they render alongside.
+  'flour_mill',
 ];
 
 /**

@@ -1,0 +1,76 @@
+import { describe, expect, it } from 'vitest';
+
+import { BUILDINGS, BUILDING_IDS, findBuilding } from './buildings';
+import { STRUCTURE_FOOTPRINT_OFFSETS } from '../config';
+import { gridToIso } from '../systems/iso';
+
+describe('BUILDINGS registry (T4.1)', () => {
+  it('BUILDING_IDS matches the registry keys, and every def is self-consistent', () => {
+    expect(BUILDING_IDS).toEqual(['flour_mill']);
+    for (const id of BUILDING_IDS) {
+      const def = BUILDINGS[id];
+      expect(def.id).toBe(id);
+      expect(def.name.length).toBeGreaterThan(0);
+      expect(def.frame.length).toBeGreaterThan(0);
+      expect(def.footprintOffsets.length).toBeGreaterThan(0);
+      expect(def.price).toBeGreaterThan(0);
+      expect(Number.isInteger(def.price)).toBe(true);
+      expect(def.currency).toBe('coins');
+      expect(def.unlockLevel).toBeGreaterThan(0);
+      expect(Number.isInteger(def.unlockLevel)).toBe(true);
+      for (const offset of def.footprintOffsets) {
+        expect(Number.isInteger(offset.col)).toBe(true);
+        expect(Number.isInteger(offset.row)).toBe(true);
+      }
+      expect(Number.isInteger(def.defaultAnchor.col)).toBe(true);
+      expect(Number.isInteger(def.defaultAnchor.row)).toBe(true);
+    }
+  });
+
+  it('the flour mill carries its provisional balance numbers', () => {
+    const mill = BUILDINGS.flour_mill;
+    expect(mill.name).toBe('Flour Mill');
+    expect(mill.frame).toBe('flour_mill');
+    expect(mill.price).toBe(1500);
+    expect(mill.unlockLevel).toBe(6);
+  });
+
+  it("the mill's footprint is the farmhouse's Art-Studio-tuned 2x2 block", () => {
+    // The stated baseline (see the def's comment): the mill's art is staged at
+    // the same 512x512 and packs through the identical 256-square path, so it
+    // covers the same ground until an owner eyeball says otherwise.
+    expect(BUILDINGS.flour_mill.footprintOffsets).toEqual(STRUCTURE_FOOTPRINT_OFFSETS.farmhouse);
+  });
+
+  it("the mill's render offset lands exactly on the center of a footprint tile", () => {
+    // THE derivation the def claims: renderOffset is the FRONT footprint
+    // tile's anchor-relative center, so the building's base sits on its own
+    // footprint by construction rather than by measurement luck.
+    const mill = BUILDINGS.flour_mill;
+    const origin = gridToIso(0, 0);
+    const centers = mill.footprintOffsets.map((offset) => {
+      const center = gridToIso(offset.col, offset.row);
+      return { x: center.x - origin.x, y: center.y - origin.y };
+    });
+    expect(centers).toContainEqual(mill.renderOffset);
+    // Specifically the FRONT tile (the greatest y of the four), which is what
+    // makes the ground point read as the foot of the building, not its middle.
+    const frontY = Math.max(...centers.map((center) => center.y));
+    expect(mill.renderOffset.y).toBe(frontY);
+  });
+
+  it('findBuilding resolves known ids and rejects unknown ones', () => {
+    expect(findBuilding('flour_mill')).toBe(BUILDINGS.flour_mill);
+    expect(findBuilding('barn')).toBeUndefined();
+    expect(findBuilding('')).toBeUndefined();
+    // Prototype keys are not building ids - the validator leans on this.
+    expect(findBuilding('toString')).toBeUndefined();
+    expect(findBuilding('constructor')).toBeUndefined();
+  });
+
+  it('no user-facing string uses an em dash (project rule)', () => {
+    for (const id of BUILDING_IDS) {
+      expect(BUILDINGS[id].name).not.toContain('—');
+    }
+  });
+});

@@ -32,6 +32,15 @@ export interface DevTools {
    */
   unlockRegion(id: string): boolean;
   /**
+   * Dev-only flour mill (T4.1): a straight pipe to
+   * `gameState.devBuildBuilding('flour_mill')` - the real `buyBuilding` path
+   * minus the level and coin gates. THE only way to get a mill this task (it
+   * has no shop entry and no unlock card yet), so the building can be placed,
+   * moved, and eyeballed. Returns whether one was placed (false if a mill is
+   * already owned - one per save).
+   */
+  buildMill(): boolean;
+  /**
    * Dev-only restoration toggle (T3.25): a straight pipe to
    * `gameState.devSetFarmhouseRestored` - flips the farmhouse between its
    * current and restored look (and the Homestead luck perk with it) for free,
@@ -162,6 +171,7 @@ export function installDevTools(store: GameStateStore): void {
     harvest: (plotIndex) => store.harvestPlot(plotIndex),
     grantPlots: (n) => store.grantPlots(n),
     unlockRegion: (id) => store.devUnlockRegion(id),
+    buildMill: () => store.devBuildBuilding('flour_mill'),
     setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };

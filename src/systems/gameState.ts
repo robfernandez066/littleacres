@@ -7,6 +7,7 @@ import {
   type StructureId,
 } from '../config';
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
+import { BUILDINGS, type BuildingId, findBuilding } from '../data/buildings';
 import {
   CHEST_COINS_MAX,
   CHEST_COINS_MIN,
@@ -192,6 +193,22 @@ export interface StructureAnchor {
 export interface StructuresState {
   farmhouse: StructureAnchor;
   noticeBoard: StructureAnchor;
+}
+
+/**
+ * One placed building (T4.1, schema v23): its type plus its saved GRID ANCHOR
+ * TILE, exactly the StructureAnchor convention above - blocked footprint tiles
+ * are anchor + BUILDINGS[type].footprintOffsets and the render position is the
+ * anchor tile's center + BUILDINGS[type].renderOffset (data/buildings.ts),
+ * never stored, always derived.
+ *
+ * Kept deliberately minimal: T4.2's milling state (queue, timers) joins this
+ * interface as additional fields, so a building instance stays ONE object.
+ */
+export interface BuildingPlacement {
+  type: BuildingId;
+  col: number;
+  row: number;
 }
 
 /**
@@ -423,6 +440,19 @@ export interface GameStateData {
   warehouse: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
   structures: StructuresState;
+  /**
+   * Placed buildings (T4.1, schema v23): the things the player BUYS and puts
+   * on the farm, each one grid anchor plus its type. Its OWN collection, not a
+   * widening of `structures` (a closed 2-member union of the fixed
+   * farmhouse/notice board) and not `decorations` (free-form and non-blocking)
+   * - a building blocks its footprint like a structure but is bought, owned in
+   * variable numbers, and extensible one BUILDINGS entry at a time.
+   *
+   * Per-instance PROCESSING state (a mill's queue, its timers) lands here in
+   * T4.2 as extra fields on BuildingPlacement - the shape has room for it and
+   * deliberately carries none of it yet.
+   */
+  buildings: BuildingPlacement[];
   /** Permanent restoration upgrades (T3.25, schema v20). */
   restoration: RestorationState;
   /**
@@ -832,6 +862,16 @@ const v20ToV21: Migration = (raw) => ({ ...raw, goalsSeen: false });
  */
 const v21ToV22: Migration = (raw) => ({ ...raw, goods: {} });
 
+/**
+ * v22 -> v23: buildings (T4.1). Every existing save gains an empty `buildings`
+ * list, exactly like a fresh one - nobody owns a building yet (the flour mill
+ * is dev-only this task), so there is nothing to reconstruct and no existing
+ * placement can be invalidated. `structures`, `decorations` and `plots` are
+ * deliberately untouched: a building is a NEW collection alongside them, never
+ * a reinterpretation of one.
+ */
+const v22ToV23: Migration = (raw) => ({ ...raw, buildings: [] });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -855,6 +895,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v19ToV20,
   v20ToV21,
   v21ToV22,
+  v22ToV23,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -880,6 +921,7 @@ export function createDefaultState(version: number): GameStateData {
     decorations: [],
     warehouse: {},
     structures: createDefaultStructures(),
+    buildings: [],
     restoration: { farmhouse: 0 },
     regionsUnlocked: [],
     twoFingerHintShown: false,
@@ -1079,17 +1121,6 @@ export function placeablePlotTiles(
  */
 const STRUCTURE_IDS: readonly StructureId[] = ['farmhouse', 'noticeBoard'];
 
-/** Each structure's footprint offsets as "dc,dr" keys - static, so the
- * per-tile membership test below is one Set lookup per structure. */
-const STRUCTURE_FOOTPRINT_OFFSET_KEYS: Record<StructureId, ReadonlySet<string>> = {
-  farmhouse: new Set(
-    STRUCTURE_FOOTPRINT_OFFSETS.farmhouse.map((offset) => plotTileKey(offset.col, offset.row)),
-  ),
-  noticeBoard: new Set(
-    STRUCTURE_FOOTPRINT_OFFSETS.noticeBoard.map((offset) => plotTileKey(offset.col, offset.row)),
-  ),
-};
-
 /**
  * Whether the design-space point (x, y) lies inside tile (col, row)'s
  * diamond (frozen frame): the Manhattan-normalized containment test - the
@@ -1104,21 +1135,80 @@ function pointInTileDiamond(x: number, y: number, col: number, row: number): boo
 }
 
 /**
+ * Which permanent-footprint owner a lookup belongs to (T4.1) - the two fixed
+ * structures by id, a placed building by its index in `state.buildings`. Used
+ * only to exempt an owner from its OWN footprint when asking whether it may
+ * stand somewhere ("is this anchor free FOR me").
+ */
+export type FootprintOwnerRef =
+  { kind: 'structure'; id: StructureId } | { kind: 'building'; index: number };
+
+/** One permanent footprint: its anchor-relative offsets and its live anchor. */
+interface FootprintOccupant {
+  offsets: readonly PlotTileCoord[];
+  anchor: { col: number; row: number };
+}
+
+/**
+ * THE shared footprint enumeration (T4.1): every permanent blocking footprint
+ * on the farm - both fixed structures at their live anchors AND every placed
+ * building at its own - as (offsets, anchor) pairs, optionally with `self`
+ * omitted.
+ *
+ * This is the ONE list `isUnderStructure`, `isPointOnPermanentFootprint`,
+ * `isStructureAnchorFree` and `isBuildingAnchorFree` all walk, which is what
+ * makes "a building blocks and is blocked exactly like a structure" true by
+ * construction rather than by four functions each remembering to check
+ * buildings. Adding a future footprint-owning collection means extending this
+ * function, and nothing else.
+ */
+function permanentFootprints(
+  state: Pick<GameStateData, 'structures' | 'buildings'>,
+  self?: FootprintOwnerRef,
+): FootprintOccupant[] {
+  const occupants: FootprintOccupant[] = [];
+  for (const id of STRUCTURE_IDS) {
+    if (self?.kind === 'structure' && self.id === id) continue;
+    occupants.push({ offsets: STRUCTURE_FOOTPRINT_OFFSETS[id], anchor: state.structures[id] });
+  }
+  for (let index = 0; index < state.buildings.length; index++) {
+    if (self?.kind === 'building' && self.index === index) continue;
+    const placement = state.buildings[index]!;
+    occupants.push({
+      offsets: BUILDINGS[placement.type].footprintOffsets,
+      anchor: placement,
+    });
+  }
+  return occupants;
+}
+
+/** `offsets` applied at `anchor` - the absolute tiles a footprint covers. */
+function footprintTilesAt(
+  offsets: readonly PlotTileCoord[],
+  anchor: { col: number; row: number },
+): PlotTileCoord[] {
+  return offsets.map((offset) => ({
+    col: anchor.col + offset.col,
+    row: anchor.row + offset.row,
+  }));
+}
+
+/**
  * Whether the design-space point (x, y) lands inside any PERMANENT object's
  * footprint tile diamond (T3.3s-r1, owner rule: nothing places on top of
  * permanent objects): the farmhouse and notice board footprints at their
- * CURRENT anchors, plus the expand sign's while the save is not expanded.
- * The gate `setDecorationTransform` runs on a decoration's ground anchor.
+ * CURRENT anchors, every placed building's at its own (T4.1), plus the expand
+ * sign's while the save is not expanded. The gate `setDecorationTransform`
+ * runs on a decoration's ground anchor.
  */
 function isPointOnPermanentFootprint(
-  state: Pick<GameStateData, 'structures' | 'expanded'>,
+  state: Pick<GameStateData, 'structures' | 'buildings' | 'expanded'>,
   x: number,
   y: number,
 ): boolean {
-  for (const id of STRUCTURE_IDS) {
-    const anchor = state.structures[id];
-    for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
-      if (pointInTileDiamond(x, y, anchor.col + offset.col, anchor.row + offset.row)) return true;
+  for (const occupant of permanentFootprints(state)) {
+    for (const tile of footprintTilesAt(occupant.offsets, occupant.anchor)) {
+      if (pointInTileDiamond(x, y, tile.col, tile.row)) return true;
     }
   }
   if (!state.expanded) {
@@ -1129,12 +1219,22 @@ function isPointOnPermanentFootprint(
   return false;
 }
 
-/** Whether (col, row) lies under either structure's CURRENT footprint. */
-function isUnderStructure(structures: StructuresState, col: number, row: number): boolean {
-  for (const id of STRUCTURE_IDS) {
-    const anchor = structures[id];
-    if (STRUCTURE_FOOTPRINT_OFFSET_KEYS[id].has(plotTileKey(col - anchor.col, row - anchor.row))) {
-      return true;
+/**
+ * Whether (col, row) lies under any permanent structure's CURRENT footprint -
+ * either fixed structure or, since T4.1, any placed BUILDING. The name is kept
+ * (it is on the parse surface); "structure" reads as "permanent standing
+ * object", which is exactly the set it now covers.
+ */
+function isUnderStructure(
+  state: Pick<GameStateData, 'structures' | 'buildings'>,
+  col: number,
+  row: number,
+): boolean {
+  for (const occupant of permanentFootprints(state)) {
+    for (const offset of occupant.offsets) {
+      if (occupant.anchor.col + offset.col === col && occupant.anchor.row + offset.row === row) {
+        return true;
+      }
     }
   }
   return false;
@@ -1142,10 +1242,30 @@ function isUnderStructure(structures: StructuresState, col: number, row: number)
 
 /** Structure `id`'s absolute footprint tiles at `anchor` (T3.3s). */
 export function structureFootprintTiles(id: StructureId, anchor: StructureAnchor): PlotTileCoord[] {
-  return STRUCTURE_FOOTPRINT_OFFSETS[id].map((offset) => ({
-    col: anchor.col + offset.col,
-    row: anchor.row + offset.row,
-  }));
+  return footprintTilesAt(STRUCTURE_FOOTPRINT_OFFSETS[id], anchor);
+}
+
+/** Building `type`'s absolute footprint tiles at `anchor` (T4.1) - the
+ *  building twin of `structureFootprintTiles`, same shared helper underneath. */
+export function buildingFootprintTiles(
+  type: BuildingId,
+  anchor: { col: number; row: number },
+): PlotTileCoord[] {
+  return footprintTilesAt(BUILDINGS[type].footprintOffsets, anchor);
+}
+
+/**
+ * Building `type`'s GROUND point at `anchor` (T4.1) - the building twin of
+ * `structureRenderPosition`: the anchor tile's center plus the building's
+ * fixed render offset, base-anchored per the T3.27 convention.
+ */
+export function buildingRenderPosition(
+  type: BuildingId,
+  anchor: { col: number; row: number },
+): { x: number; y: number } {
+  const center = gridToIso(anchor.col, anchor.row);
+  const offset = BUILDINGS[type].renderOffset;
+  return { x: center.x + offset.x, y: center.y + offset.y };
 }
 
 /**
@@ -1180,25 +1300,80 @@ export function structureRenderPosition(
  * an illegal anchor can never even preview.
  */
 export function isStructureAnchorFree(
-  state: Pick<GameStateData, 'plots' | 'structures' | 'expanded' | 'regionsUnlocked'>,
+  state: Pick<GameStateData, 'plots' | 'structures' | 'buildings' | 'expanded' | 'regionsUnlocked'>,
   id: StructureId,
   col: number,
   row: number,
 ): boolean {
+  return isAnchorFree(state, STRUCTURE_FOOTPRINT_OFFSETS[id], col, row, {
+    kind: 'structure',
+    id,
+  });
+}
+
+/**
+ * THE building-placement authority (T4.1) - the building twin of
+ * `isStructureAnchorFree`, over the SAME shared mechanism: legal iff every one
+ * of `type`'s footprint tiles at (col, row) is inside the placeable domain,
+ * free of plots, free of every OTHER permanent footprint (both structures and
+ * every other building), and clear of the expand sign while it stands. Decor
+ * does not block buildings, exactly as it does not block structures.
+ *
+ * `ignoreBuildingIndex` exempts one building from the collision check - a
+ * building being MOVED must not be blocked by where it currently stands, the
+ * same self-exemption `isStructureAnchorFree` gets implicitly and
+ * `isPlotTileFree` takes as `ignorePlotIndex`.
+ */
+export function isBuildingAnchorFree(
+  state: Pick<GameStateData, 'plots' | 'structures' | 'buildings' | 'expanded' | 'regionsUnlocked'>,
+  type: BuildingId,
+  col: number,
+  row: number,
+  ignoreBuildingIndex = -1,
+): boolean {
+  return isAnchorFree(
+    state,
+    BUILDINGS[type].footprintOffsets,
+    col,
+    row,
+    ignoreBuildingIndex >= 0 ? { kind: 'building', index: ignoreBuildingIndex } : undefined,
+  );
+}
+
+/**
+ * The shared anchor-legality rule (T4.1) behind BOTH
+ * `isStructureAnchorFree` and `isBuildingAnchorFree` - byte-for-byte the rules
+ * T3.3s/T3.3s-r1 wrote for structures, generalized over an arbitrary footprint
+ * and an arbitrary self-exemption so a building is not a special case of
+ * anything. `self` is the owner asking (exempted from its own footprint);
+ * omitted for a placement that owns no footprint yet.
+ */
+function isAnchorFree(
+  state: Pick<GameStateData, 'plots' | 'structures' | 'buildings' | 'expanded' | 'regionsUnlocked'>,
+  offsets: readonly PlotTileCoord[],
+  col: number,
+  row: number,
+  self?: FootprintOwnerRef,
+): boolean {
   if (!Number.isInteger(col) || !Number.isInteger(row)) return false;
   const placeableKeys = runtimePlaceableDomain(state.regionsUnlocked).keys;
-  const otherId: StructureId = id === 'farmhouse' ? 'noticeBoard' : 'farmhouse';
-  const otherAnchor = state.structures[otherId];
-  const otherKeys = STRUCTURE_FOOTPRINT_OFFSET_KEYS[otherId];
-  for (const offset of STRUCTURE_FOOTPRINT_OFFSETS[id]) {
+  const others = permanentFootprints(state, self);
+  for (const offset of offsets) {
     const tileCol = col + offset.col;
     const tileRow = row + offset.row;
     if (!placeableKeys.has(plotTileKey(tileCol, tileRow))) return false;
     for (const plot of state.plots) {
       if (plot.col === tileCol && plot.row === tileRow) return false;
     }
-    if (otherKeys.has(plotTileKey(tileCol - otherAnchor.col, tileRow - otherAnchor.row))) {
-      return false;
+    for (const occupant of others) {
+      for (const otherOffset of occupant.offsets) {
+        if (
+          occupant.anchor.col + otherOffset.col === tileCol &&
+          occupant.anchor.row + otherOffset.row === tileRow
+        ) {
+          return false;
+        }
+      }
     }
     if (!state.expanded && EXPAND_SIGN_BLOCKED_KEYS.has(plotTileKey(tileCol, tileRow))) {
       return false;
@@ -1246,7 +1421,7 @@ const EXPAND_SIGN_BLOCKED_KEYS: ReadonlySet<string> = new Set(
 export function isPlotTileFree(
   state: Pick<
     GameStateData,
-    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'buildings' | 'regionsUnlocked'
   >,
   col: number,
   row: number,
@@ -1260,7 +1435,9 @@ export function isPlotTileFree(
     const plot = state.plots[index]!;
     if (plot.col === col && plot.row === row) return false;
   }
-  if (isUnderStructure(state.structures, col, row)) return false;
+  // T4.1: covers every placed BUILDING's footprint too, not just the two
+  // fixed structures - one shared enumeration, see `permanentFootprints`.
+  if (isUnderStructure(state, col, row)) return false;
   if (!state.expanded && EXPAND_SIGN_BLOCKED_KEYS.has(key)) return false;
   for (const decoration of state.decorations) {
     if (pointInTileDiamond(decoration.x, decoration.y, col, row)) return false;
@@ -1310,7 +1487,7 @@ function isHuggingPlot(
 function nearestFreePlaceableTile(
   state: Pick<
     GameStateData,
-    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'buildings' | 'regionsUnlocked'
   >,
   x: number,
   y: number,
@@ -1358,7 +1535,7 @@ function nearestFreePlaceableTile(
 export function nextChainPlotTile(
   state: Pick<
     GameStateData,
-    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'buildings' | 'regionsUnlocked'
   >,
   history: readonly PlotTileCoord[],
 ): PlotTileCoord | null {
@@ -1432,7 +1609,7 @@ export function nextChainPlotTile(
 export function bestBatchStartTile(
   state: Pick<
     GameStateData,
-    'plots' | 'decorations' | 'expanded' | 'structures' | 'regionsUnlocked'
+    'plots' | 'decorations' | 'expanded' | 'structures' | 'buildings' | 'regionsUnlocked'
   >,
   shedCount: number,
 ): PlotTileCoord | null {
@@ -1695,6 +1872,24 @@ function isStructuresState(value: unknown): value is StructuresState {
 }
 
 /**
+ * One placed building (T4.1): a KNOWN `BUILDINGS` type plus an integer col/row
+ * within the static validator bounds - the same coordinate rule a plot tile
+ * and a structure anchor obey. An unknown type is rejected rather than
+ * ignored: unlike a stray `regionsUnlocked` id (inert), a building renders and
+ * blocks tiles, so a save naming a type this build cannot draw is not a save
+ * this build can honour.
+ */
+function isBuildingPlacement(value: unknown): value is BuildingPlacement {
+  return (
+    isRecord(value) &&
+    typeof value.type === 'string' &&
+    findBuilding(value.type) !== undefined &&
+    isPlotGridCoord(value.col) &&
+    isPlotGridCoord(value.row)
+  );
+}
+
+/**
  * `regionsUnlocked` (T3.3b): an array of KNOWN region ids (REGION_IDS), no
  * duplicates. An empty array is valid (nothing purchased).
  */
@@ -1767,6 +1962,8 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     decorOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECOR_ITEMS &&
     fenceOwnedCount(raw.decorations, raw.warehouse) <= MAX_FENCES &&
     isStructuresState(raw.structures) &&
+    Array.isArray(raw.buildings) &&
+    raw.buildings.every(isBuildingPlacement) &&
     isRestorationState(raw.restoration) &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
@@ -2353,6 +2550,81 @@ export class GameStateStore {
     const anchor = this.state.structures[id];
     anchor.col = col;
     anchor.row = row;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Buy a building (T4.1), mirroring `purchaseRegion`: refuses - mutating
+   * NOTHING - on an unknown type, below the building's `unlockLevel`, short
+   * coins, or one of that type already owned. On success it deducts the price,
+   * appends a placement at the building's `defaultAnchor`, and saves.
+   *
+   * The one-per-type guard is a deliberate v1 simplification (one flour mill
+   * max), and it doubles as the anti-double-spend a double tap needs - the
+   * same role `restoreFarmhouse`'s already-restored check plays. It lives here
+   * rather than in a future shop UI so no caller can spend around it.
+   *
+   * The default anchor is NOT re-validated against live collisions: a bought
+   * building lands where the def says, and the player moves it from there
+   * (arrange mode) if the spot is crowded - the same "place, then arrange"
+   * contract granted plots have. `moveBuilding` is the collision authority.
+   */
+  buyBuilding(type: BuildingId): boolean {
+    const building = findBuilding(type);
+    if (building === undefined) return false;
+    if (this.state.buildings.some((placed) => placed.type === type)) return false;
+    if (this.state.level < building.unlockLevel) return false;
+    if (this.state.coins < building.price) return false;
+    this.state.coins -= building.price;
+    this.appendBuilding(building.id);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Dev-only building grant (T4.1), mirroring `devUnlockRegion`: the
+   * `buyBuilding` path minus the level and coin gates, so the mill can be
+   * placed and exercised before it has a shop entry (T4.2). Keeps the
+   * one-per-type guard - a second mill is not a thing this schema supports,
+   * dev or not. Returns false for an unknown or already-owned type. Wired to
+   * `dev.buildMill`.
+   */
+  devBuildBuilding(type: BuildingId): boolean {
+    const building = findBuilding(type);
+    if (building === undefined) return false;
+    if (this.state.buildings.some((placed) => placed.type === type)) return false;
+    this.appendBuilding(building.id);
+    this.save();
+    return true;
+  }
+
+  /** Append a placement at `type`'s default anchor - the one spot both the
+   *  real purchase and the dev grant put a new building, so they cannot drift. */
+  private appendBuilding(type: BuildingId): void {
+    const { defaultAnchor } = BUILDINGS[type];
+    this.state.buildings.push({ type, col: defaultAnchor.col, row: defaultAnchor.row });
+  }
+
+  /**
+   * Relocate a placed building's anchor to (col, row) (T4.1) - the building
+   * twin of `moveStructure`, and the arrange-mode building move. Legal iff
+   * every footprint tile at the new anchor is inside the placeable domain,
+   * free of plots, free of every OTHER permanent footprint (both structures
+   * and every other building), and clear of the expand sign while it stands
+   * (`isBuildingAnchorFree` - decor does not block buildings, exactly as it
+   * does not block structures). Returns false without mutating anything on an
+   * out-of-range index or any violation; one save on success. A move onto the
+   * building's own current anchor passes trivially - it is exempted from its
+   * own footprint - which makes it a valid no-op commit, mirroring
+   * `moveStructure` and `movePlot`.
+   */
+  moveBuilding(index: number, col: number, row: number): boolean {
+    const placement = this.state.buildings[index];
+    if (placement === undefined) return false;
+    if (!isBuildingAnchorFree(this.state, placement.type, col, row, index)) return false;
+    placement.col = col;
+    placement.row = row;
     this.save();
     return true;
   }

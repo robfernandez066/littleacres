@@ -1,0 +1,26 @@
+{
+  "building": "flour_mill",
+  "frame": "flour_mill_shadow",
+  "sourceFrame": "flour_mill",
+  "variants": [],
+  "logicalWidth": 410,
+  "logicalHeight": 390,
+  "sourceFrameRect": {
+    "x": 128,
+    "y": 26,
+    "width": 256,
+    "height": 256
+  },
+  "sourceGroundPoint": {
+    "x": 129,
+    "y": 255
+  },
+  "previewScale": 1.640625,
+  "tuckRatio": 0,
+  "validation": {
+    "minAlpha": 8,
+    "requireSingleComponent": true,
+    "requireUpperEdgeAboveAnchor": true
+  },
+  "description": "Authored building cast-shadow (T4.1). The anchor is DERIVED: sourceFrameRect + sourceGroundPoint = (128+129, 26+255) = (257,281). Pixels were shifted (0,-32) in T4.1-shadowfix so the shadow tucks under the base and spills back-left instead of pooling in front of it. No variants."
+}

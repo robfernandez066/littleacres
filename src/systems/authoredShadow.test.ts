@@ -44,6 +44,13 @@ const atlas = JSON.parse(atlasJsonRaw) as { frames: Record<string, AtlasFrame> }
 const shadowFrame = atlas.frames.farmhouse_shadow;
 if (shadowFrame === undefined) throw new Error('farmhouse_shadow missing from atlas.json');
 
+/**
+ * Every frame served by a hand-authored shadow rather than generateCastShadow
+ * (T4.1: the flour mill joined the farmhouse). Anything else ending in `_shadow`
+ * is generic and must stay out of SHADOW_PLACEMENT_OVERRIDES.
+ */
+const AUTHORED_SHADOW_FRAMES = ['farmhouse_shadow', 'flour_mill_shadow'];
+
 /** The one anchor derivation - mirrored from tools/shadow-lib.mjs deriveAnchor. */
 const derivedAnchor = {
   x: manifest.sourceFrameRect.x + manifest.sourceGroundPoint.x,
@@ -81,8 +88,30 @@ describe('authored building-shadow workflow (T3.29)', () => {
     expect(SHADOW_TUCK_RATIO).not.toBe(0);
   });
 
-  it('the override is scoped to the farmhouse only', () => {
-    expect(Object.keys(SHADOW_PLACEMENT_OVERRIDES)).toEqual(['farmhouse_shadow']);
+  it('the override set is exactly the two authored buildings (farmhouse + flour mill)', () => {
+    // Re-pinned in T4.1: major buildings get an authored shadow (T3.29), so the
+    // flour mill joined the farmhouse as an authored override. Pinned as a
+    // WHOLE-MAP toEqual (keys AND values) rather than a key list or a count, so a
+    // stray third override, a dropped one, or an anchor drift all still fail.
+    // Values are each manifest's DERIVED anchor (sourceFrameRect +
+    // sourceGroundPoint): farmhouse (131+128, 24+256) = (259,280); flour mill
+    // (128+129, 26+255) = (257,281). Both carry their own contact => tuckRatio 0.
+    expect(SHADOW_PLACEMENT_OVERRIDES).toEqual({
+      farmhouse_shadow: {
+        logicalWidth: 412,
+        logicalHeight: 385,
+        anchorX: 259,
+        anchorY: 280,
+        tuckRatio: 0,
+      },
+      flour_mill_shadow: {
+        logicalWidth: 410,
+        logicalHeight: 390,
+        anchorX: 257,
+        anchorY: 281,
+        tuckRatio: 0,
+      },
+    });
   });
 
   it('generated lab manifest matches the source manifest (variant, anchor, scale)', () => {
@@ -120,13 +149,22 @@ describe('authored building-shadow workflow (T3.29)', () => {
   });
 
   it('generic generated shadows are untouched by the authored override', () => {
+    // decor_well is SHADOWED (pack-atlas.mjs SHADOWED_FRAME_NAMES) but NOT
+    // authored, so decor_well_shadow is the named still-generic example: it must
+    // stay out of the override map and keep coming from generateCastShadow.
     const generic = atlas.frames.decor_well_shadow;
     expect(generic).toBeDefined();
     if (generic === undefined) throw new Error('decor_well_shadow missing from atlas.json');
     expect(generic.trimmed).toBe(true);
+    expect(SHADOW_PLACEMENT_OVERRIDES.decor_well_shadow).toBeUndefined();
+    // A generated companion carries neither authored logical canvas - its size is
+    // derived from its own source frame, not from a hand-authored PNG.
     expect(generic.sourceSize).not.toEqual({ w: 412, h: 385 });
+    expect(generic.sourceSize).not.toEqual({ w: 410, h: 390 });
+    // Every _shadow frame that is not one of the two authored ones routes
+    // through the generic generator and must have no override entry.
     for (const name of Object.keys(atlas.frames)) {
-      if (name.endsWith('_shadow') && name !== 'farmhouse_shadow') {
+      if (name.endsWith('_shadow') && !AUTHORED_SHADOW_FRAMES.includes(name)) {
         expect(SHADOW_PLACEMENT_OVERRIDES[name]).toBeUndefined();
       }
     }
