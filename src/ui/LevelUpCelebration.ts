@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
+import { regionUnlockCardsForLevel } from '../data/goals';
 import { SYSTEM_UNLOCK_CARDS } from '../data/levels';
 import type { AudioManager } from '../systems/audio';
 import type { LevelUpEvent } from '../systems/gameState';
@@ -260,7 +261,9 @@ export class LevelUpCelebration {
   /**
    * Every card a level-up event shows, in order: one per unlocked crop, then
    * one per SYSTEM_UNLOCK_CARDS entry matching this level (e.g. the level-6
-   * chest unlock). A level unlocking both a crop and a system shows both.
+   * chest unlock), then one per region whose gate this level opens (T3.30-r1 -
+   * derived from REGIONS, so a future region announces itself here with no new
+   * code). A level that unlocks several of these shows all of them.
    */
   private cardsFor(event: LevelUpEvent): { iconFrame: string; label: string }[] {
     const cropCards = event.unlockedCropIds.map((cropId) => {
@@ -270,7 +273,7 @@ export class LevelUpCelebration {
     const systemCards = SYSTEM_UNLOCK_CARDS.filter((card) => card.level === event.level).map(
       (card) => ({ iconFrame: card.iconFrame, label: card.label }),
     );
-    return [...cropCards, ...systemCards];
+    return [...cropCards, ...systemCards, ...regionUnlockCardsForLevel(event.level)];
   }
 
   private showBanner(item: CelebrationItem): void {

@@ -117,6 +117,18 @@ export const BAG_POSITION = { x: 834, y: 86 } as const;
 export const QUEST_ICON_POSITION = { x: 700, y: 86 } as const;
 
 /**
+ * Screen position of the HUD goals icon (design space, T3.30): the banner row
+ * again (same y as the bag and scroll), continuing the run rightward past the
+ * bag. x=955 is bounded on both sides: at BUTTON_ICON_DISPLAY_SIZE (90) the
+ * icon spans x 910..1000, leaving a 31px margin from the bag's right edge
+ * (834 + 45 = 879) and a 20px margin before the banner's right vine curl
+ * (the nineslice's right slice starts at 1080 - BANNER_SLICE_WIDTH = 1020).
+ * The gear hangs BELOW the banner (y 166..238) so it never collides with this
+ * row (y 41..131) despite the overlapping x range.
+ */
+export const GOALS_ICON_POSITION = { x: 955, y: 86 } as const;
+
+/**
  * Screen position (design space) of the community notice board structure on
  * the farm - tapping it opens the order board (T2.22, replacing the old HUD
  * orders icon). Depth is derived from its own y at render time, same iso

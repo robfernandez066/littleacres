@@ -4,6 +4,7 @@ import {
   ATLAS_KEY,
   BAG_POSITION,
   DESIGN_WIDTH,
+  GOALS_ICON_POSITION,
   HUD_COIN_POSITION,
   HUD_MOONDUST_POSITION,
   PANEL_SLICE,
@@ -22,6 +23,7 @@ import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
 import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
+import type { GoalsPanel } from './GoalsPanel';
 import { InventoryPanel } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
@@ -203,6 +205,25 @@ const QUEST_BADGE_BOUNCE_OFFSET_Y = -8;
 const QUEST_BADGE_BOUNCE_HALF_MS = 500;
 
 /**
+ * Goals icon (T3.30): the same bare-icon convention as the bag and scroll, at
+ * GOALS_ICON_POSITION. It needs its OWN opaque bounds rather than reusing
+ * BAG_OPAQUE_BOUNDS: MEASURED (Jimp opaque-bounds scan of the packed `goals`
+ * frame, 96x96 native) the art spans x=[2,93], y=[0,95] - wider than the bag's
+ * x=[6,89], so the bag's rectangle would clip ~4px of live art off each side.
+ * (The scroll, being NARROWER than the bag, can safely keep sharing the bag's
+ * bounds - a superset only ever adds slack.) See CLAUDE.md's hit-area rule.
+ */
+const GOALS_OPAQUE_BOUNDS = { x: 2, y: 0, w: 92, h: 96 };
+/**
+ * One-time discovery nudge (T3.30): a "!" badge styled and bobbed exactly like
+ * the quest badge, plus a gentle scale breathe on the icon itself. Both are
+ * derived from `state.goalsSeen` every tick, so opening the panel once (which
+ * calls `markGoalsSeen`) clears them permanently rather than for this session.
+ */
+const GOALS_PULSE_SCALE = 1.12;
+const GOALS_PULSE_HALF_MS = 620;
+
+/**
  * Gear (settings) icon, hanging just below the banner's bottom edge (158) -
  * replaces the old Audio button entirely.
  */
@@ -302,6 +323,25 @@ export class Hud {
   private readonly questBadge: Phaser.GameObjects.Text;
   /** Cached rails gating, mirrors `bagEnabled`. */
   private questIconEnabled = true;
+  private readonly goalsContainer: Phaser.GameObjects.Container;
+  private readonly goalsIcon: Phaser.GameObjects.Image;
+  private readonly goalsBadge: Phaser.GameObjects.Text;
+  /**
+   * Cached onboarding gating for the goals icon. Unlike the bag/quest icons
+   * (which stay visible but dimmed through the tutorial), this one is HIDDEN
+   * outright until onboarding completes - the tutorial never mentions it and a
+   * dimmed unknown icon with a "!" on it would read as a bug.
+   */
+  private goalsVisible = false;
+  /** The unseen-menu attention breathe - see GOALS_PULSE_SCALE. Null while off. */
+  private goalsPulseTween: Phaser.Tweens.Tween | null = null;
+  /**
+   * The Goals panel (T3.30): built by `FarmScene` (it needs scene-owned
+   * callbacks - the RestorePanel opener and the camera glide) and handed in via
+   * `setGoalsPanel`, exactly like `questBoard`. Null only in the window between
+   * this constructor and that call; every use guards on it.
+   */
+  private goalsPanel: GoalsPanel | null = null;
   private readonly arrangeContainer: Phaser.GameObjects.Container;
   private readonly arrangeButton: Phaser.GameObjects.NineSlice;
   /** Cached rails gating, mirrors `bagEnabled`. */
@@ -468,6 +508,7 @@ export class Hud {
       this.inventoryPanel.hide();
       this.orderBoard.hide();
       this.questBoard?.hide();
+      this.goalsPanel?.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
@@ -531,6 +572,7 @@ export class Hud {
       this.orderBoard.hide();
       this.settingsPanel.hide();
       this.questBoard?.hide();
+      this.goalsPanel?.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -587,6 +629,50 @@ export class Hud {
       ease: 'Sine.easeInOut',
     });
 
+    // Goals icon (T3.30): the third bare icon on the banner row, right of the
+    // bag. Hidden until onboarding completes (see `goalsVisible`), so it is
+    // built invisible and inert and `applyGoalsVisibility` turns it on.
+    this.goalsContainer = this.scene.add
+      .container(GOALS_ICON_POSITION.x, GOALS_ICON_POSITION.y)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+    this.goalsIcon = this.buildBareIcon('goals', GOALS_OPAQUE_BOUNDS);
+    this.goalsIcon.disableInteractive();
+    this.goalsContainer.add(this.goalsIcon);
+    this.goalsIcon.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.inventoryPanel.hide();
+      this.orderBoard.hide();
+      this.settingsPanel.hide();
+      this.questBoard?.hide();
+      this.currencyInfoCard.hide();
+      // Deliberately does NOT hide itself first (unlike the other panels this
+      // closes): that would turn a second tap into a re-open instead of a
+      // close. `show` (inside toggle) is what calls markGoalsSeen - the badge
+      // and pulse then clear on the very next refresh tick.
+      this.goalsPanel?.toggle(gameState.getState());
+    });
+    // Discovery "!" badge: same style, corner offset and bob as the quest
+    // badge above. Visibility is re-derived every tick from `goalsSeen`.
+    this.goalsBadge = this.scene.add
+      .text(
+        GOALS_ICON_POSITION.x + QUEST_BADGE_OFFSET,
+        GOALS_ICON_POSITION.y - QUEST_BADGE_OFFSET,
+        '!',
+        QUEST_BADGE_TEXT_STYLE,
+      )
+      .setOrigin(0.5)
+      .setDepth(HUD_DEPTH + 1)
+      .setVisible(false);
+    this.scene.tweens.add({
+      targets: this.goalsBadge,
+      y: GOALS_ICON_POSITION.y - QUEST_BADGE_OFFSET + QUEST_BADGE_BOUNCE_OFFSET_Y,
+      duration: QUEST_BADGE_BOUNCE_HALF_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+
     this.cropArc = new CropArc(this.scene);
 
     this.inventoryPanel = new InventoryPanel(
@@ -630,6 +716,7 @@ export class Hud {
     this.inventoryPanel.hide();
     this.settingsPanel.hide();
     this.questBoard?.hide();
+    this.goalsPanel?.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
@@ -646,6 +733,7 @@ export class Hud {
     this.orderBoard.hide();
     this.settingsPanel.hide();
     this.questBoard?.hide();
+    this.goalsPanel?.hide();
     this.currencyInfoCard.hide();
   }
 
@@ -659,6 +747,15 @@ export class Hud {
    */
   setQuestBoard(panel: QuestBoard): void {
     this.questBoard = panel;
+  }
+
+  /**
+   * Wire the Goals panel (T3.30) - same handoff as `setQuestBoard`: `FarmScene`
+   * builds it (it needs the scene's own RestorePanel opener and camera glide)
+   * and hands it in right after this constructor, before the first refresh tick.
+   */
+  setGoalsPanel(panel: GoalsPanel): void {
+    this.goalsPanel = panel;
   }
 
   /**
@@ -716,7 +813,12 @@ export class Hud {
    * (0,0 at the icon's own native top-left), never centered on the object's
    * origin/position - see CLAUDE.md's hit-area rule.
    */
-  private buildBareIcon(iconFrame: string): Phaser.GameObjects.Image {
+  private buildBareIcon(
+    iconFrame: string,
+    /** This frame's own MEASURED opaque bounds; defaults to the bag's, which
+     *  the (narrower) scroll safely shares - see GOALS_OPAQUE_BOUNDS. */
+    bounds: { x: number; y: number; w: number; h: number } = BAG_OPAQUE_BOUNDS,
+  ): Phaser.GameObjects.Image {
     const scale = BUTTON_ICON_DISPLAY_SIZE / BAG_ICON_NATIVE_SIZE;
     const pad = BAG_HIT_PAD_DISPLAY_PX / scale;
     return this.scene.add
@@ -724,10 +826,10 @@ export class Hud {
       .setDisplaySize(BUTTON_ICON_DISPLAY_SIZE, BUTTON_ICON_DISPLAY_SIZE)
       .setInteractive({
         hitArea: new Phaser.Geom.Rectangle(
-          BAG_OPAQUE_BOUNDS.x - pad,
-          BAG_OPAQUE_BOUNDS.y - pad,
-          BAG_OPAQUE_BOUNDS.w + pad * 2,
-          BAG_OPAQUE_BOUNDS.h + pad * 2,
+          bounds.x - pad,
+          bounds.y - pad,
+          bounds.w + pad * 2,
+          bounds.h + pad * 2,
         ),
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
@@ -786,11 +888,13 @@ export class Hud {
     this.inventoryPanel.refresh(state);
     this.orderBoard.refresh(state);
     this.questBoard?.refresh(state);
+    this.goalsPanel?.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 
     this.questBadge.setVisible(this.anyQuestClaimable(state));
 
+    this.applyGoalsVisibility(state);
     this.applyRailsGating();
 
     // Onboarding's panel steps: observed panel state is notified every tick
@@ -853,6 +957,51 @@ export class Hud {
       } else {
         this.arrangeButton.disableInteractive();
       }
+    }
+  }
+
+  /**
+   * The goals icon's per-tick gating (T3.30): the button (and therefore its
+   * panel) exists only after onboarding completes, and the discovery nudge -
+   * "!" badge plus attention breathe - runs only while the menu is unseen.
+   * Both are re-derived from state rather than toggled at the tap, so the
+   * `markGoalsSeen` write clears them permanently and a dev reset re-arms them.
+   */
+  private applyGoalsVisibility(state: GameStateData): void {
+    const visible = state.onboarding.completed;
+    if (visible !== this.goalsVisible) {
+      this.goalsVisible = visible;
+      this.goalsContainer.setVisible(visible);
+      if (visible) {
+        // No-arg re-enable so the measured hit area set at construction
+        // survives - same rationale as the bag's in `applyRailsGating`.
+        this.goalsIcon.setInteractive();
+      } else {
+        this.goalsIcon.disableInteractive();
+        this.goalsPanel?.hide();
+      }
+    }
+    const nudging = visible && !state.goalsSeen;
+    this.goalsBadge.setVisible(nudging);
+    this.setGoalsPulse(nudging);
+  }
+
+  /** The unseen-menu attention breathe; idempotent, and restores scale 1 when off. */
+  private setGoalsPulse(pulsing: boolean): void {
+    if (pulsing === (this.goalsPulseTween !== null)) return;
+    if (pulsing) {
+      this.goalsPulseTween = this.scene.tweens.add({
+        targets: this.goalsContainer,
+        scale: GOALS_PULSE_SCALE,
+        duration: GOALS_PULSE_HALF_MS,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+      });
+    } else {
+      this.goalsPulseTween?.stop();
+      this.goalsPulseTween = null;
+      this.goalsContainer.setScale(1);
     }
   }
 

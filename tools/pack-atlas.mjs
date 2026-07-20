@@ -192,7 +192,7 @@ const CROP_NAMES = [
   'sagesprig_1',
   'sagesprig_2',
 ];
-const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch'];
+const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch', 'goals'];
 const SIGN_NAMES = ['sign'];
 /** Single static objects that sit on a tile like a crop, but have no growth stages. */
 const CHEST_NAMES = ['chest_closed', 'chest_open'];

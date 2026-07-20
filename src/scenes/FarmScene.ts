@@ -41,7 +41,7 @@ import {
   fenceSnapDeltas,
   TROPHY_ITEMS,
 } from '../data/decor';
-import { type RegionDef, REGIONS } from '../data/farm';
+import { findRegion, type RegionDef, REGIONS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
@@ -100,6 +100,7 @@ import { cropToInfoDef, CropInfoCard } from '../ui/CropInfoCard';
 import { DecorShop } from '../ui/DecorShop';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
+import { GoalsPanel } from '../ui/GoalsPanel';
 import { RegionSign } from '../ui/RegionSign';
 import { Hud } from '../ui/Hud';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
@@ -1046,6 +1047,7 @@ export class FarmScene extends Phaser.Scene {
   private decorShop!: DecorShop;
   private restorePanel!: RestorePanel;
   private questBoard!: QuestBoard;
+  private goalsPanel!: GoalsPanel;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
   private decorationSprites: Phaser.GameObjects.Image[] = [];
   /** Null entries are shadowless decorations (no `_shadow` companion frame, e.g. decor_fence) - stays index-aligned with `decorationSprites`. */
@@ -1414,6 +1416,17 @@ export class FarmScene extends Phaser.Scene {
     // HUD's scroll icon can own toggling it, mirroring the bag.
     this.questBoard = this.inUiLayer(() => new QuestBoard(this, this.hud, this.audio));
     this.hud.setQuestBoard(this.questBoard);
+    // Goals hub (T3.30): built here (not inside Hud) because both of its
+    // actions are scene-owned - the RestorePanel opener and the camera glide -
+    // then handed back the same way the quest board is.
+    this.goalsPanel = this.inUiLayer(
+      () =>
+        new GoalsPanel(this, this.audio, {
+          onRestoration: () => this.openRestorePanel(),
+          onFocusRegion: (regionId) => this.focusCameraOnRegionSign(regionId),
+        }),
+    );
+    this.hud.setGoalsPanel(this.goalsPanel);
     this.createFarmhouse();
     this.createNoticeBoard();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
@@ -2837,6 +2850,32 @@ export class FarmScene extends Phaser.Scene {
       this.audio.sfx('tap');
       this.recenterCamera();
     });
+  }
+
+  /**
+   * Glide the camera to a region's on-field sign (T3.30), from the Goals
+   * panel's region entry. The sign owns the actual purchase, so this only
+   * carries the player there: the SAME shared tween `recenterCamera` uses
+   * (`glideCameraTo`, so a live pan/pinch tween is cancelled cleanly), at the
+   * current zoom, with the target scroll bounds-clamped exactly like every
+   * other camera move. A no-op for an unknown region id.
+   */
+  private focusCameraOnRegionSign(regionId: string): void {
+    const region = findRegion(regionId);
+    if (region === undefined) return;
+    const viewport = this.cameraViewport();
+    const { zoom } = this.cameras.main;
+    // Centering a world point: the camera's center sits at
+    // scroll + viewport/2 (see cameraMath's conventions), so the scroll that
+    // centers (x, y) is that point minus the half-viewport.
+    const clamped = clampScroll(
+      region.signPosition.x - viewport.width / 2,
+      region.signPosition.y - viewport.height / 2,
+      zoom,
+      CAMERA_WORLD_BOUNDS,
+      viewport,
+    );
+    this.glideCameraTo(zoom, clamped.scrollX, clamped.scrollY, RECENTER_GLIDE_MS);
   }
 
   /** Glide the camera home over ~250ms (Sine.easeOut). */

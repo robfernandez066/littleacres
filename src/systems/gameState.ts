@@ -430,6 +430,14 @@ export interface GameStateData {
    * again. Defaults false (fresh and migrated saves).
    */
   twoFingerHintShown: boolean;
+  /**
+   * Whether the player has ever opened the Goals menu (T3.30, schema v21).
+   * A one-time "discovered the menu" flag: it clears the "!" badge and the
+   * first-appearance pulse permanently on the first open and never re-arms.
+   * Deliberately NOT a per-goal seen-set - a v1 simplification, so adding a
+   * future goal does not re-badge the icon for everyone.
+   */
+  goalsSeen: boolean;
   /** Quest system state (T3.10). */
   quests: QuestsState;
   onboarding: OnboardingState;
@@ -802,6 +810,13 @@ const v18ToV19: Migration = (raw) => ({
  */
 const v19ToV20: Migration = (raw) => ({ ...raw, restoration: { farmhouse: 0 } });
 
+/**
+ * v20 -> v21: the Goals hub (T3.30). Every existing save loads with
+ * `goalsSeen: false`, exactly like a fresh one - the menu is new to veterans
+ * too, so everybody gets the one-time discovery badge and pulse.
+ */
+const v20ToV21: Migration = (raw) => ({ ...raw, goalsSeen: false });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -823,6 +838,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v17ToV18,
   v18ToV19,
   v19ToV20,
+  v20ToV21,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -850,6 +866,7 @@ export function createDefaultState(version: number): GameStateData {
     restoration: { farmhouse: 0 },
     regionsUnlocked: [],
     twoFingerHintShown: false,
+    goalsSeen: false,
     quests: createDefaultQuestsState(now),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
@@ -1702,6 +1719,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     typeof raw.expanded === 'boolean' &&
     isRegionsUnlocked(raw.regionsUnlocked) &&
     typeof raw.twoFingerHintShown === 'boolean' &&
+    typeof raw.goalsSeen === 'boolean' &&
     // Total plot entitlement (placed + shed): at least the base grant, at
     // most the region-aware cap (T3.3b - EXPANDED_PLOT_COUNT plus every
     // unlocked region's entitlementIncrease; regionsUnlocked proven above).
@@ -2637,6 +2655,17 @@ export class GameStateStore {
   markQuestsIntroSeen(): void {
     if (this.state.quests.introSeen) return;
     this.state.quests.introSeen = true;
+    this.save();
+  }
+
+  /**
+   * Mark the Goals menu discovered (T3.30) - permanent, never flips back.
+   * Called the first time the panel opens; clears the icon's "!" badge and its
+   * first-appearance pulse for good. A no-op (no save) once already seen.
+   */
+  markGoalsSeen(): void {
+    if (this.state.goalsSeen) return;
+    this.state.goalsSeen = true;
     this.save();
   }
 

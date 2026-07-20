@@ -445,7 +445,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    expect(MIGRATIONS).toHaveLength(19);
+    expect(MIGRATIONS).toHaveLength(20);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -456,7 +456,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -479,7 +479,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -489,8 +489,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(20);
-    expect(store.getState().version).toBe(20);
+    expect(store.currentVersion).toBe(21);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -526,7 +526,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -570,7 +570,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -610,7 +610,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -698,7 +698,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -738,7 +738,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -772,7 +772,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -813,7 +813,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -828,7 +828,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -3764,8 +3764,8 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
     // Stamped at the CURRENT schema version so the load performs no migration
-    // and the round-trip really is byte-identical (T3.25: 19 -> 20).
-    const saved = createDefaultState(20);
+    // and the round-trip really is byte-identical (T3.30: 20 -> 21).
+    const saved = createDefaultState(21);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4271,7 +4271,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4298,7 +4298,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4327,7 +4327,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4358,7 +4358,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4372,7 +4372,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4388,7 +4388,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4403,7 +4403,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4435,7 +4435,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4452,7 +4452,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(20);
+    expect(state.version).toBe(21);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4502,7 +4502,8 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 20,
+      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
+      version: 21,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4566,7 +4567,8 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 20,
+      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
+      version: 21,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4663,7 +4665,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().structures).toEqual(defaultStructures());
     expect(store.getState().regionsUnlocked).toEqual([]);
     expect(store.getState().twoFingerHintShown).toBe(false);
@@ -4682,7 +4684,8 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 20,
+      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
+      version: 21,
       restoration: { farmhouse: 0 },
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4694,7 +4697,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(20);
+    expect(store.getState().version).toBe(21);
     expect(store.getState().restoration).toEqual({ farmhouse: 0 });
   });
 
@@ -4716,6 +4719,76 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const wrongShape = createDefaultState(20) as unknown as Record<string, unknown>;
     wrongShape.restoration = 0;
     expect(isValidState(wrongShape, 20)).toBe(false);
+  });
+});
+
+describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
+  it('a v20 save (no goalsSeen field) gains goalsSeen false, no warnings', () => {
+    const saved = createDefaultState(21) as unknown as Record<string, unknown>;
+    saved.version = 20;
+    delete saved.goalsSeen; // a genuine v20 save never had this field
+    saved.coins = 4321;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState()).toEqual({ ...saved, version: 21, goalsSeen: false });
+    expect(console.warn).not.toHaveBeenCalled();
+  });
+
+  it('a full-chain v1 save lands at version 21 having not seen the goals menu', () => {
+    const saved = createDefaultState(1) as unknown as Record<string, unknown>;
+    delete saved.goalsSeen;
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().version).toBe(21);
+    expect(store.getState().goalsSeen).toBe(false);
+  });
+
+  it('a fresh save has not seen the goals menu either', () => {
+    expect(createDefaultState(21).goalsSeen).toBe(false);
+  });
+
+  it('validation rejects a missing or non-boolean goalsSeen', () => {
+    expect(isValidState(createDefaultState(21), 21)).toBe(true);
+    const missing = createDefaultState(21) as unknown as Record<string, unknown>;
+    delete missing.goalsSeen;
+    expect(isValidState(missing, 21)).toBe(false);
+    const wrongType = createDefaultState(21) as unknown as Record<string, unknown>;
+    wrongType.goalsSeen = 1;
+    expect(isValidState(wrongType, 21)).toBe(false);
+  });
+});
+
+describe('markGoalsSeen (T3.30)', () => {
+  it('flips goalsSeen true and persists it', () => {
+    const storage = makeStorage({});
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.getState().goalsSeen).toBe(false);
+    store.markGoalsSeen();
+    expect(store.getState().goalsSeen).toBe(true);
+    const persisted = JSON.parse(storage.data.get(SAVE_KEY) as string) as { goalsSeen: boolean };
+    expect(persisted.goalsSeen).toBe(true);
+  });
+
+  it('is a no-op (no extra save) once already seen', () => {
+    const storage = makeStorage({});
+    const store = new GameStateStore({ storage });
+    store.load();
+    store.markGoalsSeen();
+    // Count writes only from here, so the first (real) save is not counted.
+    const setItem = vi.spyOn(storage, 'setItem');
+    store.markGoalsSeen();
+    expect(store.getState().goalsSeen).toBe(true);
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('never flips back', () => {
+    const store = new GameStateStore({ storage: null });
+    store.markGoalsSeen();
+    store.markGoalsSeen();
+    expect(store.getState().goalsSeen).toBe(true);
   });
 });
 
@@ -4867,7 +4940,8 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      version: 20,
+      // DELIBERATE RE-PIN (T3.30): the chain now ends at v21 (goalsSeen).
+      version: 21,
       regionsUnlocked: [],
       twoFingerHintShown: false,
     });
