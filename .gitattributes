@@ -1,0 +1,4 @@
+# PM-maintained docs are written via the Linux bridge as LF. Pin them to LF so a
+# Windows core.autocrlf=true does not rewrite them to CRLF on every regeneration
+# (the balance CSVs are re-exported every tuning pass - this kills that churn).
+docs/** text eol=lf

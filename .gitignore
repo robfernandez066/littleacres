@@ -12,3 +12,6 @@ private/
 
 # Owner-only art sandbox (never public, never shipped) - see private/misc/art-studio-workflow.md
 tools/art-studio/
+
+# Authored-shadow registration overlays - regenerable dev QA artifacts (T4.x)
+tools/shadow-overrides/*.registration.png
