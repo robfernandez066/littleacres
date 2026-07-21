@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Building unlock levels pulled early: mill L3, bakery L4 (T4.9)
+**Context:** The bakery shipped at unlockLevel 9 against MAX_LEVEL 8 - unreachable (a real bug). The owner also judged the mill at L6 too deep and the bakery three levels past it too far.
+**Decision:** Flour Mill unlockLevel 6 -> 3, Bakery 9 -> 4 (owner-set), so the processing chain (crop -> flour -> bread) opens early and tight; the coin cost (500 / 2,000) is the real pacing gate, not the level. Both sit inside the L8 cap, so NO cap raise was needed. Added a reachability sweep test pinning every building's unlockLevel <= MAX_LEVEL - the guard that would have caught the bakery-at-9 bug (crops already had the equivalent). Pure config + test re-pins, no schema.
+**Verdict:** COMMIT 35a4f43 (tests 704, +1 the sweep). Future buildings (coop, moonhen) slot into L6-8, or the cap gets raised when they're actually added.
+**Trigger:** owner - "holding the mill until 6 is too long, bakery 3 after is way too long".
+
 ## 2026-07-21 - Authored bakery shadow (T4.5)
 **Context:** The bakery (T4.4) shipped wearing the generic cast shadow, which reads floating/mid-height on a tall building; it needed the authored SHADOW_WORKFLOW like the mill.
 **Decision:** Ran the full authored-shadow workflow: shadow:new scaffolded from the packed bakery frame (anchor derives to 257,281 on a 410x390 canvas), the PM authored the shadow pixels (a soft single ellipse, pure black, peak alpha 66 - same weight as the mill/farmhouse for consistency - cast lower-left, tucked under the base), previewScale set to 1.640625, then validate + pack:atlas + shadow:capture in the real ShadowLabScene (anchorDelta 0, base-zoom reads grounded). authoredShadow.test.ts re-pinned to the three authored buildings (whole-map toEqual). Density kept at 66 for cross-building consistency, owner-approved from the real capture.

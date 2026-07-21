@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-20
 **Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, the farmhouse authored cast-shadow, and the authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md), and the Goals hub (long-term goals menu) all SHIPPED. Phase 4 (production buildings) underway: the goods economy foundation and the placeable flour mill building (dev-only) SHIPPED.
-**Schema:** v26 · **Tests:** 703 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v26 · **Tests:** 704 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
 
