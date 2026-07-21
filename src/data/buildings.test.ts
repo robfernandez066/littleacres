@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
-import { BUILDINGS, BUILDING_IDS, findBuilding } from './buildings';
+import {
+  BUILDINGS,
+  BUILDING_CARD_ICON_SCALE,
+  BUILDING_IDS,
+  buildingUnlockCardsForLevel,
+  findBuilding,
+} from './buildings';
 import { STRUCTURE_FOOTPRINT_OFFSETS } from '../config';
 import { CROPS } from './crops';
 import { GOODS } from './goods';
@@ -133,5 +139,43 @@ describe('BUILDINGS registry (T4.1)', () => {
     for (const id of BUILDING_IDS) {
       expect(BUILDINGS[id].name).not.toContain('—');
     }
+  });
+});
+
+describe('buildingUnlockCardsForLevel (T4.2d)', () => {
+  it('returns the mill card at exactly its unlockLevel (6), with the fitted icon scale', () => {
+    expect(buildingUnlockCardsForLevel(BUILDINGS.flour_mill.unlockLevel)).toEqual([
+      {
+        iconFrame: 'flour_mill',
+        label: 'Flour Mill available in the Shop!',
+        iconScale: BUILDING_CARD_ICON_SCALE,
+      },
+    ]);
+  });
+
+  it('returns nothing for any level that gates no building', () => {
+    const gated = new Set(BUILDING_IDS.map((id) => BUILDINGS[id].unlockLevel));
+    for (let level = 1; level <= 20; level++) {
+      if (gated.has(level)) continue;
+      expect(buildingUnlockCardsForLevel(level)).toEqual([]);
+    }
+  });
+
+  it('is derived from the registry, not hardcoded - one card per building at its own gate', () => {
+    for (const id of BUILDING_IDS) {
+      const def = BUILDINGS[id];
+      const cards = buildingUnlockCardsForLevel(def.unlockLevel);
+      expect(cards).toContainEqual({
+        iconFrame: def.frame,
+        label: `${def.name} available in the Shop!`,
+        iconScale: BUILDING_CARD_ICON_SCALE,
+      });
+    }
+  });
+
+  // 256-frame building at 0.65 renders the same on-card size as a 128 crop
+  // frame at CARD_ICON_SCALE 1.3: 256 * 0.65 == 128 * 1.3 == 166.4px.
+  it('scales a 256 building frame to the same card size as a 128 crop frame', () => {
+    expect(256 * BUILDING_CARD_ICON_SCALE).toBe(128 * 1.3);
   });
 });

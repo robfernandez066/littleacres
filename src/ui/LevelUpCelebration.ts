@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_HEIGHT, DESIGN_WIDTH, PANEL_SLICE } from '../config';
 import { CROPS } from '../data/crops';
+import { buildingUnlockCardsForLevel } from '../data/buildings';
 import { regionUnlockCardsForLevel } from '../data/goals';
 import { SYSTEM_UNLOCK_CARDS } from '../data/levels';
 import type { AudioManager } from '../systems/audio';
@@ -44,6 +45,14 @@ const CARD_TEXT_Y = 150;
 const BANNER_MAX_WIDTH = DESIGN_WIDTH - 80;
 /** Wrap width for the multi-line tutorial card copy. */
 const CARD_TEXT_WRAP_WIDTH = CARD_WIDTH - 80;
+/**
+ * Single-line unlock copy wider than this shrinks to fit rather than
+ * overflowing the card, the same treatment BANNER_MAX_WIDTH gives the banner.
+ * Every crop/system/region label measures under it and so renders at scale 1,
+ * unchanged; the building labels ("Flour Mill available in the Shop!") are the
+ * first copy long enough to need it.
+ */
+const CARD_TEXT_MAX_WIDTH = CARD_WIDTH - 80;
 
 /**
  * Tutorial-complete card geometry: a taller panel with its own vertical
@@ -263,9 +272,16 @@ export class LevelUpCelebration {
    * one per SYSTEM_UNLOCK_CARDS entry matching this level (e.g. the level-6
    * chest unlock), then one per region whose gate this level opens (T3.30-r1 -
    * derived from REGIONS, so a future region announces itself here with no new
-   * code). A level that unlocks several of these shows all of them.
+   * code), then one per building this level makes buyable (T4.2d - derived
+   * from BUILDINGS the same way). A level that unlocks several of these shows
+   * all of them. Only the building cards carry `iconScale`; the rest omit it
+   * and render at CARD_ICON_SCALE exactly as before.
    */
-  private cardsFor(event: LevelUpEvent): { iconFrame: string; label: string }[] {
+  private cardsFor(event: LevelUpEvent): {
+    iconFrame: string;
+    label: string;
+    iconScale?: number;
+  }[] {
     const cropCards = event.unlockedCropIds.map((cropId) => {
       const crop = CROPS[cropId];
       return { iconFrame: crop.stageFrames[2], label: `${crop.name} seeds unlocked!` };
@@ -273,7 +289,12 @@ export class LevelUpCelebration {
     const systemCards = SYSTEM_UNLOCK_CARDS.filter((card) => card.level === event.level).map(
       (card) => ({ iconFrame: card.iconFrame, label: card.label }),
     );
-    return [...cropCards, ...systemCards, ...regionUnlockCardsForLevel(event.level)];
+    return [
+      ...cropCards,
+      ...systemCards,
+      ...regionUnlockCardsForLevel(event.level),
+      ...buildingUnlockCardsForLevel(event.level),
+    ];
   }
 
   private showBanner(item: CelebrationItem): void {
@@ -327,23 +348,42 @@ export class LevelUpCelebration {
       this.finishEvent();
       return;
     }
-    this.presentCard(card.iconFrame, card.label, false);
+    this.presentCard(card.iconFrame, card.label, false, card.iconScale);
   }
 
   /**
    * Shared card presentation: per-kind geometry, icon, copy, scale-in. The
    * tutorial card gets the taller panel with wrapped copy and the button;
    * unlock cards restore the original single-line 700x480 layout exactly.
+   *
+   * `iconScale` overrides CARD_ICON_SCALE for a card whose frame is not the
+   * usual 128 square (T4.2d - a building's 256 frame would otherwise overflow
+   * the slot). Omitted everywhere else, so crops, system and region cards
+   * render pixel-identically to before.
    */
-  private presentCard(iconFrame: string, copy: string, tutorial: boolean): void {
+  private presentCard(
+    iconFrame: string,
+    copy: string,
+    tutorial: boolean,
+    iconScale?: number,
+  ): void {
     this.bannerText.setVisible(false);
     this.cardPanel.setSize(CARD_WIDTH, tutorial ? TUTORIAL_CARD_HEIGHT : CARD_HEIGHT);
-    this.cardIcon.setFrame(iconFrame).setY(tutorial ? TUTORIAL_CARD_ICON_Y : CARD_ICON_Y);
+    this.cardIcon
+      .setFrame(iconFrame)
+      .setScale(iconScale ?? CARD_ICON_SCALE)
+      .setY(tutorial ? TUTORIAL_CARD_ICON_Y : CARD_ICON_Y);
     this.cardText
       .setWordWrapWidth(tutorial ? CARD_TEXT_WRAP_WIDTH : null)
       .setAlign(tutorial ? 'center' : 'left')
       .setY(tutorial ? TUTORIAL_CARD_TEXT_Y : CARD_TEXT_Y)
+      .setScale(1)
       .setText(copy);
+    // The tutorial copy already wraps; only the single-line unlock labels can
+    // outgrow the card, and those shrink instead of overflowing it.
+    if (!tutorial) {
+      this.cardText.setScale(Math.min(1, CARD_TEXT_MAX_WIDTH / this.cardText.width));
+    }
     this.goButton.setVisible(tutorial);
     this.goButtonText.setVisible(tutorial);
     this.cardContainer.setScale(0.7).setVisible(true);

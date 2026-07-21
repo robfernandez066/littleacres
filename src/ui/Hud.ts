@@ -25,6 +25,7 @@ import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
 import type { GoalsPanel } from './GoalsPanel';
 import type { MillPanel } from './MillPanel';
+import { BuildingShop } from './BuildingShop';
 import { InventoryPanel, type SellableRef } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
@@ -270,8 +271,8 @@ const EDIT_LAYOUT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 };
 
 /**
- * "Shop" button (T4.2d-pre): the eventual entry point for buying buildings,
- * placed now as a styled placeholder. It is the LEFT bookend of the
+ * "Shop" button (T4.2d-pre): opens the Building Shop (T4.2d). It is the LEFT
+ * bookend of the
  * under-banner button row - MAX (the xp bar) and Edit Layout in the center,
  * the gear on the far right - sharing that row's y (GEAR_Y) and Edit Layout's
  * construction convention exactly: a `panel` nineslice sized to its display
@@ -291,19 +292,6 @@ const SHOP_HEIGHT = EDIT_LAYOUT_HEIGHT;
 const SHOP_HIT_HEIGHT = EDIT_LAYOUT_HIT_HEIGHT;
 const SHOP_EDGE_INSET = DESIGN_WIDTH - (GEAR_X + GEAR_SIZE / 2);
 const SHOP_X = SHOP_EDGE_INSET + SHOP_WIDTH / 2;
-/** Placeholder tap feedback; T4.2d replaces it with the real shop. */
-const SHOP_PLACEHOLDER_TEXT = 'Coming soon';
-const SHOP_PLACEHOLDER_COLOR = '#ffe27a';
-const SHOP_PLACEHOLDER_FONT_SIZE = 34;
-/**
- * The label spawns BELOW the button and rises into the open field, not above
- * it: FloatingText draws at FLOATING_TEXT_DEPTH (1900), under HUD_DEPTH
- * (2000), so anything that rises into the banner is occluded by it. 170 puts
- * the spawn at y 372 and the top of its 80-120px rise at ~252 - clear of both
- * the button's own art (bottom edge 232) and the banner (bottom edge 158) for
- * the whole animation.
- */
-const SHOP_PLACEHOLDER_OFFSET_Y = 170;
 
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
@@ -395,7 +383,7 @@ export class Hud {
   private lastArrangeToggleAt = 0;
   /** The "plots waiting in the shed" pulse (T3.3a) - see `setArrangeFlash`. Null while off. */
   private arrangeFlashTween: Phaser.Tweens.Tween | null = null;
-  /** "Shop" placeholder button (T4.2d-pre) - the under-banner row's left bookend. */
+  /** "Shop" button (T4.2d-pre) - the under-banner row's left bookend. */
   private readonly shopContainer: Phaser.GameObjects.Container;
   private readonly shopButton: Phaser.GameObjects.NineSlice;
   /** Cached post-onboarding visibility, mirrors `goalsVisible`. */
@@ -414,6 +402,8 @@ export class Hud {
   private questBoard: QuestBoard | null = null;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
+  /** The Building Shop the Shop button opens (T4.2d) - Hud-owned, like the bag. */
+  private readonly buildingShop: BuildingShop;
   private readonly orderBoard: OrderBoard;
 
   /** Animated display value; ticks toward `gameState`'s true coin count. */
@@ -562,6 +552,7 @@ export class Hud {
       this.questBoard?.hide();
       this.goalsPanel?.hide();
       this.millPanel?.hide();
+      this.buildingShop.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
@@ -654,11 +645,8 @@ export class Hud {
     this.shopContainer.add([this.shopButton, shopLabel]);
     this.shopButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
-      // T4.2d: replace with opening the building shop
-      this.floatingText.show(SHOP_X, GEAR_Y + SHOP_PLACEHOLDER_OFFSET_Y, SHOP_PLACEHOLDER_TEXT, {
-        color: SHOP_PLACEHOLDER_COLOR,
-        fontSize: SHOP_PLACEHOLDER_FONT_SIZE,
-      });
+      this.closePanels();
+      this.buildingShop.show(gameState.getState());
     });
 
     // Bag/orders: bare icons (no button_slot backing), each the container's
@@ -676,6 +664,7 @@ export class Hud {
       this.questBoard?.hide();
       this.goalsPanel?.hide();
       this.millPanel?.hide();
+      this.buildingShop.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -749,6 +738,7 @@ export class Hud {
       this.settingsPanel.hide();
       this.questBoard?.hide();
       this.millPanel?.hide();
+      this.buildingShop.hide();
       this.currencyInfoCard.hide();
       // Deliberately does NOT hide itself first (unlike the other panels this
       // closes): that would turn a second tap into a re-open instead of a
@@ -784,6 +774,10 @@ export class Hud {
       (ref, worldX, worldY) => this.sellSellable(ref, worldX, worldY),
       this.audio,
     );
+    // Building Shop (T4.2d): Hud-owned and built here like the bag panel, so
+    // it lands on the UI layer with the rest of the HUD and `closePanels`
+    // can hold exclusivity over it.
+    this.buildingShop = new BuildingShop(this.scene, this.audio);
 
     this.orderBoard = new OrderBoard(
       this.scene,
@@ -822,6 +816,7 @@ export class Hud {
     this.questBoard?.hide();
     this.goalsPanel?.hide();
     this.millPanel?.hide();
+    this.buildingShop.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
@@ -840,6 +835,7 @@ export class Hud {
     this.questBoard?.hide();
     this.goalsPanel?.hide();
     this.millPanel?.hide();
+    this.buildingShop.hide();
     this.currencyInfoCard.hide();
   }
 
@@ -1007,6 +1003,9 @@ export class Hud {
     // Only while visible: this is the tick that counts its batches down, and a
     // hidden mill panel has no building bound to refresh from.
     if (this.millPanel?.isVisible() === true) this.millPanel.refresh(state);
+    // Only while visible, like the mill panel: this keeps the Buy button live
+    // as coins and level change under an open shop.
+    if (this.buildingShop.isVisible()) this.buildingShop.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 

@@ -144,6 +144,46 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
 /** Every building id, in registry order. */
 export const BUILDING_IDS = Object.keys(BUILDINGS) as BuildingId[];
 
+/**
+ * One level-up celebration card, shaped like `GoalUnlockCard` (data/goals.ts)
+ * and `SYSTEM_UNLOCK_CARDS` (data/levels.ts) so LevelUpCelebration can
+ * concatenate all three without caring which produced which. `iconScale` is
+ * the one addition: a building's `frame` is a 256 structure frame where the
+ * others are 128 crop/system frames, so it needs its own scale to sit in the
+ * card slot at the same visual size.
+ */
+export interface BuildingUnlockCard {
+  iconFrame: string;
+  label: string;
+  iconScale: number;
+}
+
+/**
+ * Half the card icon scale the 128 frames use, so a 256 building frame renders
+ * at the same on-card size as a crop icon: 256 * (1.3 / 2) == 128 * 1.3.
+ */
+export const BUILDING_CARD_ICON_SCALE = 0.65;
+
+/**
+ * The celebration cards announcing that a building just became buyable
+ * (T4.2d): one per building whose `unlockLevel` is exactly `level`, so it
+ * fires on the level-up that opens the gate and on no other level.
+ *
+ * Derived from BUILDINGS, so a future building announces itself with no new
+ * code - the same construction (and the same reason) as
+ * `regionUnlockCardsForLevel`. Kept in this Phaser-free data module so it
+ * stays directly unit-testable.
+ */
+export function buildingUnlockCardsForLevel(level: number): BuildingUnlockCard[] {
+  return Object.values(BUILDINGS)
+    .filter((def) => def.unlockLevel === level)
+    .map((def) => ({
+      iconFrame: def.frame,
+      label: `${def.name} available in the Shop!`,
+      iconScale: BUILDING_CARD_ICON_SCALE,
+    }));
+}
+
 /** The building def for `id`, or undefined if unknown (the validator's arbiter). */
 export function findBuilding(id: string): BuildingDef | undefined {
   return Object.prototype.hasOwnProperty.call(BUILDINGS, id)
