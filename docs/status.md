@@ -2,7 +2,7 @@
 
 **Updated:** 2026-07-21
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11).
-**Schema:** v27 · **Tests:** 722 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v27 · **Tests:** 726 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
@@ -10,12 +10,13 @@
 
 ## Queued next
 
-- **Q2 - ORDER_REFRESH_COOLDOWN** (new per-slot lever; small feature task; fixes the day-1 order spike). Next up.
-- **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred.
+- **Paths/roads (in design with owner, not yet spec'd):** per-tile painting on the iso grid (reuse the drag-across-field gesture); tiered materials dirt (~1-5c) / gravel / stone / moonstone, pay-per-tile. Leaning: cosmetic ground-decal layer (renders under crops/structures like the grass_1 decal, no collision), one tile = the unit, width emergent. Doubles as economy sinks - stone = a late COIN sink (helps Q3 surplus), moonstone = a MOONDUST sink. OPEN forks: moonstone coin-vs-moondust (accent vs bulk), level-gate vs price-gate, erase = no refund. Start with the one dirt texture. Spin a docs/design/paths.md once the forks lock.
+- **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred - paths/stone may absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- Q2 order refresh cooldown (fulfilled slot repopulates after 10 min; fixes the day-1 order spike) - 0b0c6b6 (no schema change; not mirrored)
 - T4.11 economy balance pass v2 (crop/good/order/level/moondust/decor/quest retune + onboarding L2 reshape + 2-chest revive) - a9e542b (schema v27 unchanged; balance mirror re-exported)
 - T4.10 starter area +2 columns west - 077d6ce (no schema change)
 - T4.8 building flip (mill/bakery/farmhouse) - 0bdfdc1, schema v27

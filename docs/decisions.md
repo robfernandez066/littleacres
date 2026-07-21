@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Order refresh cooldown (Q2)
+**Context:** A fulfilled order slot returned to `pending` and `ensureOrders` refilled it on the next tick - instant. A fresh player could churn ~43 fulfillments on day 1, racing the level curve.
+**Decision:** Added ORDER_REFRESH_COOLDOWN_MS = 600_000 (10 min, flat). fulfillOrder now parks a POST-TUTORIAL slot on the existing `cooldown` state (readyAt = now()+CD) instead of `pending`; the tutorial ORDER_A->ORDER_B swap stays instant (gated on onboarding.completed) and the skip streak is untouched (a separate lever). PM sim: any cooldown >=5min cuts day-1 fulfillments ~43->~13 and keeps L1->L8 inside 10-14d; the engaged player is insensitive to the exact value above 5min, so 10min is a pure feel call (owner). Reuses CooldownOrderSlot + the existing "New order soon..." card - NO schema/UI/migration change. Not in the balance mirror (board timing, like SKIP_COOLDOWN).
+**Verdict:** COMMIT 0b0c6b6 (tests 726). A latent clock-flake in one re-pin (the processed-goods describe block was not frozen, so a now() recompute could drift) was caught in review and fixed before commit by freezing that block.
+**Trigger:** owner - Q2, queued after T4.11.
+
 ## 2026-07-21 - Economy balance pass v2 + onboarding/chest fix (T4.11)
 **Context:** Provisional Phase-4 numbers were unbalanced: level curve ~11x too fast, coins inflated, moondust not scarce, and 5 of 7 crops mechanically identical (~flat 300 coins/hr) so never planted.
 **Decision:** A simulation-expert agent retuned against the docs/balance mirror; PM re-derived every value AND re-ran the sim (11.45d L1->L8, 21/21 invariants). Root fix: session-gap-matched crop grow times with a SUBLINEAR payoff (nominal coins/hr now falls by tier, realised rates flat, all 7 planted). Owner calls: growth re-spacing accepted (Q1); Sagesprig 9h->7h (Q5); farmhouse restore 50k->100k coins (Q4 - halves late surplus, still reachable; 150k backfires); Q2 ORDER_REFRESH_COOLDOWN queued as a NEW-lever feature; Q3 post-L8 runway deferred to content. Tuned numbers are spec'd in the T4.11 coder task: data-only across ~11 src/data files + broad test re-pins; XP thresholds jump hard (config, not schema; stored level only increases, T1.7; save backup first). Sim harness archived to project balance/sim/ (with a run guide).
