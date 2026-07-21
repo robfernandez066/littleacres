@@ -215,6 +215,14 @@ export interface BuildingPlacement {
    * an empty array forever.
    */
   batches: MillBatch[];
+  /**
+   * How many of the building's `milling.slots` the player has PAID FOR
+   * (T4.2b-r1, schema v25). A building is born with 1 and buys the rest with
+   * coins (`unlockMillSlot`); `startMilling` caps on this, not on the def's
+   * slot count, so capacity is progression rather than a given. A building
+   * with no recipe carries 1 and never uses it.
+   */
+  unlockedSlots: number;
 }
 
 /**
@@ -248,20 +256,27 @@ export function isMillBatchReady(batch: MillBatch, recipe: MillingRecipe, nowMs:
 
 /**
  * One production slot's display state (T4.2b) - what `millSlots` hands the UI.
- * A slot is one of exactly three things, and each carries only what its
+ * A slot is one of exactly four things, and each carries only what its
  * renderer needs: a milling slot its live countdown, a ready slot the
- * `batchIndex` to pass straight back to `collectMilling`.
+ * `batchIndex` to pass straight back to `collectMilling`, a locked slot the
+ * coin price that would open it (T4.2b-r1).
  */
 export type MillSlotView =
   | { kind: 'empty' }
   | { kind: 'milling'; remainingMs: number }
-  | { kind: 'ready'; batchIndex: number };
+  | { kind: 'ready'; batchIndex: number }
+  | { kind: 'locked'; cost: number };
 
 /**
  * Every slot on `placement`, in slot order (T4.2b) - the ONE derivation the
  * mill panel and the field indicators both read, so neither restates a milling
  * rule. Slot i holds batch i (batches are stored oldest-first and never
  * sparse), and every index past the batch list is an empty slot.
+ *
+ * Slots at or past `placement.unlockedSlots` are LOCKED (T4.2b-r1), carrying
+ * the coin cost that would open them. The list is still `recipe.slots` long
+ * whatever is unlocked, so the panel draws the full mill and the player can
+ * see what they are working toward. The field indicator ignores locked slots.
  *
  * Pure: takes the clock as `nowMs` (callers pass the game clock's `now()`, the
  * same clock the store's own readiness checks use) and mutates nothing, so the
@@ -274,6 +289,12 @@ export function millSlots(
 ): MillSlotView[] {
   const views: MillSlotView[] = [];
   for (let index = 0; index < recipe.slots; index++) {
+    if (index >= placement.unlockedSlots) {
+      // Slot 2 (index 1) is priced by slotUnlockCosts[0] - the list prices the
+      // slots PAST the first, so the index shifts down by one.
+      views.push({ kind: 'locked', cost: recipe.slotUnlockCosts[index - 1] ?? 0 });
+      continue;
+    }
     const batch = placement.batches[index];
     if (batch === undefined) {
       views.push({ kind: 'empty' });
@@ -957,6 +978,28 @@ const v23ToV24: Migration = (raw) => ({
   buildings: ((raw.buildings as BuildingPlacement[]) ?? []).map((b) => ({ ...b, batches: [] })),
 });
 
+/**
+ * v24 -> v25: unlockable production slots (T4.2b-r1). Every EXISTING placement
+ * gains `unlockedSlots: 1` - the same one-slot start a freshly bought building
+ * gets, so a pre-v25 mill lands exactly where a new one would rather than
+ * being grandfathered into a full three.
+ *
+ * ACCEPTED DATA LOSS (owner call): before this version every declared slot was
+ * usable, so a v24 save can hold up to `slots` batches in flight, and a flat 1
+ * strands all but the first behind a lock - paid for and uncollectable. The
+ * mill is dev-only and pre-release, so the owner took the loss rather than
+ * grandfather anyone into free capacity. Nothing crashes on such a save: the
+ * extra batches stay in `batches` (the validator caps on the def's `slots`,
+ * not on `unlockedSlots`) and become collectable again if the slot is bought.
+ */
+const v24ToV25: Migration = (raw) => ({
+  ...raw,
+  buildings: ((raw.buildings as BuildingPlacement[]) ?? []).map((b) => ({
+    ...b,
+    unlockedSlots: 1,
+  })),
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -982,6 +1025,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v21ToV22,
   v22ToV23,
   v23ToV24,
+  v24ToV25,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1980,6 +2024,16 @@ function isBuildingPlacement(value: unknown): value is BuildingPlacement {
   // claiming more concurrent batches than the def allows is a save this build
   // cannot honour, exactly like an unknown type. A building with no milling
   // recipe allows zero, so its list must be empty.
+  // Unlocked slots (T4.2b-r1) are bounded by the def the same way: at least
+  // the one every building is born with, never more than it declares. A
+  // recipe-less building carries exactly 1 (it has no slots to open).
+  if (
+    !Number.isInteger(value.unlockedSlots) ||
+    (value.unlockedSlots as number) < 1 ||
+    (value.unlockedSlots as number) > (building.milling?.slots ?? 1)
+  ) {
+    return false;
+  }
   return (
     Array.isArray(value.batches) &&
     value.batches.length <= (building.milling?.slots ?? 0) &&
@@ -2711,7 +2765,53 @@ export class GameStateStore {
       col: defaultAnchor.col,
       row: defaultAnchor.row,
       batches: [],
+      // One usable slot to start (T4.2b-r1); the rest are bought.
+      unlockedSlots: 1,
     });
+  }
+
+  /**
+   * Buy the next production slot on the building at `buildingIndex`
+   * (T4.2b-r1), mirroring `buyBuilding`'s guard style. Unlocks are SEQUENTIAL
+   * and priced by the recipe's own `slotUnlockCosts`, so slot 3 cannot be
+   * bought before slot 2 and no caller can spend around the order.
+   *
+   * Returns false without mutating anything when the index is out of range,
+   * the building has no milling recipe, every slot is already unlocked, or the
+   * purse is short of the next slot's cost. One save on success.
+   */
+  unlockMillSlot(buildingIndex: number): boolean {
+    const placement = this.state.buildings[buildingIndex];
+    if (placement === undefined) return false;
+    const recipe = BUILDINGS[placement.type].milling;
+    if (recipe === undefined) return false;
+    if (placement.unlockedSlots >= recipe.slots) return false;
+    // The costs list prices the slots PAST the first, so the slot being bought
+    // (the one at index `unlockedSlots`) is priced at `unlockedSlots - 1`.
+    const cost = recipe.slotUnlockCosts[placement.unlockedSlots - 1];
+    if (cost === undefined) return false;
+    if (this.state.coins < cost) return false;
+    this.state.coins -= cost;
+    placement.unlockedSlots += 1;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Dev-only slot unlock (T4.2b-r1): the `unlockMillSlot` path minus the coin
+   * gate, so all three slots are exercisable without grinding 12,500 coins.
+   * Keeps the sequential cap - a fourth slot is not a thing the schema
+   * supports, dev or not. Wired to `dev.unlockMillSlot`.
+   */
+  devUnlockMillSlot(buildingIndex: number): boolean {
+    const placement = this.state.buildings[buildingIndex];
+    if (placement === undefined) return false;
+    const recipe = BUILDINGS[placement.type].milling;
+    if (recipe === undefined) return false;
+    if (placement.unlockedSlots >= recipe.slots) return false;
+    placement.unlockedSlots += 1;
+    this.save();
+    return true;
   }
 
   /**
@@ -2728,7 +2828,9 @@ export class GameStateStore {
     if (placement === undefined) return false;
     const recipe = BUILDINGS[placement.type].milling;
     if (recipe === undefined) return false;
-    if (placement.batches.length >= recipe.slots) return false;
+    // Capacity is what the player has PAID FOR (T4.2b-r1), not what the def
+    // declares - a locked slot is not a slot you can load.
+    if (placement.batches.length >= placement.unlockedSlots) return false;
     const held = this.state.inventory[recipe.inputCropId] ?? 0;
     if (held < recipe.inputCount) return false;
     this.state.inventory[recipe.inputCropId] = held - recipe.inputCount;

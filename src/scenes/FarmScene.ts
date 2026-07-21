@@ -701,48 +701,55 @@ const BADGE_BOUNCE_HALF_MS = 500;
  * both read `millSlots`, so the field and the panel can never disagree about
  * what is ready.
  *
- * The READY badge (output icon + how many batches are collectible) hangs above
- * the building's art. Unlike the board's "!" it carries NO bounce tween: the
- * board's tween has to be torn down and rebuilt on every move because its yoyo
- * target is an absolute y, and this badge rides a building that the player can
- * drag around, so it stays still and `placeBuildingIndicators` is a plain
- * setPosition.
+ * ONE mark, not three (T4.2b-r1). The first cut hung a ready badge off the
+ * roof and puffed a separate flour cloud at the base; the owner asked for a
+ * single combined indicator, centered above the building:
  *
- * The PRODUCING mark is a soft puff of flour dust at the building's base while
- * any batch runs. Its breathe is an ALPHA tween for the same reason - alpha
- * survives a reposition untouched, so dragging a working mill needs no tween
- * bookkeeping at all. Deliberately minimal; the owner refines the look later.
+ *   - the ICON is the building's OWN output good, so a future producer shows
+ *     what it makes without touching this file;
+ *   - the RING around it is a green radial progress arc - how far along the
+ *     SOONEST-to-finish batch is;
+ *   - the COUNT is a small corner badge, shown only when something is waiting
+ *     to be collected.
+ *
+ * All three live in ONE container, so tracking the building through a drag is
+ * a single setPosition. Nothing tweens: the ring is redrawn from state on the
+ * refresh tick, which is also what makes it survive a reposition untouched.
  */
 const BUILDING_BADGE_GAP = 26;
 const BUILDING_BADGE_ICON_DISPLAY_SIZE = 64;
-const BUILDING_BADGE_ICON_X = -26;
-const BUILDING_BADGE_COUNT_X = 14;
+/**
+ * The ring hugs the icon with a little air, and the count badge rides its
+ * upper-right so it never sits over the good's art.
+ */
+const BUILDING_RING_RADIUS = 46;
+const BUILDING_RING_THICKNESS = 9;
+const BUILDING_RING_TRACK_COLOR = 0x3a2a10;
+/**
+ * The track is nearly opaque, not a hint. It is what separates the whole ring
+ * from the field: the unfilled part reads as a dark groove and the bright arc
+ * sits in it, so neither end of the ring has to fight the grass on its own.
+ */
+const BUILDING_RING_TRACK_ALPHA = 0.55;
+/**
+ * NOT the panel's bar green (0x7fb069, MillPanel's BAR_FILL_COLOR). That green
+ * is tuned against a cream panel; on grass it is nearly the same hue AND value
+ * as the field, so the ring sank into it. This one is deliberately lighter and
+ * cooler than any grass tone, which is what makes it read at gameplay zoom.
+ */
+const BUILDING_RING_FILL_COLOR = 0x5cf58c;
+/** Phaser arcs measure from due east, so a ring that fills from 12 o'clock starts a quarter turn back. */
+const BUILDING_RING_START_ANGLE = -Math.PI / 2;
+const BUILDING_COUNT_OFFSET_X = 38;
+const BUILDING_COUNT_OFFSET_Y = -34;
 const BUILDING_BADGE_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
-  fontSize: '48px',
+  fontSize: '44px',
   fontStyle: 'bold',
   color: '#fff3c4',
   stroke: '#3a2a10',
   strokeThickness: 6,
 };
-/**
- * The puff sits on the GROUND BESIDE the building, not on it: the base of a
- * 2x2 iso building is its own art (the mill's is a doorway), and a soft cream
- * circle laid over that is invisible at gameplay zoom - verified live. Offset
- * to the lower-left, which is open grass for a building whose footprint runs
- * down-right from its anchor, so the puff reads against the field instead.
- *
- * The fill is opaque and the TWEEN owns the fade. Giving the circle a fill
- * alpha as well would multiply the two (0.6 * 0.2 = 0.12 at the trough), which
- * is what made the first cut invisible.
- */
-const PRODUCING_MARK_RADIUS = 26;
-const PRODUCING_MARK_COLOR = 0xfff3c4;
-const PRODUCING_MARK_OFFSET_X = -96;
-const PRODUCING_MARK_OFFSET_Y = -28;
-const PRODUCING_MARK_ALPHA_LOW = 0.3;
-const PRODUCING_MARK_ALPHA_HIGH = 0.75;
-const PRODUCING_MARK_BREATHE_HALF_MS = 900;
 
 /**
  * `refreshBuildings`'s change key (T4.2b): which buildings exist and where
@@ -753,13 +760,13 @@ function buildingPositionsKey(state: GameStateData): string {
   return state.buildings.map((b) => `${b.type}:${b.col},${b.row}`).join(';');
 }
 
-/** One building's field indicators - see BUILDING_BADGE_GAP's comment. */
+/** One building's field indicator - see BUILDING_BADGE_GAP's comment. */
 interface BuildingIndicators {
-  /** The ready badge: the output good's icon plus how many batches wait. */
+  /** The whole mark: icon + progress ring + ready count, in one movable unit. */
   badge: Phaser.GameObjects.Container;
+  /** The green radial progress ring, cleared and redrawn per refresh tick. */
+  ring: Phaser.GameObjects.Graphics;
   count: Phaser.GameObjects.Text;
-  /** The "something is milling" puff at the base. */
-  mark: Phaser.GameObjects.Arc;
 }
 
 /**
@@ -5488,10 +5495,9 @@ export class FarmScene extends Phaser.Scene {
   private createBuildings(): void {
     for (const image of this.buildingImages) image.destroy();
     for (const shadow of this.buildingShadows) shadow.destroy();
-    for (const indicators of this.buildingIndicators) {
-      indicators.badge.destroy();
-      indicators.mark.destroy();
-    }
+    // One container holds the whole mark, so destroying it takes the ring and
+    // the count with it.
+    for (const indicators of this.buildingIndicators) indicators.badge.destroy();
     this.buildingImages = [];
     this.buildingShadows = [];
     this.buildingIndicators = [];
@@ -5535,41 +5541,25 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Build one building's ready badge and producing mark (T4.2b), both hidden -
-   * `refreshBuildingIndicators` decides what shows, `placeBuildingIndicators`
-   * decides where. The badge's icon is the building's OWN output good, so a
-   * future producer shows what it makes without touching this.
+   * Build one building's combined field indicator (T4.2b-r1), hidden -
+   * `refreshBuildingIndicators` decides what shows and draws the ring,
+   * `placeBuildingIndicators` decides where. The icon is the building's OWN
+   * output good, so a future producer shows what it makes without touching
+   * this.
    */
   private buildBuildingIndicators(def: BuildingDef): BuildingIndicators {
     const goodId = def.milling?.outputGoodId;
     const icon = this.add
-      .image(
-        BUILDING_BADGE_ICON_X,
-        0,
-        ATLAS_KEY,
-        goodId === undefined ? 'coin' : GOODS[goodId].frame,
-      )
+      .image(0, 0, ATLAS_KEY, goodId === undefined ? 'coin' : GOODS[goodId].frame)
       .setDisplaySize(BUILDING_BADGE_ICON_DISPLAY_SIZE, BUILDING_BADGE_ICON_DISPLAY_SIZE);
+    // Added BEFORE the icon so the ring reads as a frame around it, not a
+    // band across it.
+    const ring = this.add.graphics();
     const count = this.add
-      .text(BUILDING_BADGE_COUNT_X, 0, '', BUILDING_BADGE_COUNT_STYLE)
-      .setOrigin(0, 0.5);
-    const badge = this.add.container(0, 0, [icon, count]).setVisible(false);
-    const mark = this.add
-      .circle(0, 0, PRODUCING_MARK_RADIUS, PRODUCING_MARK_COLOR)
-      .setAlpha(PRODUCING_MARK_ALPHA_HIGH)
-      .setVisible(false);
-    // An ALPHA breathe, not a positional one - see BUILDING_BADGE_GAP's
-    // comment on why this survives a drag with no tween bookkeeping. It runs
-    // perpetually, harmless while hidden (the notice-board badge convention).
-    this.tweens.add({
-      targets: mark,
-      alpha: PRODUCING_MARK_ALPHA_LOW,
-      duration: PRODUCING_MARK_BREATHE_HALF_MS,
-      yoyo: true,
-      repeat: -1,
-      ease: 'Sine.easeInOut',
-    });
-    return { badge, count, mark };
+      .text(BUILDING_COUNT_OFFSET_X, BUILDING_COUNT_OFFSET_Y, '', BUILDING_BADGE_COUNT_STYLE)
+      .setOrigin(0.5);
+    const badge = this.add.container(0, 0, [ring, icon, count]).setVisible(false);
+    return { badge, ring, count };
   }
 
   /**
@@ -5577,9 +5567,10 @@ export class FarmScene extends Phaser.Scene {
    * building twin of `placeNoticeBoardBadge`, called both from the settled
    * placement (`placeStructureSprite`) and mid-drag (`moveStructureSpriteFree`).
    *
-   * The badge hangs off the art's TOP edge, derived from the sprite rather than
-   * measured per building: the sprite is base-anchored (origin y at its base
-   * row), so its top edge is `y - displayHeight * originY` whatever the frame.
+   * The mark sits TOP-MIDDLE, centered on the art's top edge and derived from
+   * the sprite rather than measured per building: the sprite is base-anchored
+   * (origin y at its base row), so its top edge is `y - displayHeight *
+   * originY` whatever the frame. One container, so this is one setPosition.
    */
   private placeBuildingIndicators(index: number): void {
     const image = this.buildingImages[index];
@@ -5587,9 +5578,6 @@ export class FarmScene extends Phaser.Scene {
     if (image === undefined || indicators === undefined) return;
     const top = image.y - image.displayHeight * image.originY;
     indicators.badge.setPosition(image.x, top - BUILDING_BADGE_GAP).setDepth(image.depth + 1);
-    indicators.mark
-      .setPosition(image.x + PRODUCING_MARK_OFFSET_X, image.y + PRODUCING_MARK_OFFSET_Y)
-      .setDepth(image.depth + 1);
   }
 
   /**
@@ -5598,7 +5586,13 @@ export class FarmScene extends Phaser.Scene {
    *
    * Reads `millSlots` - the SAME derivation the mill panel renders from - so a
    * batch that reads ready here is exactly the one the panel offers a Collect
-   * for. A building with no recipe simply shows neither indicator.
+   * for. LOCKED slots are ignored: they hold nothing, so they say nothing on
+   * the field. A building with no recipe shows no indicator at all.
+   *
+   * The ring tracks the SOONEST-to-finish batch, so it always shows the next
+   * thing that will happen. When that batch lands, the count ticks up and the
+   * ring picks up the next still-milling batch's own true progress rather than
+   * resetting to a fiction.
    */
   private refreshBuildingIndicators(state: GameStateData): void {
     const nowMs = now();
@@ -5608,14 +5602,33 @@ export class FarmScene extends Phaser.Scene {
       const recipe = placement === undefined ? undefined : BUILDINGS[placement.type].milling;
       if (placement === undefined || recipe === undefined) {
         indicators.badge.setVisible(false);
-        indicators.mark.setVisible(false);
         continue;
       }
       const views = millSlots(placement, recipe, nowMs);
       const readyCount = views.filter((view) => view.kind === 'ready').length;
-      indicators.badge.setVisible(readyCount > 0);
-      if (readyCount > 0) indicators.count.setText(String(readyCount));
-      indicators.mark.setVisible(views.some((view) => view.kind === 'milling'));
+      const remaining = views
+        .filter((view) => view.kind === 'milling')
+        .map((view) => view.remainingMs);
+      // Shown when there is anything to say: something waiting, or something
+      // on its way. An idle mill wears nothing.
+      indicators.badge.setVisible(readyCount > 0 || remaining.length > 0);
+      indicators.count.setVisible(readyCount > 0).setText(String(readyCount));
+      indicators.ring.clear();
+      if (remaining.length === 0) continue;
+      const fraction = Phaser.Math.Clamp(1 - Math.min(...remaining) / recipe.batchMs, 0, 1);
+      indicators.ring
+        .lineStyle(BUILDING_RING_THICKNESS, BUILDING_RING_TRACK_COLOR, BUILDING_RING_TRACK_ALPHA)
+        .strokeCircle(0, 0, BUILDING_RING_RADIUS)
+        .lineStyle(BUILDING_RING_THICKNESS, BUILDING_RING_FILL_COLOR, 1)
+        .beginPath()
+        .arc(
+          0,
+          0,
+          BUILDING_RING_RADIUS,
+          BUILDING_RING_START_ANGLE,
+          BUILDING_RING_START_ANGLE + Math.PI * 2 * fraction,
+        )
+        .strokePath();
     }
   }
 

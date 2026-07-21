@@ -454,9 +454,10 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    // DELIBERATE RE-PIN (T4.2a): v23ToV24 (milling batches) appended, so the
-    // chain is one longer and the current version is migrations.length + 1 = 24.
-    expect(MIGRATIONS).toHaveLength(23);
+    // DELIBERATE RE-PIN (T4.2b-r1): v24ToV25 (unlockable slots) appended, so
+    // the chain is one longer and the current version is
+    // migrations.length + 1 = 25.
+    expect(MIGRATIONS).toHaveLength(24);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -467,7 +468,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -490,7 +491,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -500,8 +501,8 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(24);
-    expect(store.getState().version).toBe(24);
+    expect(store.currentVersion).toBe(25);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -537,7 +538,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -581,7 +582,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -621,7 +622,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -709,7 +710,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -749,7 +750,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -783,7 +784,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -824,7 +825,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -839,7 +840,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -3804,7 +3805,7 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
     // Stamped at the CURRENT schema version so the load performs no migration
     // and the round-trip really is byte-identical (T4.1: 22 -> 23).
-    const saved = createDefaultState(24);
+    const saved = createDefaultState(25);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4312,7 +4313,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4339,7 +4340,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4368,7 +4369,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4399,7 +4400,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4413,7 +4414,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4429,7 +4430,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4444,7 +4445,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4476,7 +4477,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4493,7 +4494,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(24);
+    expect(state.version).toBe(25);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4544,7 +4545,7 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 24,
+      version: 25,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4609,7 +4610,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 24,
+      version: 25,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4706,7 +4707,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().structures).toEqual(defaultStructures());
     expect(store.getState().regionsUnlocked).toEqual([]);
     expect(store.getState().twoFingerHintShown).toBe(false);
@@ -4726,7 +4727,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 24,
+      version: 25,
       restoration: { farmhouse: 0 },
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4738,7 +4739,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().restoration).toEqual({ farmhouse: 0 });
   });
 
@@ -4772,7 +4773,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 24, goalsSeen: false });
+    expect(store.getState()).toEqual({ ...saved, version: 25, goalsSeen: false });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -4782,7 +4783,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().goalsSeen).toBe(false);
   });
 
@@ -4810,7 +4811,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 24, goods: {} });
+    expect(store.getState()).toEqual({ ...saved, version: 25, goods: {} });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -4820,7 +4821,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(24);
+    expect(store.getState().version).toBe(25);
     expect(store.getState().goods).toEqual({});
   });
 
@@ -5120,7 +5121,7 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 24,
+      version: 25,
       regionsUnlocked: [],
       twoFingerHintShown: false,
     });
@@ -6374,6 +6375,7 @@ describe('buildings (T4.1, schema v23)', () => {
           col: MILL.defaultAnchor.col,
           row: MILL.defaultAnchor.row,
           batches: [],
+          unlockedSlots: 1,
         },
       ]);
       // Persisted, not just in memory.
@@ -6464,6 +6466,7 @@ describe('buildings (T4.1, schema v23)', () => {
         col: -4,
         row: -1,
         batches: [],
+        unlockedSlots: 1,
       });
       const reloaded = new GameStateStore({ storage });
       reloaded.load();
@@ -6472,6 +6475,7 @@ describe('buildings (T4.1, schema v23)', () => {
         col: -4,
         row: -1,
         batches: [],
+        unlockedSlots: 1,
       });
       // Render position derives from the NEW anchor, never a stored pixel value.
       expect(buildingRenderPosition('flour_mill', { col: -4, row: -1 })).toEqual({
@@ -6538,8 +6542,8 @@ describe('buildings (T4.1, schema v23)', () => {
       store
         .getState()
         .buildings.push(
-          { type: 'flour_mill', col: -3, row: 0, batches: [] },
-          { type: 'flour_mill', col: 6, row: 6, batches: [] },
+          { type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 },
+          { type: 'flour_mill', col: 6, row: 6, batches: [], unlockedSlots: 1 },
         );
       // Index 1 may not move onto index 0's anchor...
       expect(store.moveBuilding(1, -3, 0)).toBe(false);
@@ -6561,33 +6565,33 @@ describe('buildings (T4.1, schema v23)', () => {
 
   describe('schema v22 -> v23 migration', () => {
     it('a v22 save (no buildings field) gains an empty buildings list, no warnings', () => {
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       saved.version = 22;
       delete saved.buildings; // a genuine v22 save never had this field
       saved.coins = 2468;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 24, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
       expect(console.warn).not.toHaveBeenCalled();
     });
 
-    it('a full-chain v1 save lands at version 24 with no buildings', () => {
+    it('a full-chain v1 save lands at version 25 with no buildings', () => {
       const saved = createDefaultState(1) as unknown as Record<string, unknown>;
       delete saved.buildings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(24);
+      expect(store.getState().version).toBe(25);
       expect(store.getState().buildings).toEqual([]);
     });
 
     it('a fresh save starts with no buildings either', () => {
-      expect(createDefaultState(24).buildings).toEqual([]);
+      expect(createDefaultState(25).buildings).toEqual([]);
     });
 
     it('the migration leaves structures, decorations and plots alone', () => {
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       saved.version = 22;
       delete saved.buildings;
       const before = {
@@ -6606,43 +6610,45 @@ describe('buildings (T4.1, schema v23)', () => {
 
   describe('validation', () => {
     it('accepts a fresh state and a state holding a legal placement', () => {
-      expect(isValidState(createDefaultState(24), 24)).toBe(true);
-      const withMill = createDefaultState(24);
-      withMill.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [] }];
-      expect(isValidState(withMill, 24)).toBe(true);
+      expect(isValidState(createDefaultState(25), 25)).toBe(true);
+      const withMill = createDefaultState(25);
+      withMill.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 }];
+      expect(isValidState(withMill, 25)).toBe(true);
     });
 
     it('rejects a missing or non-array buildings field', () => {
-      const missing = createDefaultState(24) as unknown as Record<string, unknown>;
+      const missing = createDefaultState(25) as unknown as Record<string, unknown>;
       delete missing.buildings;
-      expect(isValidState(missing, 24)).toBe(false);
-      const wrongType = createDefaultState(24) as unknown as Record<string, unknown>;
+      expect(isValidState(missing, 25)).toBe(false);
+      const wrongType = createDefaultState(25) as unknown as Record<string, unknown>;
       wrongType.buildings = {};
-      expect(isValidState(wrongType, 24)).toBe(false);
+      expect(isValidState(wrongType, 25)).toBe(false);
     });
 
     it('rejects a placement with an unknown type or out-of-bounds coordinates', () => {
-      const badType = createDefaultState(24) as unknown as Record<string, unknown>;
-      badType.buildings = [{ type: 'barn', col: 0, row: 0, batches: [] }];
-      expect(isValidState(badType, 24)).toBe(false);
+      const badType = createDefaultState(25) as unknown as Record<string, unknown>;
+      badType.buildings = [{ type: 'barn', col: 0, row: 0, batches: [], unlockedSlots: 1 }];
+      expect(isValidState(badType, 25)).toBe(false);
 
-      const badCol = createDefaultState(24) as unknown as Record<string, unknown>;
+      const badCol = createDefaultState(25) as unknown as Record<string, unknown>;
       badCol.buildings = [
-        { type: 'flour_mill', col: PLOT_GRID_COORD_MAX + 1, row: 0, batches: [] },
+        { type: 'flour_mill', col: PLOT_GRID_COORD_MAX + 1, row: 0, batches: [], unlockedSlots: 1 },
       ];
-      expect(isValidState(badCol, 24)).toBe(false);
+      expect(isValidState(badCol, 25)).toBe(false);
 
-      const fractional = createDefaultState(24) as unknown as Record<string, unknown>;
-      fractional.buildings = [{ type: 'flour_mill', col: 0.5, row: 0, batches: [] }];
-      expect(isValidState(fractional, 24)).toBe(false);
+      const fractional = createDefaultState(25) as unknown as Record<string, unknown>;
+      fractional.buildings = [
+        { type: 'flour_mill', col: 0.5, row: 0, batches: [], unlockedSlots: 1 },
+      ];
+      expect(isValidState(fractional, 25)).toBe(false);
 
-      const missingRow = createDefaultState(24) as unknown as Record<string, unknown>;
-      missingRow.buildings = [{ type: 'flour_mill', col: 0, batches: [] }];
-      expect(isValidState(missingRow, 24)).toBe(false);
+      const missingRow = createDefaultState(25) as unknown as Record<string, unknown>;
+      missingRow.buildings = [{ type: 'flour_mill', col: 0, batches: [], unlockedSlots: 1 }];
+      expect(isValidState(missingRow, 25)).toBe(false);
     });
 
     it('rejects an over-cap batches array and a malformed batch (T4.2a)', () => {
-      const overCap = createDefaultState(24) as unknown as Record<string, unknown>;
+      const overCap = createDefaultState(25) as unknown as Record<string, unknown>;
       // slots is 3, so a fourth concurrent batch is a save this build cannot honour.
       overCap.buildings = [
         {
@@ -6650,25 +6656,32 @@ describe('buildings (T4.1, schema v23)', () => {
           col: -3,
           row: 0,
           batches: Array.from({ length: RECIPE.slots + 1 }, () => ({ startedAt: 0 })),
+          unlockedSlots: RECIPE.slots,
         },
       ];
-      expect(isValidState(overCap, 24)).toBe(false);
+      expect(isValidState(overCap, 25)).toBe(false);
 
-      const malformed = createDefaultState(24) as unknown as Record<string, unknown>;
+      const malformed = createDefaultState(25) as unknown as Record<string, unknown>;
       malformed.buildings = [
-        { type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: 'soon' }] },
+        { type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: 'soon' }], unlockedSlots: 1 },
       ];
-      expect(isValidState(malformed, 24)).toBe(false);
+      expect(isValidState(malformed, 25)).toBe(false);
 
-      const nonFinite = createDefaultState(24) as unknown as Record<string, unknown>;
+      const nonFinite = createDefaultState(25) as unknown as Record<string, unknown>;
       nonFinite.buildings = [
-        { type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: Number.NaN }] },
+        {
+          type: 'flour_mill',
+          col: -3,
+          row: 0,
+          batches: [{ startedAt: Number.NaN }],
+          unlockedSlots: 1,
+        },
       ];
-      expect(isValidState(nonFinite, 24)).toBe(false);
+      expect(isValidState(nonFinite, 25)).toBe(false);
 
-      const missingBatches = createDefaultState(24) as unknown as Record<string, unknown>;
-      missingBatches.buildings = [{ type: 'flour_mill', col: -3, row: 0 }];
-      expect(isValidState(missingBatches, 24)).toBe(false);
+      const missingBatches = createDefaultState(25) as unknown as Record<string, unknown>;
+      missingBatches.buildings = [{ type: 'flour_mill', col: -3, row: 0, unlockedSlots: 1 }];
+      expect(isValidState(missingBatches, 25)).toBe(false);
     });
   });
 
@@ -6676,7 +6689,7 @@ describe('buildings (T4.1, schema v23)', () => {
     it('an EXISTING placement gains batches: [] (whole-state re-pin)', () => {
       // The owner's live save carries a dev-placed mill, so the migration has
       // to upgrade a real placement, not just an empty list.
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       saved.version = 23;
       // A genuine v23 placement: anchor only, no batches field.
       saved.buildings = [{ type: 'flour_mill', col: -3, row: 0 }];
@@ -6685,30 +6698,119 @@ describe('buildings (T4.1, schema v23)', () => {
       store.load();
       expect(store.getState()).toEqual({
         ...saved,
-        version: 24,
-        buildings: [{ type: 'flour_mill', col: -3, row: 0, batches: [] }],
+        version: 25,
+        // v24ToV25 runs straight after, so the whole-chain result carries the
+        // one unlocked slot too.
+        buildings: [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 }],
       });
       expect(console.warn).not.toHaveBeenCalled();
     });
 
     it('an empty buildings list migrates to an empty list', () => {
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       saved.version = 23;
       saved.buildings = [];
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 24, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
     });
 
-    it('a full-chain v1 save lands at version 24 with no buildings', () => {
+    it('a full-chain v1 save lands at version 25 with no buildings', () => {
       const saved = createDefaultState(1) as unknown as Record<string, unknown>;
       delete saved.buildings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(24);
+      expect(store.getState().version).toBe(25);
       expect(store.getState().buildings).toEqual([]);
+    });
+  });
+
+  describe('schema v24 -> v25 migration (unlockable slots)', () => {
+    it('an EXISTING placement gains unlockedSlots: 1 (whole-state re-pin)', () => {
+      // The owner's live save carries a dev-placed mill, so the migration has
+      // to upgrade a real placement, not just an empty list.
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
+      saved.version = 24;
+      // A genuine v24 placement: batches, but no unlockedSlots field.
+      saved.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [] }];
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState()).toEqual({
+        ...saved,
+        version: 25,
+        buildings: [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 }],
+      });
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('a mill mid-run drops to one slot, stranding its extra batches (accepted loss)', () => {
+      // OWNER CALL: a v24 save could have `slots` batches in flight, and the
+      // flat migration locks all but the first away. Pinned because it is a
+      // deliberate loss, not an oversight - if this ever needs to become a
+      // batch-count floor, this is the test that has to change with it.
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
+      saved.version = 24;
+      saved.buildings = [
+        {
+          type: 'flour_mill',
+          col: -3,
+          row: 0,
+          batches: Array.from({ length: RECIPE.slots }, () => ({ startedAt: now() })),
+        },
+      ];
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(1);
+      // The save still LOADS - the batches survive in state and the validator
+      // (which caps on the def's slots, not on unlockedSlots) accepts them.
+      expect(store.getState().buildings[0]!.batches).toHaveLength(RECIPE.slots);
+      expect(console.warn).not.toHaveBeenCalled();
+      // They are simply unreachable until the slots are bought back.
+      const views = millSlots(store.getState().buildings[0]!, RECIPE, now());
+      expect(views.filter((view) => view.kind === 'locked')).toHaveLength(RECIPE.slots - 1);
+    });
+
+    it('an empty buildings list migrates to an empty list', () => {
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
+      saved.version = 24;
+      saved.buildings = [];
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
+    });
+
+    it('the validator bounds unlockedSlots to [1, recipe.slots]', () => {
+      const withZero = createDefaultState(25) as unknown as Record<string, unknown>;
+      withZero.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 0 }];
+      expect(isValidState(withZero, 25)).toBe(false);
+
+      const overCap = createDefaultState(25) as unknown as Record<string, unknown>;
+      overCap.buildings = [
+        { type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: RECIPE.slots + 1 },
+      ];
+      expect(isValidState(overCap, 25)).toBe(false);
+
+      const fractional = createDefaultState(25) as unknown as Record<string, unknown>;
+      fractional.buildings = [
+        { type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1.5 },
+      ];
+      expect(isValidState(fractional, 25)).toBe(false);
+
+      const missing = createDefaultState(25) as unknown as Record<string, unknown>;
+      missing.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [] }];
+      expect(isValidState(missing, 25)).toBe(false);
+
+      // Both ends of the legal range pass.
+      for (const unlockedSlots of [1, RECIPE.slots]) {
+        const ok = createDefaultState(25) as unknown as Record<string, unknown>;
+        ok.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots }];
+        expect(isValidState(ok, 25)).toBe(true);
+      }
     });
   });
 });
@@ -6725,6 +6827,19 @@ function millStore(wheat: number, storage: SaveStorage | null = null): GameState
   completeOnboarding(store);
   expect(store.devBuildBuilding('flour_mill')).toBe(true);
   store.getState().inventory[RECIPE.inputCropId] = wheat;
+  return store;
+}
+
+/**
+ * `millStore` with every slot already bought (T4.2b-r1), for the tests that
+ * are about BATCHES rather than about the lock - a mill is born with one
+ * usable slot, so the multi-batch cases have to open the rest first.
+ */
+function fullMillStore(wheat: number, storage: SaveStorage | null = null): GameStateStore {
+  const store = millStore(wheat, storage);
+  while (store.getState().buildings[0]!.unlockedSlots < RECIPE.slots) {
+    expect(store.devUnlockMillSlot(0)).toBe(true);
+  }
   return store;
 }
 
@@ -6752,10 +6867,10 @@ describe('milling (T4.2a)', () => {
       expect(store.getState().buildings[0]!.batches).toEqual([]);
     });
 
-    it('refuses (unmutated) when every slot is busy', () => {
+    it('refuses (unmutated) when every UNLOCKED slot is busy', () => {
       // Enough wheat for one MORE batch than there are slots, so the refusal
       // can only be the slot cap.
-      const store = millStore(RECIPE.inputCount * (RECIPE.slots + 1));
+      const store = fullMillStore(RECIPE.inputCount * (RECIPE.slots + 1));
       for (let i = 0; i < RECIPE.slots; i++) expect(store.startMilling(0)).toBe(true);
       expect(store.getState().buildings[0]!.batches).toHaveLength(RECIPE.slots);
       const wheatLeft = store.getState().inventory[RECIPE.inputCropId];
@@ -6786,6 +6901,119 @@ describe('milling (T4.2a)', () => {
     });
   });
 
+  describe('unlockMillSlot (T4.2b-r1)', () => {
+    /** The mill's own unlock prices, in the order they are charged. */
+    const COSTS = RECIPE.slotUnlockCosts;
+
+    it('a fresh mill starts with exactly one usable slot', () => {
+      const store = millStore(0);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(1);
+      // The def still declares three - what changed is how many are PAID FOR.
+      expect(RECIPE.slots).toBeGreaterThan(1);
+      expect(COSTS).toHaveLength(RECIPE.slots - 1);
+    });
+
+    it('charges each slot its own cost, in order, and persists', () => {
+      const storage = makeStorage();
+      const store = millStore(0, storage);
+      store.addCoins(COSTS[0]! + COSTS[1]!);
+      const before = store.getState().coins;
+
+      expect(store.unlockMillSlot(0)).toBe(true);
+      expect(store.getState().coins).toBe(before - COSTS[0]!);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(2);
+
+      expect(store.unlockMillSlot(0)).toBe(true);
+      expect(store.getState().coins).toBe(before - COSTS[0]! - COSTS[1]!);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(RECIPE.slots);
+
+      const reloaded = new GameStateStore({ storage });
+      reloaded.load();
+      expect(reloaded.getState().buildings[0]!.unlockedSlots).toBe(RECIPE.slots);
+    });
+
+    it('is SEQUENTIAL: slot 3 is never charged before slot 2', () => {
+      // Enough for the EXPENSIVE slot but not the cheap one would let an
+      // out-of-order unlock through, if there were one. There is not: the
+      // second unlock is priced at COSTS[1] only after the first is bought.
+      const store = millStore(0);
+      store.addCoins(COSTS[0]!);
+      expect(store.unlockMillSlot(0)).toBe(true);
+      // Slot 3 costs COSTS[1], which the purse is now short of.
+      expect(store.getState().coins).toBeLessThan(COSTS[1]!);
+      expect(store.unlockMillSlot(0)).toBe(false);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(2);
+    });
+
+    it('refuses (unmutated) on too few coins', () => {
+      const store = millStore(0);
+      // One coin short of the first slot - the only thing standing in the way.
+      store.addCoins(COSTS[0]! - 1 - store.getState().coins);
+      const coins = store.getState().coins;
+      expect(coins).toBe(COSTS[0]! - 1);
+      expect(store.unlockMillSlot(0)).toBe(false);
+      expect(store.getState().coins).toBe(coins);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(1);
+    });
+
+    it('refuses (unmutated) once every slot is unlocked', () => {
+      const store = fullMillStore(0);
+      store.addCoins(1_000_000); // far more than any price
+      const coins = store.getState().coins;
+      expect(store.unlockMillSlot(0)).toBe(false);
+      expect(store.getState().coins).toBe(coins);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(RECIPE.slots);
+    });
+
+    it('refuses an out-of-range index and a building with no recipe', () => {
+      const store = millStore(0);
+      store.addCoins(COSTS[0]!);
+      const coins = store.getState().coins;
+      expect(store.unlockMillSlot(1)).toBe(false);
+      expect(store.unlockMillSlot(-1)).toBe(false);
+      expect(store.getState().coins).toBe(coins);
+
+      const recipeless = millStore(0);
+      recipeless.addCoins(COSTS[0]!);
+      const spy = vi.spyOn(BUILDINGS, 'flour_mill', 'get').mockReturnValue({
+        ...BUILDINGS.flour_mill,
+        milling: undefined,
+      });
+      expect(recipeless.unlockMillSlot(0)).toBe(false);
+      expect(recipeless.getState().buildings[0]!.unlockedSlots).toBe(1);
+      spy.mockRestore();
+    });
+
+    it('startMilling caps on unlockedSlots, not on the def slot count', () => {
+      // Wheat for a full mill, but only the one slot bought.
+      const store = millStore(RECIPE.inputCount * RECIPE.slots);
+      expect(store.startMilling(0)).toBe(true);
+      expect(store.startMilling(0)).toBe(false);
+      expect(store.getState().buildings[0]!.batches).toHaveLength(1);
+
+      // Buying a slot makes room immediately - no reload, no re-derivation.
+      store.addCoins(COSTS[0]!);
+      expect(store.unlockMillSlot(0)).toBe(true);
+      expect(store.startMilling(0)).toBe(true);
+      expect(store.getState().buildings[0]!.batches).toHaveLength(2);
+      expect(store.startMilling(0)).toBe(false);
+    });
+
+    it('devUnlockMillSlot skips the coin gate but keeps the sequential cap', () => {
+      const store = millStore(0);
+      const coins = store.getState().coins;
+      // A post-tutorial purse is nowhere near the first slot's price, so a
+      // successful dev unlock can only be the coin gate being skipped.
+      expect(coins).toBeLessThan(COSTS[0]!);
+      for (let i = 1; i < RECIPE.slots; i++) expect(store.devUnlockMillSlot(0)).toBe(true);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(RECIPE.slots);
+      expect(store.getState().coins).toBe(coins); // free
+      // Never past the def's own slot count, dev or not.
+      expect(store.devUnlockMillSlot(0)).toBe(false);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(RECIPE.slots);
+    });
+  });
+
   describe('collectMilling', () => {
     it('refuses (returns 0, unmutated) before the batch is ready', () => {
       const store = millStore(RECIPE.inputCount);
@@ -6810,7 +7038,7 @@ describe('milling (T4.2a)', () => {
     });
 
     it('collects one batch out of several, leaving the rest in flight', () => {
-      const store = millStore(RECIPE.inputCount * RECIPE.slots);
+      const store = fullMillStore(RECIPE.inputCount * RECIPE.slots);
       expect(store.startMilling(0)).toBe(true);
       advanceTime(RECIPE.batchMs);
       // Batch 0 is ready; batches 1 and 2 start now, so they are not.
@@ -6855,12 +7083,20 @@ describe('milling (T4.2a)', () => {
   });
 
   describe('millSlots (T4.2b)', () => {
-    /** A bare placement carrying exactly `batches` - millSlots reads nothing else. */
-    const placementWith = (batches: { startedAt: number }[]): BuildingPlacement => ({
+    /**
+     * A bare placement carrying exactly `batches` - millSlots reads nothing
+     * else beyond `unlockedSlots`, which defaults to the full mill here so the
+     * batch cases are not shadowed by the lock (the lock has its own tests).
+     */
+    const placementWith = (
+      batches: { startedAt: number }[],
+      unlockedSlots = RECIPE.slots,
+    ): BuildingPlacement => ({
       type: 'flour_mill',
       col: 0,
       row: 0,
       batches,
+      unlockedSlots,
     });
 
     it('is always recipe.slots long, all empty when nothing is milling', () => {
@@ -6909,6 +7145,41 @@ describe('milling (T4.2a)', () => {
       }
     });
 
+    it('marks every slot at or past unlockedSlots as locked, at its own price', () => {
+      // A fresh mill: slot 1 usable, slots 2 and 3 priced by slotUnlockCosts.
+      const views = millSlots(placementWith([], 1), RECIPE, 1_000_000);
+      expect(views).toHaveLength(RECIPE.slots);
+      expect(views[0]).toEqual({ kind: 'empty' });
+      for (let index = 1; index < RECIPE.slots; index++) {
+        // The costs list prices the slots PAST the first, so slot index i is
+        // priced at slotUnlockCosts[i - 1].
+        expect(views[index]).toEqual({
+          kind: 'locked',
+          cost: RECIPE.slotUnlockCosts[index - 1],
+        });
+      }
+    });
+
+    it('a locked slot stays locked even with a batch sitting behind it', () => {
+      // Cannot happen through the store (startMilling caps on unlockedSlots),
+      // but the derivation must not leak a locked slot's contents whatever the
+      // batch list says.
+      const nowMs = 5_000_000;
+      const batches = Array.from({ length: RECIPE.slots }, () => ({
+        startedAt: nowMs - RECIPE.batchMs,
+      }));
+      const views = millSlots(placementWith(batches, 1), RECIPE, nowMs);
+      expect(views[0]).toEqual({ kind: 'ready', batchIndex: 0 });
+      for (let index = 1; index < RECIPE.slots; index++) {
+        expect(views[index]!.kind).toBe('locked');
+      }
+    });
+
+    it('shows no locked slot once every slot is bought', () => {
+      const views = millSlots(placementWith([], RECIPE.slots), RECIPE, 1_000_000);
+      expect(views.every((view) => view.kind === 'empty')).toBe(true);
+    });
+
     it('gives every full slot a ready view carrying its own collect index', () => {
       const nowMs = 5_000_000;
       const batches = Array.from({ length: RECIPE.slots }, () => ({
@@ -6947,7 +7218,7 @@ describe('milling (T4.2a)', () => {
 
     it('batches survive a save/load round trip untouched', () => {
       const storage = makeStorage();
-      const store = millStore(RECIPE.inputCount * 2, storage);
+      const store = fullMillStore(RECIPE.inputCount * 2, storage);
       expect(store.startMilling(0)).toBe(true);
       expect(store.startMilling(0)).toBe(true);
       const before = JSON.parse(JSON.stringify(store.getState().buildings)) as unknown;
@@ -6959,9 +7230,11 @@ describe('milling (T4.2a)', () => {
 
   describe('anti-rollback clamp', () => {
     it('a batch startedAt in the future of the real clock is clamped down on load', () => {
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       const future = Date.now() + 60 * 60 * 1000;
-      saved.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: future }] }];
+      saved.buildings = [
+        { type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: future }], unlockedSlots: 1 },
+      ];
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       const before = Date.now();
@@ -6974,9 +7247,11 @@ describe('milling (T4.2a)', () => {
     });
 
     it('a past-stamped batch is left exactly alone', () => {
-      const saved = createDefaultState(24) as unknown as Record<string, unknown>;
+      const saved = createDefaultState(25) as unknown as Record<string, unknown>;
       const past = Date.now() - 5 * 60 * 1000;
-      saved.buildings = [{ type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: past }] }];
+      saved.buildings = [
+        { type: 'flour_mill', col: -3, row: 0, batches: [{ startedAt: past }], unlockedSlots: 1 },
+      ];
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
@@ -6987,7 +7262,7 @@ describe('milling (T4.2a)', () => {
 
   describe('devFinishMilling', () => {
     it('back-dates every batch so all of them read ready immediately', () => {
-      const store = millStore(RECIPE.inputCount * RECIPE.slots);
+      const store = fullMillStore(RECIPE.inputCount * RECIPE.slots);
       for (let i = 0; i < RECIPE.slots; i++) expect(store.startMilling(0)).toBe(true);
       store.devFinishMilling();
       const nowMs = now();

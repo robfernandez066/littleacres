@@ -29,11 +29,13 @@ describe('BUILDINGS registry (T4.1)', () => {
     }
   });
 
-  it('the flour mill carries its provisional balance numbers', () => {
+  it('the flour mill carries its balance numbers', () => {
     const mill = BUILDINGS.flour_mill;
     expect(mill.name).toBe('Flour Mill');
     expect(mill.frame).toBe('flour_mill');
-    expect(mill.price).toBe(1500);
+    // RE-PIN (T4.2b-r1): owner-set build cost, 1500 -> 500. The mill is now
+    // cheap to put up and its CAPACITY carries the coin sink (slotUnlockCosts).
+    expect(mill.price).toBe(500);
     expect(mill.unlockLevel).toBe(6);
   });
 
@@ -78,7 +80,28 @@ describe('BUILDINGS registry (T4.1)', () => {
       outputCount: 2,
       batchMs: 1_200_000, // 20 minutes
       slots: 3,
+      // RE-PIN (T4.2b-r1): owner-set slot prices - slot 2 at 2,500, slot 3 at
+      // 10,000. Only the slots PAST the first are priced, so length = slots - 1.
+      slotUnlockCosts: [2500, 10_000],
     });
+  });
+
+  it('every recipe prices exactly the slots past the first, ascending (T4.2b-r1)', () => {
+    // A building is born with one usable slot, so a costs list that is any
+    // other length either strands a slot with no price or prices one that does
+    // not exist. Ascending because a later slot being CHEAPER would make the
+    // sequential unlock order feel like a penalty.
+    for (const id of BUILDING_IDS) {
+      const recipe = BUILDINGS[id].milling;
+      if (recipe === undefined) continue;
+      expect(recipe.slotUnlockCosts).toHaveLength(recipe.slots - 1);
+      for (const cost of recipe.slotUnlockCosts) {
+        expect(cost).toBeGreaterThan(0);
+        expect(Number.isInteger(cost)).toBe(true);
+      }
+      const ascending = [...recipe.slotUnlockCosts].sort((a, b) => a - b);
+      expect(recipe.slotUnlockCosts).toEqual(ascending);
+    }
   });
 
   it('every milling recipe names a real crop and a real good, with sane counts', () => {

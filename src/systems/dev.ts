@@ -54,6 +54,13 @@ export interface DevTools {
    */
   startMilling(): boolean;
   /**
+   * Unlock the mill's NEXT production slot for free (T4.2b-r1) - the real
+   * `unlockMillSlot` path minus the coin gate, so all three slots are testable
+   * without grinding 12,500 coins. Sequential like the real one. Returns false
+   * if no mill is placed or every slot is already unlocked.
+   */
+  unlockMillSlot(): boolean;
+  /**
    * Back-date every in-flight batch so all of them read ready immediately
    * (T4.2a) - the dev fast-forward that makes collection testable without
    * waiting out a real 20-minute batch.
@@ -195,6 +202,10 @@ export function installDevTools(store: GameStateStore): void {
     startMilling: () => {
       const index = store.getState().buildings.findIndex((b) => b.type === 'flour_mill');
       return index >= 0 && store.startMilling(index);
+    },
+    unlockMillSlot: () => {
+      const index = store.getState().buildings.findIndex((b) => b.type === 'flour_mill');
+      return index >= 0 && store.devUnlockMillSlot(index);
     },
     finishMilling: () => store.devFinishMilling(),
     setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),

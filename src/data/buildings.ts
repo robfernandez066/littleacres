@@ -38,8 +38,15 @@ export interface MillingRecipe {
   outputCount: number;
   /** Real-clock batch duration. `readyAt` = startedAt + this, never stored. */
   batchMs: number;
-  /** Maximum concurrent batches. */
+  /** Maximum concurrent batches, once every slot has been unlocked. */
   slots: number;
+  /**
+   * Coin cost to unlock each slot PAST the first (T4.2b-r1) - a building is
+   * born with ONE usable slot and the rest are bought, so `length` is
+   * `slots - 1` and `slotUnlockCosts[i]` is the price of the (i + 2)th slot.
+   * Unlocks are sequential: the store refuses slot 3 before slot 2.
+   */
+  slotUnlockCosts: number[];
 }
 
 export interface BuildingDef {
@@ -95,8 +102,8 @@ export interface BuildingDef {
  *   test) instead of by measurement luck, which is what the farmhouse's
  *   hand-tuned (137, 219) has to be re-verified for whenever its art moves.
  *
- * price, unlockLevel and the milling numbers are PROVISIONAL and will be
- * balanced later.
+ * `price` and `slotUnlockCosts` are OWNER-SET (T4.2b-r1); unlockLevel and the
+ * remaining milling numbers are PROVISIONAL and will be balanced later.
  */
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   flour_mill: {
@@ -115,7 +122,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     // sign: the 2x2 at this anchor is tiles (-2,0), (-1,0), (-2,1), (-1,1),
     // every one of them inside the base placeable rect (pinned by test).
     defaultAnchor: { col: -3, row: 0 },
-    price: 1500,
+    price: 500,
     currency: 'coins',
     unlockLevel: 6,
     milling: {
@@ -127,6 +134,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
       // enough to finish inside one sitting.
       batchMs: 1_200_000,
       slots: 3,
+      // Owner-set: the mill is cheap to build (500) and its capacity is the
+      // real coin sink - slot 2 at 2,500, slot 3 at 10,000.
+      slotUnlockCosts: [2500, 10_000],
     },
   },
 };
