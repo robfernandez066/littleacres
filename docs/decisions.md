@@ -19,6 +19,18 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Authored bakery shadow (T4.5)
+**Context:** The bakery (T4.4) shipped wearing the generic cast shadow, which reads floating/mid-height on a tall building; it needed the authored SHADOW_WORKFLOW like the mill.
+**Decision:** Ran the full authored-shadow workflow: shadow:new scaffolded from the packed bakery frame (anchor derives to 257,281 on a 410x390 canvas), the PM authored the shadow pixels (a soft single ellipse, pure black, peak alpha 66 - same weight as the mill/farmhouse for consistency - cast lower-left, tucked under the base), previewScale set to 1.640625, then validate + pack:atlas + shadow:capture in the real ShadowLabScene (anchorDelta 0, base-zoom reads grounded). authoredShadow.test.ts re-pinned to the three authored buildings (whole-map toEqual). Density kept at 66 for cross-building consistency, owner-approved from the real capture.
+**Verdict:** COMMIT 8b34ec4 (bundled with the T4.6 de-flake; tests 703). COMPLETES Phase 4 building #2 (bakery), end to end. Field screenshot skipped (no dev.buildBakery hook); the lab uses the same placeAuthoredShadow as the game.
+**Trigger:** owner - "fix the bakery shadow first".
+
+## 2026-07-21 - De-flaked the milling timer tests (T4.6)
+**Context:** A CI run on an earlier docs commit went red on `collectMilling refuses before ready` (returned 2, expected 0) - a timing flake, not a code bug (HEAD was green).
+**Decision:** Root cause: `now()` = Date.now() + offset includes real wall-clock time, so boundary tests that advance the offset to +-1ms of a batch's ready time flake when real drift crosses the boundary between two store calls. Fix: a scoped `useFrozenClock()` (vi.useFakeTimers({ toFake: ['Date'] }) + a fixed FROZEN_EPOCH_MS literal - narrow so the autosave setInterval is NOT frozen) in the milling / orders / onboarding describe blocks, so advanceTime is the sole mover of time. Proven by a control experiment (inject 3ms real drift -> passes frozen, fails unfrozen), not just repeated runs. Test-only, no product code.
+**Verdict:** COMMIT 8b34ec4 (bundled with the T4.5 shadow; tests 703, now deterministic). Clears the flaky-test backlog nit from T4.3/T4.4.
+**Trigger:** CI red on the collectMilling boundary test.
+
 ## 2026-07-21 - Bakery: Sunflour -> Bread (T4.4, Phase 4 building #2)
 **Context:** With the mill shipped, the next producer is a bakery that turns the mill's Sunflour into Bread - a second processing tier.
 **Decision:** Generalized MillingRecipe's input from crop-only to a `RecipeInput` crop|good union (accessors recipeInputFrame / Name / Held), so `startMilling` and the mill panel consume the input from the right map - the bakery eats flour from `goods`, the mill still eats a crop from `inventory` (byte-identical, pinned by regression tests). Added the `bread` good and the `bakery` building def (level 9, 2,000 coins, 3 Sunflour -> 1 Bread, 30-min batch, 3 slots, slot unlocks 5,000 / 20,000) - both REGISTRY-ONLY, so no schema change (validators accept them by registry membership; a bakery placement + bread stack load valid at v26). The bakery rides every shared system (Building Shop, mill panel now titled per building, field indicators, bag, orders) with no per-feature code. Packs bakery (256 structure, SHADOWED - generic shadow for now) + bread (96 icon). Economy fix: bread sellValue 95, not the spec'd 60 - 3 Sunflour is 75 coins in, so bread must clear that or baking loses value; 95 restores the mill's ~1.25x processing premium. The "output beats input" invariant is pinned by a whole-roster test, not the number.
