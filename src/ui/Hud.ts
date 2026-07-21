@@ -269,6 +269,42 @@ const EDIT_LAYOUT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
+/**
+ * "Shop" button (T4.2d-pre): the eventual entry point for buying buildings,
+ * placed now as a styled placeholder. It is the LEFT bookend of the
+ * under-banner button row - MAX (the xp bar) and Edit Layout in the center,
+ * the gear on the far right - sharing that row's y (GEAR_Y) and Edit Layout's
+ * construction convention exactly: a `panel` nineslice sized to its display
+ * bounds (so its default hit area already covers the visible rectangle) with
+ * a centered EDIT_LAYOUT_STYLE label, padded out to the same 96px-tall touch
+ * target.
+ *
+ * Left-aligned against the screen's left margin by its LEFT EDGE rather than
+ * its center, so the label grows rightward as future copy changes without
+ * creeping toward MAX. The 44px inset is the gear's own right inset
+ * (DESIGN_WIDTH - (GEAR_X + GEAR_SIZE / 2) = 44), so the row's two bookends
+ * sit symmetric about the screen's center line.
+ */
+const SHOP_TEXT = 'Shop';
+const SHOP_WIDTH = 130;
+const SHOP_HEIGHT = EDIT_LAYOUT_HEIGHT;
+const SHOP_HIT_HEIGHT = EDIT_LAYOUT_HIT_HEIGHT;
+const SHOP_EDGE_INSET = DESIGN_WIDTH - (GEAR_X + GEAR_SIZE / 2);
+const SHOP_X = SHOP_EDGE_INSET + SHOP_WIDTH / 2;
+/** Placeholder tap feedback; T4.2d replaces it with the real shop. */
+const SHOP_PLACEHOLDER_TEXT = 'Coming soon';
+const SHOP_PLACEHOLDER_COLOR = '#ffe27a';
+const SHOP_PLACEHOLDER_FONT_SIZE = 34;
+/**
+ * The label spawns BELOW the button and rises into the open field, not above
+ * it: FloatingText draws at FLOATING_TEXT_DEPTH (1900), under HUD_DEPTH
+ * (2000), so anything that rises into the banner is occluded by it. 170 puts
+ * the spawn at y 372 and the top of its 80-120px rise at ~252 - clear of both
+ * the button's own art (bottom edge 232) and the banner (bottom edge 158) for
+ * the whole animation.
+ */
+const SHOP_PLACEHOLDER_OFFSET_Y = 170;
+
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
@@ -359,6 +395,13 @@ export class Hud {
   private lastArrangeToggleAt = 0;
   /** The "plots waiting in the shed" pulse (T3.3a) - see `setArrangeFlash`. Null while off. */
   private arrangeFlashTween: Phaser.Tweens.Tween | null = null;
+  /** "Shop" placeholder button (T4.2d-pre) - the under-banner row's left bookend. */
+  private readonly shopContainer: Phaser.GameObjects.Container;
+  private readonly shopButton: Phaser.GameObjects.NineSlice;
+  /** Cached post-onboarding visibility, mirrors `goalsVisible`. */
+  private shopVisible = false;
+  /** Cached rails gating, mirrors `arrangeEnabled`. */
+  private shopEnabled = true;
   /**
    * The Quest Board panel (T3.10a): constructed by `FarmScene` (it needs a
    * `Hud` reference for its own claim-reward juice - see `flyQuestReward`)
@@ -567,6 +610,55 @@ export class Hud {
       this.audio.sfx('tap');
       this.closePanels();
       this.onToggleArrange();
+    });
+
+    // "Shop" button (T4.2d-pre): placeholder entry point for the building
+    // shop, the left bookend of the same under-banner row the gear ends on
+    // the right. Built exactly like the Edit Layout button above (nineslice +
+    // centered label in a container, so rails dimming fades both together),
+    // and - like the goals icon - built invisible and inert, with
+    // `applyShopVisibility` turning it on once onboarding completes.
+    this.shopContainer = this.scene.add
+      .container(SHOP_X, GEAR_Y)
+      .setDepth(HUD_DEPTH)
+      .setVisible(false);
+    this.shopButton = this.scene.add.nineslice(
+      0,
+      0,
+      ATLAS_KEY,
+      'panel',
+      SHOP_WIDTH,
+      SHOP_HEIGHT,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+    );
+    // Local-space hit area (0,0 at the nineslice's own top-left): full width,
+    // padded symmetrically past the 60px art to a 96px-tall touch target -
+    // the Edit Layout button's exact convention.
+    this.shopButton.setInteractive({
+      hitArea: new Phaser.Geom.Rectangle(
+        0,
+        -(SHOP_HIT_HEIGHT - SHOP_HEIGHT) / 2,
+        SHOP_WIDTH,
+        SHOP_HIT_HEIGHT,
+      ),
+      hitAreaCallback: Phaser.Geom.Rectangle.Contains,
+      useHandCursor: true,
+    });
+    this.shopButton.disableInteractive();
+    const shopLabel = this.scene.add
+      .text(0, EDIT_LAYOUT_LABEL_OFFSET_Y, SHOP_TEXT, EDIT_LAYOUT_STYLE)
+      .setOrigin(0.5);
+    this.shopContainer.add([this.shopButton, shopLabel]);
+    this.shopButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      // T4.2d: replace with opening the building shop
+      this.floatingText.show(SHOP_X, GEAR_Y + SHOP_PLACEHOLDER_OFFSET_Y, SHOP_PLACEHOLDER_TEXT, {
+        color: SHOP_PLACEHOLDER_COLOR,
+        fontSize: SHOP_PLACEHOLDER_FONT_SIZE,
+      });
     });
 
     // Bag/orders: bare icons (no button_slot backing), each the container's
@@ -921,6 +1013,7 @@ export class Hud {
     this.questBadge.setVisible(this.anyQuestClaimable(state));
 
     this.applyGoalsVisibility(state);
+    this.applyShopVisibility(state);
     this.applyRailsGating();
 
     // Onboarding's panel steps: observed panel state is notified every tick
@@ -983,6 +1076,42 @@ export class Hud {
       } else {
         this.arrangeButton.disableInteractive();
       }
+    }
+    // The Shop button rides 'decor-shop' too - the closest existing rails
+    // action for "a shop", and the same one Edit Layout uses. Only reaches the
+    // player post-onboarding (see applyShopVisibility), so in practice this is
+    // belt-and-braces; T4.2d can give the real shop its own action.
+    const shopAllowed = gameState.railsAllow('decor-shop');
+    if (shopAllowed !== this.shopEnabled) {
+      this.shopEnabled = shopAllowed;
+      this.shopContainer.setAlpha(shopAllowed ? 1 : BUTTON_INERT_ALPHA);
+      if (shopAllowed) {
+        // No-arg re-enable so the padded 96px-tall hit area survives - same
+        // rationale as the bag and Edit Layout above. Visibility still gates
+        // the tap: a hidden container's children receive no pointer events.
+        if (this.shopVisible) this.shopButton.setInteractive();
+      } else {
+        this.shopButton.disableInteractive();
+      }
+    }
+  }
+
+  /**
+   * The Shop button's post-onboarding gate (T4.2d-pre), mirroring
+   * `applyGoalsVisibility`: the button exists only once onboarding completes,
+   * so it never appears mid-tutorial. Re-derived from state every tick rather
+   * than toggled at a call site, so a dev reset re-hides it.
+   */
+  private applyShopVisibility(state: GameStateData): void {
+    const visible = state.onboarding.completed;
+    if (visible === this.shopVisible) return;
+    this.shopVisible = visible;
+    this.shopContainer.setVisible(visible);
+    if (visible && this.shopEnabled) {
+      // No-arg re-enable so the padded hit area set at construction survives.
+      this.shopButton.setInteractive();
+    } else {
+      this.shopButton.disableInteractive();
     }
   }
 
