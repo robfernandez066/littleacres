@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Flour mill made player-buyable: Shop button + Building Shop + level-6 card (T4.2d-pre, T4.2d)
+**Context:** The mill worked but was dev-placed only; a player had no way to acquire it.
+**Decision:** Added a HUD "Shop" button (the under-banner row's left bookend, symmetric to the gear) that opens a new Building Shop panel (src/ui/BuildingShop.ts, mirroring DecorShop). It lists BUILDINGS with locked ("Unlocks at level N") / Buy / Owned states; Buy calls the existing `buyBuilding` (500 coins, level 6, one-per-type - the store is the sole gate) and the mill lands at its default anchor, picked up by FarmScene.refreshBuildings. The level-up celebration announces it via `buildingUnlockCardsForLevel` (derived from BUILDINGS, mirroring `regionUnlockCardsForLevel`) - a "Flour Mill available in the Shop!" card at level 6, with a per-card `iconScale` (0.65) so the 256 building frame fits the crop-sized card slot and every existing card renders unchanged.
+**Verdict:** COMMIT 105d1d4 (T4.2d-pre: placeholder Shop button), then COMMIT d2462a9 (T4.2d: Building Shop + buy + card; tests 651). COMPLETES Phase 4's first production building - the flour mill is player-earnable end to end. Backlog nit surfaced: the bag's "+N" sell float (depth 1900) likely renders behind the InventoryPanel (depth 2100); fix in a future UI pass.
+**Trigger:** owner - "we need to be able to buy the mill".
+
 ## 2026-07-21 - Sunflour sellable in the bag (T4.2c)
 **Context:** The mill produces Sunflour but nothing let the player sell it (orders will consume it later); the bag was crop-only.
 **Decision:** Generalized InventoryPanel from crop-only to a `SellableRef = { kind: 'crop' | 'good'; id }` row model - rows build from CROPS then GOODS generically (nothing names Sunflour), `countOf` is the one per-kind count source (crop -> inventory, good -> goods), and panel height is derived from the row count with a low-key separator between the two groups. The Sunflour row sells through the existing `sellGood` via the SAME two-tap confirm + coin-arc + float as crops (Hud.sellCrop generalized to `sellSellable`, branching only on the store call). Crop selling is unchanged; no schema change.
