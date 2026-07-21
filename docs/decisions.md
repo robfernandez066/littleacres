@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Villagers order processed goods (T4.3)
+**Context:** The mill's Sunflour could only be sold; orders (the better-paying sink) were crop-only, so the mill had no order demand.
+**Decision:** Widened orders to a crop|good `OrderItem` union with helper accessors (sellValue / xp / held / name). A good enters the order pool only when the player OWNS a building that produces it (`availableOrderGoods` derives from `state.buildings` + `milling.outputGoodId`) - no Sunflour order without a mill. generateOrder builds one normalized Requestable pool (crops + available goods); `fulfillOrder` / `isOrderCoverable` cover and consume PER KIND (crops from inventory, goods from goods); rewards derive from GOODS (added `xp` to GoodDef, Sunflour 15) and Sunflour is capped at 2/order (one batch's yield). Schema v25->v26 migration tags legacy order items `kind:'crop'` (open slots only, guarded). OrderBoard renders good items sized to crop clusters.
+**Verdict:** COMMIT 08446e6 (tests 680, +29 incl. the migration and both gate directions). Provisional: Sunflour xp 15, order cap 2. Backlog nits: the fulfill coin/good arc flies the Sunflour frame ~25% small (fixed arc scale); a pre-existing timing-sensitive milling test (`collectMilling refuses before ready`) flaked once then passed on every re-run - worth a deterministic-clock fix.
+**Trigger:** owner - "orders then bakery".
+
 ## 2026-07-21 - Flour mill made player-buyable: Shop button + Building Shop + level-6 card (T4.2d-pre, T4.2d)
 **Context:** The mill worked but was dev-placed only; a player had no way to acquire it.
 **Decision:** Added a HUD "Shop" button (the under-banner row's left bookend, symmetric to the gear) that opens a new Building Shop panel (src/ui/BuildingShop.ts, mirroring DecorShop). It lists BUILDINGS with locked ("Unlocks at level N") / Buy / Owned states; Buy calls the existing `buyBuilding` (500 coins, level 6, one-per-type - the store is the sole gate) and the mill lands at its default anchor, picked up by FarmScene.refreshBuildings. The level-up celebration announces it via `buildingUnlockCardsForLevel` (derived from BUILDINGS, mirroring `regionUnlockCardsForLevel`) - a "Flour Mill available in the Shop!" card at level 6, with a per-card `iconScale` (0.65) so the 256 building frame fits the crop-sized card slot and every existing card renders unchanged.
