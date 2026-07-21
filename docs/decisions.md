@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Placed buildings are flippable (mirror) in arrange (T4.8)
+**Context:** Buildings could be moved but not mirrored; the owner wanted the mill, bakery, and farmhouse flippable so a placement can face either way. The notice board (a sign) is excluded.
+**Decision:** Added a `flipped` boolean to each BuildingPlacement and to both movable structure anchors (farmhouse, notice board), schema v26 -> v27 (additive migration, default false). The arrange Flip button toggles it; the building sprite mirrors via setFlipX. CRITICAL: authored cast shadows NEVER mirror - the flip is applied to the building sprite only, and all three movable shadow sites pass mirrorsObjectFlip=false (createGroundShadow) / pin flipX:false (applyStructureShadowGeometry). This also FIXES a crash: a flipped building's shadow was reaching placeAuthoredShadow's hard flip guard on scene rebuild and aborting create. The notice board stays unflippable (isFlippableMovable = building OR farmhouse). authoredShadow.test.ts gained "authored shadows never mirror (T4.8)" regression tests.
+**Verdict:** COMMIT 0bdfdc1 (schema v27, tests 720). Shadows are intentionally NOT re-authored per flip - owner is fine with a mirrored sprite over a non-mirrored cast.
+**Trigger:** owner - "flip next... just buildings not sign".
+
 ## 2026-07-21 - Building unlock levels pulled early: mill L3, bakery L4 (T4.9)
 **Context:** The bakery shipped at unlockLevel 9 against MAX_LEVEL 8 - unreachable (a real bug). The owner also judged the mill at L6 too deep and the bakery three levels past it too far.
 **Decision:** Flour Mill unlockLevel 6 -> 3, Bakery 9 -> 4 (owner-set), so the processing chain (crop -> flour -> bread) opens early and tight; the coin cost (500 / 2,000) is the real pacing gate, not the level. Both sit inside the L8 cap, so NO cap raise was needed. Added a reachability sweep test pinning every building's unlockLevel <= MAX_LEVEL - the guard that would have caught the bakery-at-9 bug (crops already had the equivalent). Pure config + test re-pins, no schema.
