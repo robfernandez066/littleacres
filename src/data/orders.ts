@@ -24,6 +24,18 @@ export const SKIP_COOLDOWN_MAX_MS = 60_000;
 export const SKIP_STREAK_RESET_MS = 6 * 60 * 60 * 1000;
 
 /**
+ * Refresh cooldown after a FULFILLED order (see `GameStateStore.fulfillOrder`):
+ * the fulfillment counterpart to the skip cooldown above. Without it a slot
+ * refills on the very next `ensureOrders` tick, which lets a fresh player churn
+ * ~43 fulfillments on day 1 - a spike that races L1->L8 well under the intended
+ * 10-14 day pacing. A flat 10 minutes cuts day 1 to ~13 fulfillments and lands
+ * the level curve back inside target. Flat, not escalating: fulfilling is the
+ * behavior we want, so it is paced, never discouraged. Only applies once the
+ * tutorial is complete, so the scripted ORDER_A->ORDER_B swap stays instant.
+ */
+export const ORDER_REFRESH_COOLDOWN_MS = 600_000;
+
+/**
  * Reward multipliers over raw sell value / harvest xp. Both are > 1 so
  * fulfilling an order always beats selling the same crops directly.
  */

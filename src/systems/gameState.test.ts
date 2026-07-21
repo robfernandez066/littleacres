@@ -45,6 +45,7 @@ import {
 } from '../data/onboarding';
 import {
   type Order,
+  ORDER_REFRESH_COOLDOWN_MS,
   ORDER_SLOTS,
   SKIP_COOLDOWN_BASE_MS,
   SKIP_COOLDOWN_GROWTH,
@@ -2935,12 +2936,17 @@ describe('orders', () => {
     expect(state.xp).toBe(xpBefore + TEST_ORDER.xpReward);
     expect(state.inventory.sunwheat).toBe(2);
     expect(state.inventory.starcorn).toBe(0);
-    expect(state.orders[0]).toEqual({ state: 'pending' });
+    // Re-pinned (Q2): savedStateWithOrder marks onboarding completed, so a
+    // fulfillment now parks the slot on the refresh cooldown rather than
+    // pending. readyAt = the fulfillment's now() + ORDER_REFRESH_COOLDOWN_MS,
+    // and now() has not moved since (no advanceTime in this test).
+    const readyAt = now() + ORDER_REFRESH_COOLDOWN_MS;
+    expect(state.orders[0]).toEqual({ state: 'cooldown', readyAt });
 
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
     expect(reloaded.getState().coins).toBe(state.coins);
-    expect(reloaded.getState().orders[0]).toEqual({ state: 'pending' });
+    expect(reloaded.getState().orders[0]).toEqual({ state: 'cooldown', readyAt });
   });
 
   it('fulfillOrder grants premium.moondust to state.moondust when present', () => {
@@ -2992,6 +2998,71 @@ describe('orders', () => {
     expect(store.fulfillOrder(0)).toBe(false);
     expect(store.fulfillOrder(-1)).toBe(false);
     expect(store.fulfillOrder(ORDER_SLOTS)).toBe(false);
+  });
+
+  it('a post-tutorial fulfillment parks the slot on the refresh cooldown', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 })),
+    });
+    const store = new GameStateStore({ storage });
+    store.load();
+
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().orders[0]).toEqual({
+      state: 'cooldown',
+      readyAt: now() + ORDER_REFRESH_COOLDOWN_MS,
+    });
+  });
+
+  it('ensureOrders leaves a fulfillment cooldown closed until readyAt, then reopens it', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 })),
+    });
+    const store = new GameStateStore({ storage, rng: seededRng(7) });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    const cooling = store.getState().orders[0];
+
+    // One millisecond short of readyAt the slot is untouched.
+    advanceTime(ORDER_REFRESH_COOLDOWN_MS - 1);
+    store.ensureOrders();
+    expect(store.getState().orders[0]).toEqual(cooling);
+
+    // Crossing readyAt reopens it with a freshly generated order.
+    advanceTime(1);
+    store.ensureOrders();
+    expect(store.getState().orders[0]?.state).toBe('open');
+  });
+
+  it('a fulfillment never touches the skip streak', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 })),
+    });
+    const store = new GameStateStore({ storage });
+    store.load();
+    const before = { ...store.getState().orderSkips };
+
+    expect(store.fulfillOrder(0)).toBe(true);
+    expect(store.getState().orderSkips).toEqual(before);
+  });
+
+  it('a fulfillment cooldown round-trips through save/load and isValidState', () => {
+    const storage = makeStorage({
+      [SAVE_KEY]: JSON.stringify(savedStateWithOrder(TEST_ORDER, { sunwheat: 5, starcorn: 2 })),
+    });
+    const store = new GameStateStore({ storage });
+    store.load();
+    expect(store.fulfillOrder(0)).toBe(true);
+    const slot = store.getState().orders[0];
+
+    const saved = JSON.parse(store.exportSave()) as unknown;
+    // The fulfillment cooldown is the existing CooldownOrderSlot shape, so it
+    // needs no schema bump - the current version validates it as-is.
+    expect(isValidState(saved, store.currentVersion)).toBe(true);
+
+    const reloaded = new GameStateStore({ storage });
+    reloaded.load();
+    expect(reloaded.getState().orders[0]).toEqual(slot);
   });
 
   it('a fulfillment whose xp crosses a threshold queues a level-up event', () => {
@@ -3643,8 +3714,13 @@ describe('onboarding', () => {
     expect(store.sellCrop('sunwheat')).toBeGreaterThan(0);
     expect(store.getState().onboarding).toEqual(done);
     // The fulfilled-during-onboarding hook never fires either: the delivered
-    // slot goes back to pending instead of ORDER B.
-    expect(store.getState().orders[0]).toEqual({ state: 'pending' });
+    // slot takes the ordinary post-tutorial refresh cooldown instead of ORDER
+    // B. Re-pinned (Q2) from `pending`; readyAt = the fulfillment's now() +
+    // ORDER_REFRESH_COOLDOWN_MS, and now() has not moved since the fulfill.
+    expect(store.getState().orders[0]).toEqual({
+      state: 'cooldown',
+      readyAt: now() + ORDER_REFRESH_COOLDOWN_MS,
+    });
   });
 
   it('once completed, every rails gate is open - zero post-tutorial behavior change', () => {
@@ -7448,6 +7524,11 @@ describe('milling (T4.2a)', () => {
 });
 
 describe('orders for processed goods (T4.3)', () => {
+  // The Q2 re-pin below recomputes now() at assertion time against a readyAt
+  // stamped during fulfillOrder; freeze the clock so no real ms can elapse
+  // between the two and make them disagree.
+  useFrozenClock();
+
   const SUNFLOUR_ORDER: Order = {
     items: [{ kind: 'good', goodId: 'sunflour', count: 2 }],
     coinReward: 65,
@@ -7557,7 +7638,13 @@ describe('orders for processed goods (T4.3)', () => {
       expect(store.getState().goods.sunflour).toBe(3);
       expect(store.getState().inventory.sunwheat).toBe(7);
       expect(store.getState().coins).toBe(coinsBefore + SUNFLOUR_ORDER.coinReward);
-      expect(store.getState().orders[0]).toEqual({ state: 'pending' });
+      // Re-pinned (Q2): savedWithOrder is post-tutorial, so the slot takes the
+      // refresh cooldown, readyAt = the fulfillment's now() +
+      // ORDER_REFRESH_COOLDOWN_MS (now() has not moved since).
+      expect(store.getState().orders[0]).toEqual({
+        state: 'cooldown',
+        readyAt: now() + ORDER_REFRESH_COOLDOWN_MS,
+      });
     });
 
     it('refuses without mutation when the goods stack is short', () => {

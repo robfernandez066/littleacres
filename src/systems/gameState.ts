@@ -78,6 +78,7 @@ import {
   generateOrder,
   type Order,
   orderItemHeld,
+  ORDER_REFRESH_COOLDOWN_MS,
   ORDER_SLOTS,
   PREMIUM_CHANCE,
   SKIP_COOLDOWN_BASE_MS,
@@ -3499,8 +3500,10 @@ export class GameStateStore {
    * moondust gains the order's stored premium.moondust if present, a premium
    * order carrying `premium.chests` (generated only at CHEST_UNLOCK_LEVEL+ -
    * see `data/orders.ts`) also grants that many chests immediately (see
-   * `grantChests`), and the slot returns to pending for the next
-   * `ensureOrders` to refill. Returns false without mutating anything if the
+   * `grantChests`), and the slot goes on a flat ORDER_REFRESH_COOLDOWN_MS
+   * cooldown for `ensureOrders` to reopen (post-tutorial only - during the
+   * tutorial it returns to pending so the scripted ORDER A -> ORDER B swap
+   * stays instant). Returns false without mutating anything if the
    * slot is not open, the inventory does not cover every item, or the
    * tutorial rails are not on the deliver step (which permits only slot 0 -
    * the scripted ORDER A).
@@ -3534,7 +3537,14 @@ export class GameStateStore {
       }
     }
     this.trackQuestOrderFulfilled(order.premium !== undefined);
-    this.state.orders[slotIndex] = { state: 'pending' };
+    // Post-tutorial the slot rests on a refresh cooldown (the fulfillment
+    // counterpart to skipOrder's cooldown, but flat and streak-free - the skip
+    // streak in `orderSkips` is a separate lever a fulfillment never touches).
+    // During the tutorial it stays pending so the next ensureOrders refills it
+    // immediately for the scripted ORDER B.
+    this.state.orders[slotIndex] = this.state.onboarding.completed
+      ? { state: 'cooldown', readyAt: now() + ORDER_REFRESH_COOLDOWN_MS }
+      : { state: 'pending' };
     // During the tutorial the rails guarantee this is the scripted slot-0
     // delivery, so the track always matches; post-tutorial it is a no-op.
     this.trackOnboarding('deliver-sunwheat');
