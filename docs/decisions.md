@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Sunflour sellable in the bag (T4.2c)
+**Context:** The mill produces Sunflour but nothing let the player sell it (orders will consume it later); the bag was crop-only.
+**Decision:** Generalized InventoryPanel from crop-only to a `SellableRef = { kind: 'crop' | 'good'; id }` row model - rows build from CROPS then GOODS generically (nothing names Sunflour), `countOf` is the one per-kind count source (crop -> inventory, good -> goods), and panel height is derived from the row count with a low-key separator between the two groups. The Sunflour row sells through the existing `sellGood` via the SAME two-tap confirm + coin-arc + float as crops (Hud.sellCrop generalized to `sellSellable`, branching only on the store call). Crop selling is unchanged; no schema change.
+**Verdict:** COMMIT 748987b (tests 647, unchanged). Nit: a stale `Hud.sellCrop` doc comment at FarmScene.ts:243 - fix when a task next touches that file.
+**Trigger:** T4.2c - sell what the mill makes.
+
 ## 2026-07-21 - Mill UI + unlockable slots shipped (T4.2b, T4.2b-r1)
 **Context:** T4.2a gave the mill a working milling model; it needed a player-facing face, and after playtesting the owner reshaped the slots into an earned progression instead of three free ones.
 **Decision:** The mill tap opens a SLOTS-ONLY panel (the dev-oriented recipe/on-hand header was cut): each slot shows the recipe as icons + Mill, milling shows an exact mm:ss countdown + bar, ready shows Collect. Mill starts with 1 usable slot; slots 2 and 3 are bought with coins (2,500 / 10,000) through a two-tap pay-to-unlock that is sequential and coin-gated (`unlockMillSlot`; schema v24->v25 adds `unlockedSlots` default 1; `startMilling` caps on it; batches behind a locked slot survive and return when the slot is bought). One combined top-middle field indicator - output good icon + green radial ring (fills over the soonest-to-finish batch) + ready-count badge - replaced the earlier lower-left puff and top-right badge. The panel is good-agnostic (reads the recipe, never names Sunflour) so future producers reuse it. Mill build price cut 1500->500. Still dev-placed; player acquisition is T4.2d.
