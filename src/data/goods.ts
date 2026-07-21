@@ -23,6 +23,13 @@ export interface GoodDef {
   frame: string;
   /** Coins received per unit when sold. */
   sellValue: number;
+  /**
+   * Xp per unit, the counterpart to `CropDef.xp` (T4.3). Crops earn theirs on
+   * harvest; a good is never "harvested", so this exists purely so an ORDER
+   * asking for the good can price its xp reward the same way it prices a
+   * crop's - see `orderItemXp` in data/orders.ts.
+   */
+  xp: number;
 }
 
 /**
@@ -39,6 +46,10 @@ export const GOODS: Record<GoodId, GoodDef> = {
     pluralName: 'Sunflour',
     frame: 'sunflour',
     sellValue: 25,
+    // Provisional (T4.3): above Sunwheat's 2 and between Glowberry (15) and
+    // Moonroot (28) - a processed good is worth more than the crop it eats,
+    // but an order for it should not out-earn the deep-tier crops.
+    xp: 15,
   },
 };
 

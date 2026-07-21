@@ -18,7 +18,7 @@ import {
   plotEntitlementCap,
   REGIONS,
 } from '../data/farm';
-import { GOODS } from '../data/goods';
+import { GOODS, type GoodId } from '../data/goods';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import {
   MOONDUST_PER_LEVEL,
@@ -454,10 +454,10 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    // DELIBERATE RE-PIN (T4.2b-r1): v24ToV25 (unlockable slots) appended, so
-    // the chain is one longer and the current version is
-    // migrations.length + 1 = 25.
-    expect(MIGRATIONS).toHaveLength(24);
+    // DELIBERATE RE-PIN (T4.3): v25ToV26 (order items gained their crop/good
+    // `kind` tag) appended, so the chain is one longer and the current version
+    // is migrations.length + 1 = 26.
+    expect(MIGRATIONS).toHaveLength(25);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -468,7 +468,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -491,7 +491,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -501,8 +501,12 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    expect(store.currentVersion).toBe(25);
-    expect(store.getState().version).toBe(25);
+    // 26 = MIGRATIONS.length + 1; T4.3 appended v25ToV26 (order items gained
+    // their crop/good `kind` tag). This is the canonical pin for the schema
+    // version - every other `version: 26` in this file re-pins the same value
+    // for the same reason.
+    expect(store.currentVersion).toBe(26);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -538,7 +542,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -582,7 +586,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -622,7 +626,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -692,8 +696,8 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
         state: 'open',
         order: {
           items: [
-            { cropId: 'carrot', count: 2 },
-            { cropId: 'sunwheat', count: 1 },
+            { kind: 'crop', cropId: 'carrot', count: 2 },
+            { kind: 'crop', cropId: 'sunwheat', count: 1 },
           ],
           coinReward: 66,
           xpReward: 17,
@@ -710,7 +714,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -729,8 +733,8 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
       state: 'open',
       order: {
         items: [
-          { cropId: 'starcorn', count: 2 },
-          { cropId: 'sunwheat', count: 1 },
+          { kind: 'crop', cropId: 'starcorn', count: 2 },
+          { kind: 'crop', cropId: 'sunwheat', count: 1 },
         ],
         coinReward: 66,
         xpReward: 17,
@@ -750,7 +754,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().coins).toBe(50);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -784,7 +788,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -825,7 +829,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -840,7 +844,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -1683,7 +1687,7 @@ describe('expandFarm', () => {
 describe('premium order validation', () => {
   it('accepts a save containing a premium order, and it survives a reload', () => {
     const premiumOrder: Order = {
-      items: [{ cropId: 'sunwheat', count: 2 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 2 }],
       coinReward: 20,
       xpReward: 4,
       premium: { moondust: 2, flavor: 'A test flavor line' },
@@ -1702,13 +1706,21 @@ describe('premium order validation', () => {
     const saved = createDefaultState(12);
     saved.orders[0] = {
       state: 'open',
-      order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 },
+      order: {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+        coinReward: 8,
+        xpReward: 2,
+      },
     };
     expect(isValidState(saved, 12)).toBe(true);
   });
 
   it('rejects a malformed premium field: non-positive/non-finite moondust, or a non-string flavor', () => {
-    const baseOrder = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 };
+    const baseOrder = {
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+      coinReward: 8,
+      xpReward: 2,
+    };
     const badPremiums = [
       { moondust: 0, flavor: 'text' },
       { moondust: -1, flavor: 'text' },
@@ -1733,7 +1745,7 @@ describe('premium order validation', () => {
   it('accepts a premium.chests of 1 or 2 (T2.23a), and it survives a reload', () => {
     for (const chests of [1, 2]) {
       const premiumOrder: Order = {
-        items: [{ cropId: 'sunwheat', count: 2 }],
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 2 }],
         coinReward: 20,
         xpReward: 4,
         premium: { moondust: 2, flavor: 'A test flavor line', chests },
@@ -1751,7 +1763,7 @@ describe('premium order validation', () => {
 
   it('accepts a premium order with no chests field (older saves, or generated below CHEST_UNLOCK_LEVEL)', () => {
     const premiumOrder: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 1, flavor: 'A test flavor line' },
@@ -1762,7 +1774,11 @@ describe('premium order validation', () => {
   });
 
   it('rejects a malformed premium.chests: zero, negative, non-integer, or non-finite', () => {
-    const baseOrder = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 8, xpReward: 2 };
+    const baseOrder = {
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+      coinReward: 8,
+      xpReward: 2,
+    };
     const badChestCounts = [0, -1, 1.5, Number.NaN, Infinity];
     for (const chests of badChestCounts) {
       const bad = {
@@ -2764,8 +2780,8 @@ describe('orders', () => {
    * must pay exactly these, not anything recomputed from crop data. */
   const TEST_ORDER: Order = {
     items: [
-      { cropId: 'sunwheat', count: 3 },
-      { cropId: 'starcorn', count: 2 },
+      { kind: 'crop', cropId: 'sunwheat', count: 3 },
+      { kind: 'crop', cropId: 'starcorn', count: 2 },
     ],
     coinReward: 123,
     xpReward: 9,
@@ -2863,7 +2879,7 @@ describe('orders', () => {
 
   it('fulfillOrder grants premium.moondust to state.moondust when present', () => {
     const premiumOrder: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 2, flavor: 'A test flavor line' },
@@ -2914,7 +2930,7 @@ describe('orders', () => {
 
   it('a fulfillment whose xp crosses a threshold queues a level-up event', () => {
     const order: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: xpForLevel(2),
     };
@@ -2929,13 +2945,13 @@ describe('orders', () => {
 
   describe('chests (T2.23a)', () => {
     const ONE_CHEST_ORDER: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 2, flavor: 'A test flavor line', chests: 1 },
     };
     const TWO_CHEST_ORDER: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 2, flavor: 'A test flavor line', chests: 2 },
@@ -3002,7 +3018,7 @@ describe('orders', () => {
 
     it('does not queue a chest event on a premium order with no chests field', () => {
       const order: Order = {
-        items: [{ cropId: 'sunwheat', count: 1 }],
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
         coinReward: 10,
         xpReward: 2,
         premium: { moondust: 1, flavor: 'text' },
@@ -3398,7 +3414,11 @@ describe('onboarding', () => {
     saved.orders[0] = { state: 'open', order: ONBOARDING_ORDER_A };
     saved.orders[1] = {
       state: 'open',
-      order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 5, xpReward: 1 },
+      order: {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+        coinReward: 5,
+        xpReward: 1,
+      },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -3523,7 +3543,11 @@ describe('onboarding', () => {
     saved.inventory = { sunwheat: 10 };
     saved.orders[0] = {
       state: 'open',
-      order: { items: [{ cropId: 'sunwheat', count: 5 }], coinReward: 10, xpReward: 1 },
+      order: {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 5 }],
+        coinReward: 10,
+        xpReward: 1,
+      },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -3559,11 +3583,19 @@ describe('onboarding', () => {
     saved.inventory = { sunwheat: 10 };
     saved.orders[0] = {
       state: 'open',
-      order: { items: [{ cropId: 'sunwheat', count: 5 }], coinReward: 10, xpReward: 1 },
+      order: {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 5 }],
+        coinReward: 10,
+        xpReward: 1,
+      },
     };
     saved.orders[1] = {
       state: 'open',
-      order: { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 5, xpReward: 1 },
+      order: {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+        coinReward: 5,
+        xpReward: 1,
+      },
     };
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -3804,8 +3836,8 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
     // Stamped at the CURRENT schema version so the load performs no migration
-    // and the round-trip really is byte-identical (T4.1: 22 -> 23).
-    const saved = createDefaultState(25);
+    // and the round-trip really is byte-identical (T4.3: 25 -> 26).
+    const saved = createDefaultState(26);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4313,7 +4345,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4340,7 +4372,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4369,7 +4401,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4400,7 +4432,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4414,7 +4446,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4430,7 +4462,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4445,7 +4477,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4477,7 +4509,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4494,7 +4526,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(25);
+    expect(state.version).toBe(26);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4545,7 +4577,7 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 25,
+      version: 26,
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4610,7 +4642,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 25,
+      version: 26,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4707,7 +4739,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().structures).toEqual(defaultStructures());
     expect(store.getState().regionsUnlocked).toEqual([]);
     expect(store.getState().twoFingerHintShown).toBe(false);
@@ -4727,7 +4759,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 25,
+      version: 26,
       restoration: { farmhouse: 0 },
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4739,7 +4771,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().restoration).toEqual({ farmhouse: 0 });
   });
 
@@ -4773,7 +4805,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 25, goalsSeen: false });
+    expect(store.getState()).toEqual({ ...saved, version: 26, goalsSeen: false });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -4783,7 +4815,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().goalsSeen).toBe(false);
   });
 
@@ -4811,7 +4843,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 25, goods: {} });
+    expect(store.getState()).toEqual({ ...saved, version: 26, goods: {} });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -4821,7 +4853,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(25);
+    expect(store.getState().version).toBe(26);
     expect(store.getState().goods).toEqual({});
   });
 
@@ -5121,7 +5153,7 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     expect(store.getState()).toEqual({
       ...saved,
       // DELIBERATE RE-PIN (T4.1): the chain now ends at v23 (buildings).
-      version: 25,
+      version: 26,
       regionsUnlocked: [],
       twoFingerHintShown: false,
     });
@@ -5639,7 +5671,11 @@ describe('quest counters from fulfillOrder', () => {
   }
 
   it('increments lifetime ordersFulfilled and weekly orders on any fulfillment', () => {
-    const order: Order = { items: [{ cropId: 'sunwheat', count: 1 }], coinReward: 10, xpReward: 2 };
+    const order: Order = {
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
+      coinReward: 10,
+      xpReward: 2,
+    };
     const saved = savedStateWithOpenOrder(order, { sunwheat: 1 });
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
@@ -5653,7 +5689,7 @@ describe('quest counters from fulfillOrder', () => {
 
   it('increments premiumFulfilled for a premium order, and chestsOpened by exactly the chests granted', () => {
     const order: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 2, flavor: 'A test flavor line', chests: 2 },
@@ -5670,7 +5706,7 @@ describe('quest counters from fulfillOrder', () => {
 
   it('does not increment chestsOpened for a premium order with no chests field', () => {
     const order: Order = {
-      items: [{ cropId: 'sunwheat', count: 1 }],
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 1 }],
       coinReward: 10,
       xpReward: 2,
       premium: { moondust: 1, flavor: 'A test flavor line' },
@@ -6572,17 +6608,17 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 26, buildings: [] });
       expect(console.warn).not.toHaveBeenCalled();
     });
 
-    it('a full-chain v1 save lands at version 25 with no buildings', () => {
+    it('a full-chain v1 save lands at version 26 with no buildings', () => {
       const saved = createDefaultState(1) as unknown as Record<string, unknown>;
       delete saved.buildings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(25);
+      expect(store.getState().version).toBe(26);
       expect(store.getState().buildings).toEqual([]);
     });
 
@@ -6698,7 +6734,7 @@ describe('buildings (T4.1, schema v23)', () => {
       store.load();
       expect(store.getState()).toEqual({
         ...saved,
-        version: 25,
+        version: 26,
         // v24ToV25 runs straight after, so the whole-chain result carries the
         // one unlocked slot too.
         buildings: [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 }],
@@ -6713,16 +6749,16 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 26, buildings: [] });
     });
 
-    it('a full-chain v1 save lands at version 25 with no buildings', () => {
+    it('a full-chain v1 save lands at version 26 with no buildings', () => {
       const saved = createDefaultState(1) as unknown as Record<string, unknown>;
       delete saved.buildings;
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(25);
+      expect(store.getState().version).toBe(26);
       expect(store.getState().buildings).toEqual([]);
     });
   });
@@ -6740,7 +6776,7 @@ describe('buildings (T4.1, schema v23)', () => {
       store.load();
       expect(store.getState()).toEqual({
         ...saved,
-        version: 25,
+        version: 26,
         buildings: [{ type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1 }],
       });
       expect(console.warn).not.toHaveBeenCalled();
@@ -6781,7 +6817,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 25, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 26, buildings: [] });
     });
 
     it('the validator bounds unlockedSlots to [1, recipe.slots]', () => {
@@ -7275,6 +7311,293 @@ describe('milling (T4.2a)', () => {
       }
       expect(store.getState().buildings[0]!.batches).toEqual([]);
       expect(store.getState().goods[RECIPE.outputGoodId]).toBe(RECIPE.outputCount * RECIPE.slots);
+    });
+  });
+});
+
+describe('orders for processed goods (T4.3)', () => {
+  const SUNFLOUR_ORDER: Order = {
+    items: [{ kind: 'good', goodId: 'sunflour', count: 2 }],
+    coinReward: 65,
+    xpReward: 45,
+  };
+
+  /** A post-tutorial save at the CURRENT version holding one open order plus stocks. */
+  function savedWithOrder(
+    order: Order,
+    inventory: Partial<Record<CropId, number>> = {},
+    goods: Partial<Record<GoodId, number>> = {},
+  ): GameStateData {
+    const saved = createDefaultState(26);
+    saved.onboarding = {
+      completed: true,
+      step: ONBOARDING_STEPS.length,
+      progress: 0,
+      progressB: 0,
+    };
+    saved.inventory = inventory;
+    saved.goods = goods;
+    saved.orders[0] = { state: 'open', order };
+    return saved;
+  }
+
+  function loadedStore(saved: GameStateData): GameStateStore {
+    const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+    const store = new GameStateStore({ storage });
+    store.load();
+    return store;
+  }
+
+  /** A v25 raw save (pre-union) with the given raw order slots. */
+  function v25SaveWithOrders(orders: unknown[]): Record<string, unknown> {
+    const saved = createDefaultState(25) as unknown as Record<string, unknown>;
+    saved.version = 25;
+    saved.orders = orders;
+    return saved;
+  }
+
+  describe('availableOrderGoods', () => {
+    it('is empty with no buildings, so no good can enter the order pool', () => {
+      const store = new GameStateStore({ storage: makeStorage() });
+      completeOnboarding(store);
+      expect(store.availableOrderGoods()).toEqual([]);
+    });
+
+    it("lists an owned mill's output good", () => {
+      const store = new GameStateStore({ storage: makeStorage() });
+      completeOnboarding(store);
+      store.devBuildBuilding('flour_mill');
+      expect(store.availableOrderGoods()).toEqual([BUILDINGS.flour_mill.milling!.outputGoodId]);
+    });
+
+    it('is derived from live state, never stored on the save', () => {
+      const store = new GameStateStore({ storage: makeStorage() });
+      completeOnboarding(store);
+      expect(store.availableOrderGoods()).toEqual([]);
+      store.devBuildBuilding('flour_mill');
+      expect(store.availableOrderGoods()).toEqual(['sunflour']);
+      expect('availableOrderGoods' in store.getState()).toBe(false);
+    });
+  });
+
+  describe('ensureOrders threads the available goods through', () => {
+    /** Regenerate the whole board `rounds` times, collecting every item drawn. */
+    function drawItems(store: GameStateStore, rounds: number) {
+      const items = [];
+      for (let round = 0; round < rounds; round++) {
+        store.ensureOrders();
+        for (const slot of store.getState().orders) {
+          if (slot.state === 'open') items.push(...slot.order.items);
+        }
+        for (let i = 0; i < ORDER_SLOTS; i++) {
+          store.getState().orders[i] = { state: 'pending' };
+        }
+      }
+      return items;
+    }
+
+    it('never draws a good for a mill-less save, over many refills', () => {
+      const store = new GameStateStore({ storage: makeStorage(), rng: seededRng(4) });
+      completeOnboarding(store);
+      store.setLevel(MAX_LEVEL);
+      for (const item of drawItems(store, 80)) expect(item.kind).toBe('crop');
+    });
+
+    it('draws the good once a mill is owned', () => {
+      const store = new GameStateStore({ storage: makeStorage(), rng: seededRng(4) });
+      completeOnboarding(store);
+      store.setLevel(MAX_LEVEL);
+      store.devBuildBuilding('flour_mill');
+      const items = drawItems(store, 80);
+      expect(items.some((item) => item.kind === 'good')).toBe(true);
+      for (const item of items) {
+        if (item.kind === 'good') expect(item.goodId).toBe('sunflour');
+      }
+    });
+  });
+
+  describe('fulfillOrder consumes per kind', () => {
+    it('pays a good item out of state.goods, leaving the crop inventory alone', () => {
+      const store = loadedStore(savedWithOrder(SUNFLOUR_ORDER, { sunwheat: 7 }, { sunflour: 5 }));
+      const coinsBefore = store.getState().coins;
+
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.getState().goods.sunflour).toBe(3);
+      expect(store.getState().inventory.sunwheat).toBe(7);
+      expect(store.getState().coins).toBe(coinsBefore + SUNFLOUR_ORDER.coinReward);
+      expect(store.getState().orders[0]).toEqual({ state: 'pending' });
+    });
+
+    it('refuses without mutation when the goods stack is short', () => {
+      const store = loadedStore(savedWithOrder(SUNFLOUR_ORDER, {}, { sunflour: 1 }));
+      const before = JSON.stringify(store.getState());
+
+      expect(store.fulfillOrder(0)).toBe(false);
+      expect(JSON.stringify(store.getState())).toBe(before);
+    });
+
+    it('never pays a good item out of the crop inventory', () => {
+      // A silo full of Sunwheat is not flour - the two maps never cross.
+      const store = loadedStore(savedWithOrder(SUNFLOUR_ORDER, { sunwheat: 999 }, {}));
+
+      expect(store.fulfillOrder(0)).toBe(false);
+      expect(store.getState().inventory.sunwheat).toBe(999);
+    });
+
+    it('consumes both maps for a mixed crop + good order', () => {
+      const mixed: Order = {
+        items: [
+          { kind: 'crop', cropId: 'sunwheat', count: 3 },
+          { kind: 'good', goodId: 'sunflour', count: 1 },
+        ],
+        coinReward: 100,
+        xpReward: 20,
+      };
+      const store = loadedStore(savedWithOrder(mixed, { sunwheat: 4 }, { sunflour: 2 }));
+
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.getState().inventory.sunwheat).toBe(1);
+      expect(store.getState().goods.sunflour).toBe(1);
+    });
+
+    it('a crop-only order behaves exactly as before (regression)', () => {
+      const cropOrder: Order = {
+        items: [{ kind: 'crop', cropId: 'sunwheat', count: 3 }],
+        coinReward: 31,
+        xpReward: 9,
+      };
+      const store = loadedStore(savedWithOrder(cropOrder, { sunwheat: 5 }, { sunflour: 4 }));
+      const coinsBefore = store.getState().coins;
+
+      expect(store.fulfillOrder(0)).toBe(true);
+      expect(store.getState().inventory.sunwheat).toBe(2);
+      // A crop order leaves the goods stack untouched.
+      expect(store.getState().goods.sunflour).toBe(4);
+      expect(store.getState().coins).toBe(coinsBefore + 31);
+    });
+  });
+
+  describe('save validity', () => {
+    it('accepts a save whose order asks for a good, and it survives a reload', () => {
+      const store = loadedStore(savedWithOrder(SUNFLOUR_ORDER, {}, { sunflour: 2 }));
+      expect(store.getState().orders[0]).toEqual({ state: 'open', order: SUNFLOUR_ORDER });
+    });
+
+    it('rejects an untagged item - post-v26 that is corruption, not an old save', () => {
+      const saved = savedWithOrder(SUNFLOUR_ORDER, {}, { sunflour: 2 });
+      (saved.orders[0] as unknown as { order: { items: unknown[] } }).order.items = [
+        { cropId: 'sunwheat', count: 2 },
+      ];
+      const store = loadedStore(saved);
+      expect(store.getState().orders[0]).not.toEqual({ state: 'open', order: SUNFLOUR_ORDER });
+    });
+
+    it('rejects a good item naming a good that does not exist', () => {
+      const saved = savedWithOrder(SUNFLOUR_ORDER, {}, { sunflour: 2 });
+      (saved.orders[0] as unknown as { order: { items: unknown[] } }).order.items = [
+        { kind: 'good', goodId: 'moonbread', count: 1 },
+      ];
+      const store = loadedStore(saved);
+      expect(store.getState().orders[0]).not.toEqual({ state: 'open', order: SUNFLOUR_ORDER });
+    });
+  });
+
+  describe('v25 -> v26 migration', () => {
+    it('tags an existing open order item with kind: crop (whole-state re-pin)', () => {
+      const saved = v25SaveWithOrders([
+        {
+          state: 'open',
+          order: { items: [{ cropId: 'sunwheat', count: 6 }], coinReward: 95, xpReward: 10 },
+        },
+        { state: 'pending' },
+        { state: 'pending' },
+      ]);
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+
+      expect(store.getState().version).toBe(26);
+      expect(store.getState().orders[0]).toEqual({
+        state: 'open',
+        order: {
+          items: [{ kind: 'crop', cropId: 'sunwheat', count: 6 }],
+          coinReward: 95,
+          xpReward: 10,
+        },
+      });
+    });
+
+    it('tags both items of a two-item order', () => {
+      const saved = v25SaveWithOrders([
+        {
+          state: 'open',
+          order: {
+            items: [
+              { cropId: 'sunwheat', count: 8 },
+              { cropId: 'starcorn', count: 4 },
+            ],
+            coinReward: 188,
+            xpReward: 78,
+          },
+        },
+        { state: 'pending' },
+        { state: 'pending' },
+      ]);
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+
+      const slot = store.getState().orders[0]!;
+      expect(slot.state).toBe('open');
+      if (slot.state === 'open') {
+        expect(slot.order.items).toEqual([
+          { kind: 'crop', cropId: 'sunwheat', count: 8 },
+          { kind: 'crop', cropId: 'starcorn', count: 4 },
+        ]);
+      }
+    });
+
+    it('leaves cooldown and pending slots untouched - only open slots carry items', () => {
+      const readyAt = Date.now() + 60_000;
+      const saved = v25SaveWithOrders([
+        { state: 'cooldown', readyAt },
+        { state: 'pending' },
+        { state: 'pending' },
+      ]);
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+
+      expect(store.getState().orders[0]).toEqual({ state: 'cooldown', readyAt });
+      expect(store.getState().orders[1]).toEqual({ state: 'pending' });
+    });
+
+    it('a v25 board full of crop orders still loads valid at v26', () => {
+      const saved = v25SaveWithOrders([
+        {
+          state: 'open',
+          order: { items: [{ cropId: 'sunwheat', count: 2 }], coinReward: 20, xpReward: 4 },
+        },
+        {
+          state: 'open',
+          order: { items: [{ cropId: 'starcorn', count: 1 }], coinReward: 26, xpReward: 14 },
+        },
+        {
+          state: 'open',
+          order: { items: [{ cropId: 'glowberry', count: 2 }], coinReward: 143, xpReward: 45 },
+        },
+      ]);
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
+      const store = new GameStateStore({ storage });
+      store.load();
+
+      expect(store.getState().version).toBe(26);
+      for (const slot of store.getState().orders) {
+        expect(slot.state).toBe('open');
+        if (slot.state === 'open') {
+          for (const item of slot.order.items) expect(item.kind).toBe('crop');
+        }
+      }
     });
   });
 });

@@ -71,6 +71,7 @@ import {
 import {
   generateOrder,
   type Order,
+  orderItemHeld,
   ORDER_SLOTS,
   PREMIUM_CHANCE,
   SKIP_COOLDOWN_BASE_MS,
@@ -1000,6 +1001,39 @@ const v24ToV25: Migration = (raw) => ({
   })),
 });
 
+/**
+ * v25 -> v26: order items become a crop-OR-good union (T4.3), so every
+ * historical item - all of which were crops - gets tagged `kind: 'crop'`.
+ *
+ * Only an 'open' slot carries an `order` with `items`; 'cooldown' and
+ * 'pending' slots have nothing to tag and pass through untouched. Orders
+ * regenerate constantly, so in practice a save is retagged for at most one
+ * board's worth of orders, but the migration still has to run: without it the
+ * validator rejects the untagged items and the save fails to load.
+ *
+ * Defensive like the other migrations - an unexpected shape passes through for
+ * validation to judge rather than throwing here.
+ */
+const v25ToV26: Migration = (raw) => {
+  if (!Array.isArray(raw.orders)) return raw;
+  return {
+    ...raw,
+    orders: raw.orders.map((slot) => {
+      if (!isRecord(slot) || slot.state !== 'open') return slot;
+      if (!isRecord(slot.order) || !Array.isArray(slot.order.items)) return slot;
+      return {
+        ...slot,
+        order: {
+          ...slot.order,
+          items: slot.order.items.map((item) =>
+            isRecord(item) ? { kind: 'crop', ...item } : item,
+          ),
+        },
+      };
+    }),
+  };
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1026,6 +1060,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v22ToV23,
   v23ToV24,
   v24ToV25,
+  v25ToV26,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1869,13 +1904,16 @@ function isGoodCountMap(value: unknown): value is Partial<Record<GoodId, number>
   );
 }
 
+/**
+ * An order item is a crop item or a good item (T4.3), discriminated by `kind`.
+ * Every saved item carries `kind` - the v25 -> v26 migration tags historical
+ * items 'crop' - so an untagged item is genuinely invalid, not merely old.
+ */
 function isOrderItem(value: unknown): boolean {
-  return (
-    isRecord(value) &&
-    typeof value.cropId === 'string' &&
-    value.cropId in CROPS &&
-    isFiniteNumber(value.count)
-  );
+  if (!isRecord(value) || !isFiniteNumber(value.count)) return false;
+  if (value.kind === 'crop') return typeof value.cropId === 'string' && value.cropId in CROPS;
+  if (value.kind === 'good') return typeof value.goodId === 'string' && value.goodId in GOODS;
+  return false;
 }
 
 /**
@@ -3277,6 +3315,22 @@ export class GameStateStore {
    * Called on scene create and on the scene's refresh tick - idempotent, and
    * a cheap no-op (no save) when nothing needs generating.
    */
+  /**
+   * The goods the player can currently PRODUCE (T4.3): one entry per distinct
+   * `milling.outputGoodId` across the buildings they own. This is what makes a
+   * good orderable - no mill, no Sunflour order - so it is derived from live
+   * state at every generation rather than stored, and a building sold or
+   * (future) demolished stops its good appearing in new orders immediately.
+   */
+  availableOrderGoods(): GoodId[] {
+    const goods = new Set<GoodId>();
+    for (const placed of this.state.buildings) {
+      const recipe = BUILDINGS[placed.type].milling;
+      if (recipe !== undefined) goods.add(recipe.outputGoodId);
+    }
+    return [...goods];
+  }
+
   ensureOrders(): void {
     let changed = false;
     const nowMs = now();
@@ -3284,12 +3338,13 @@ export class GameStateStore {
     // ceremony (teaser orders were removed entirely in T2.24, so there is no
     // longer a second chance to suppress here).
     const premiumChance = this.state.onboarding.completed ? PREMIUM_CHANCE : 0;
+    const availableGoods = this.availableOrderGoods();
     for (let i = 0; i < this.state.orders.length; i++) {
       const slot = this.state.orders[i]!;
       if (slot.state === 'pending' || (slot.state === 'cooldown' && slot.readyAt <= nowMs)) {
         this.state.orders[i] = {
           state: 'open',
-          order: generateOrder(this.state.level, this.rng, premiumChance),
+          order: generateOrder(this.state.level, this.rng, premiumChance, availableGoods),
         };
         changed = true;
       }
@@ -3306,10 +3361,11 @@ export class GameStateStore {
    * premium roll at the player's current level.
    */
   devFillBoardPremium(): void {
+    const availableGoods = this.availableOrderGoods();
     for (let i = 0; i < this.state.orders.length; i++) {
       this.state.orders[i] = {
         state: 'open',
-        order: generateOrder(this.state.level, this.rng, 1),
+        order: generateOrder(this.state.level, this.rng, 1, availableGoods),
       };
     }
     this.save();
@@ -3333,12 +3389,19 @@ export class GameStateStore {
     const slot = this.state.orders[slotIndex];
     if (slot === undefined || slot.state !== 'open') return false;
     const { order } = slot;
+    // Coverage and consumption are BOTH per kind (T4.3) and both read through
+    // `orderItemHeld`, so a crop item can only ever be paid out of `inventory`
+    // and a good item only out of `goods` - the two economies never cross.
     const covered = order.items.every(
-      (item) => (this.state.inventory[item.cropId] ?? 0) >= item.count,
+      (item) => orderItemHeld(item, this.state.inventory, this.state.goods) >= item.count,
     );
     if (!covered) return false;
     for (const item of order.items) {
-      this.state.inventory[item.cropId] = (this.state.inventory[item.cropId] ?? 0) - item.count;
+      if (item.kind === 'crop') {
+        this.state.inventory[item.cropId] = (this.state.inventory[item.cropId] ?? 0) - item.count;
+      } else {
+        this.state.goods[item.goodId] = (this.state.goods[item.goodId] ?? 0) - item.count;
+      }
     }
     this.state.coins += order.coinReward;
     this.applyXp(order.xpReward);

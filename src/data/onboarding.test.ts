@@ -44,10 +44,18 @@ describe('onboarding step chain', () => {
 describe('orderItemsText', () => {
   it('uses the singular name for a count of 1 and the plural otherwise', () => {
     expect(
-      orderItemsText({ items: [{ cropId: 'starcorn', count: 1 }], coinReward: 0, xpReward: 0 }),
+      orderItemsText({
+        items: [{ kind: 'crop', cropId: 'starcorn', count: 1 }],
+        coinReward: 0,
+        xpReward: 0,
+      }),
     ).toBe('1 Starcorn');
     expect(
-      orderItemsText({ items: [{ cropId: 'glowberry', count: 3 }], coinReward: 0, xpReward: 0 }),
+      orderItemsText({
+        items: [{ kind: 'crop', cropId: 'glowberry', count: 3 }],
+        coinReward: 0,
+        xpReward: 0,
+      }),
     ).toBe('3 Glowberries');
   });
 

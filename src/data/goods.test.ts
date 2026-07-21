@@ -15,12 +15,25 @@ describe('GOODS registry (T4.0)', () => {
     expect(GOOD_IDS).toEqual(Object.keys(GOODS));
   });
 
-  it('sunflour is a mass noun with a single atlas frame and a positive sell value', () => {
+  it('sunflour is a mass noun with a single atlas frame, a sell value and an order xp', () => {
     const sunflour = GOODS.sunflour;
     expect(sunflour.name).toBe('Sunflour');
     expect(sunflour.pluralName).toBe('Sunflour');
     expect(sunflour.frame).toBe('sunflour');
     expect(sunflour.sellValue).toBe(25);
+    // T4.3: provisional, set between Glowberry (15) and Moonroot (28) so an
+    // order for the processed good out-earns its input crop without beating
+    // the deep-tier crops.
+    expect(sunflour.xp).toBe(15);
+  });
+
+  it('every good carries a positive integer order xp (T4.3)', () => {
+    for (const good of Object.values(GOODS)) {
+      expect(Number.isInteger(good.xp)).toBe(true);
+      expect(good.xp).toBeGreaterThan(0);
+      // A good is processed from a crop, so it must out-earn that crop's xp.
+      expect(good.xp).toBeGreaterThan(CROPS.sunwheat.xp);
+    }
   });
 
   it('every good carries a processing premium over the crop economy it comes from', () => {

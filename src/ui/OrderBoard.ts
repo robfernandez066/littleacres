@@ -2,7 +2,14 @@ import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE, VILLAGER_POSITION } from '../config';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS } from '../data/crops';
-import { type Order, ORDER_SLOTS } from '../data/orders';
+import { GOODS } from '../data/goods';
+import {
+  type Order,
+  type OrderItem,
+  orderItemHeld,
+  orderItemName,
+  ORDER_SLOTS,
+} from '../data/orders';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -95,6 +102,29 @@ const CLUSTER_ICON_CONTENT_OFFSET = 44.5;
 const CLUSTER_NAME_GAP = 10;
 /** Approximates half a single line's rendered height for Arial bold. */
 const CLUSTER_NAME_HALF_HEIGHT_FACTOR = 0.55;
+
+/**
+ * A good's atlas frame is 96 square where a crop's ready-stage frame is
+ * CROP_FRAME_SIZE (128), so a good drawn at the tier's raw iconScale would
+ * render ~25% smaller than the crop beside it (T4.3). Multiplying the tier
+ * scale by 128/96 makes the two frames render at the SAME size, which also
+ * keeps every downstream measurement correct without a second code path: the
+ * icon origin is a FRACTION of the frame (CROP_BASELINE_Y / CROP_FRAME_SIZE),
+ * so a good normalized this way lands its baseline, its content-center offset
+ * (CLUSTER_ICON_CONTENT_OFFSET) and its rendered bottom edge exactly where a
+ * crop's do.
+ */
+const GOOD_FRAME_SIZE = 96;
+
+/** The atlas frame for an order item - a crop's ready stage, or a good's icon. */
+function orderItemIconFrame(item: OrderItem): string {
+  return item.kind === 'crop' ? CROPS[item.cropId].stageFrames[2] : GOODS[item.goodId].frame;
+}
+
+/** Scale multiplier normalizing this item's frame to 128-frame space (see GOOD_FRAME_SIZE). */
+function orderItemFrameNormalizer(item: OrderItem): number {
+  return item.kind === 'crop' ? 1 : CROP_FRAME_SIZE / GOOD_FRAME_SIZE;
+}
 
 interface ClusterTier {
   iconScale: number;
@@ -769,13 +799,14 @@ export class OrderBoard {
         cluster.nameText.setVisible(false);
         continue;
       }
-      const have = state.inventory[item.cropId] ?? 0;
+      // Per kind (T4.3): a crop's stock is `inventory`, a good's is `goods`.
+      const have = orderItemHeld(item, state.inventory, state.goods);
       const covered = have >= item.count;
       if (!covered) allCovered = false;
 
       cluster.icon
-        .setFrame(CROPS[item.cropId].stageFrames[2])
-        .setScale(tier.iconScale)
+        .setFrame(orderItemIconFrame(item))
+        .setScale(tier.iconScale * orderItemFrameNormalizer(item))
         .setVisible(true);
       // Vertically center the count on the icon's rendered content (not its
       // padded frame) - see CLUSTER_ICON_CONTENT_OFFSET.
@@ -791,7 +822,7 @@ export class OrderBoard {
       const iconBottomY = cluster.icon.y + (CROP_FRAME_SIZE - CROP_BASELINE_Y) * tier.iconScale;
       cluster.nameText
         .setFontSize(tier.nameFontSize)
-        .setText(CROPS[item.cropId].name)
+        .setText(orderItemName(item))
         .setY(iconBottomY + CLUSTER_NAME_GAP + tier.nameFontSize * CLUSTER_NAME_HALF_HEIGHT_FACTOR)
         .setVisible(true);
 
@@ -916,7 +947,7 @@ export class OrderBoard {
         PANEL_CENTER_Y + cluster.icon.y,
         item.count,
         undefined,
-        CROPS[item.cropId].stageFrames[2],
+        orderItemIconFrame(item),
       );
     }
 

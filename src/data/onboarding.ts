@@ -1,5 +1,4 @@
-import { CROPS } from './crops';
-import type { Order } from './orders';
+import { type Order, orderItemCountedName } from './orders';
 
 /**
  * Quest-driven onboarding config: the ordered step chain that walks a fresh
@@ -81,7 +80,7 @@ export interface OnboardingStep {
  * plant 8 sunwheat + 4 starcorn (-88) -> tutorial done with 7 coins.
  */
 export const ONBOARDING_ORDER_A: Order = {
-  items: [{ cropId: 'sunwheat', count: 6 }],
+  items: [{ kind: 'crop', cropId: 'sunwheat', count: 6 }],
   coinReward: 95,
   xpReward: 10,
 };
@@ -97,8 +96,8 @@ export const ONBOARDING_ORDER_A: Order = {
  */
 export const ONBOARDING_ORDER_B: Order = {
   items: [
-    { cropId: 'sunwheat', count: 8 },
-    { cropId: 'starcorn', count: 4 },
+    { kind: 'crop', cropId: 'sunwheat', count: 8 },
+    { kind: 'crop', cropId: 'starcorn', count: 4 },
   ],
   coinReward: 188,
   xpReward: 78,
@@ -112,10 +111,7 @@ export const ONBOARDING_ORDER_B: Order = {
  */
 export function orderItemsText(order: Order): string {
   return order.items
-    .map((item) => {
-      const crop = CROPS[item.cropId];
-      return `${item.count} ${item.count === 1 ? crop.name : crop.pluralName}`;
-    })
+    .map((item) => `${item.count} ${orderItemCountedName(item, item.count)}`)
     .join(' and ');
 }
 

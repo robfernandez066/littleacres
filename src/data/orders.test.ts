@@ -3,15 +3,19 @@ import { describe, expect, it } from 'vitest';
 import { CHEST_UNLOCK_LEVEL, PREMIUM_TWO_CHEST_COIN_VALUE } from './chests';
 import { CROPS } from './crops';
 import { MAX_LEVEL } from './levels';
+import { GOODS } from './goods';
 import {
   generateOrder,
   isOrderCoverable,
   ORDER_BASE_UNITS,
   ORDER_COIN_MULTIPLIER,
+  ORDER_GOOD_UNIT_CAPS,
   ORDER_UNIT_CAPS,
   ORDER_UNITS_PER_LEVEL,
   ORDER_XP_MULTIPLIER,
   type Order,
+  orderItemSellValue,
+  orderItemXp,
   PREMIUM_CHANCE,
   PREMIUM_FLAVORS,
   PREMIUM_MOONDUST_MAX,
@@ -52,7 +56,7 @@ describe('generateOrder', () => {
       for (const order of sampleOrders(level, 200)) {
         expect(order.items.length).toBeGreaterThanOrEqual(1);
         expect(order.items.length).toBeLessThanOrEqual(2);
-        const ids = order.items.map((item) => item.cropId);
+        const ids = order.items.map((item) => (item.kind === 'crop' ? item.cropId : item.goodId));
         expect(new Set(ids).size).toBe(ids.length);
         for (const item of order.items) {
           expect(item.count).toBeGreaterThanOrEqual(1);
@@ -71,7 +75,8 @@ describe('generateOrder', () => {
           (order.premium ? PREMIUM_UNITS_MULT : 1);
         expect(total).toBeLessThanOrEqual(budget);
         for (const item of order.items) {
-          const cap = ORDER_UNIT_CAPS[item.cropId];
+          const cap =
+            item.kind === 'crop' ? ORDER_UNIT_CAPS[item.cropId] : ORDER_GOOD_UNIT_CAPS[item.goodId];
           if (cap !== undefined) expect(item.count).toBeLessThanOrEqual(cap);
         }
       }
@@ -82,13 +87,10 @@ describe('generateOrder', () => {
     for (let level = 1; level <= MAX_LEVEL; level++) {
       for (const order of sampleOrders(level, 200)) {
         const coinBase = order.items.reduce(
-          (sum, item) => sum + item.count * CROPS[item.cropId].sellValue,
+          (sum, item) => sum + item.count * orderItemSellValue(item),
           0,
         );
-        const xpBase = order.items.reduce(
-          (sum, item) => sum + item.count * CROPS[item.cropId].xp,
-          0,
-        );
+        const xpBase = order.items.reduce((sum, item) => sum + item.count * orderItemXp(item), 0);
         expect(order.coinReward).toBe(Math.ceil(coinBase * ORDER_COIN_MULTIPLIER));
         expect(order.xpReward).toBe(Math.ceil(xpBase * ORDER_XP_MULTIPLIER));
         // Orders always beat selling the same crops raw.
@@ -107,7 +109,11 @@ describe('generateOrder', () => {
       for (let seed = 1; seed <= 20; seed++) {
         for (const order of sampleOrders(level, 50, seed)) {
           for (const item of order.items) {
-            expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
+            // Crop-only pool here: sampleOrders passes no availableGoods.
+            expect(item.kind).toBe('crop');
+            if (item.kind === 'crop') {
+              expect(CROPS[item.cropId].unlockLevel).toBeLessThanOrEqual(level);
+            }
           }
         }
       }
@@ -121,7 +127,7 @@ describe('generateOrder', () => {
     // cap clamps to 2.
     const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(3, rng);
-    expect(order.items).toEqual([{ cropId: 'glowberry', count: 2 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'glowberry', count: 2 }]);
     expect(order.coinReward).toBe(Math.ceil(2 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
     expect(order.xpReward).toBe(Math.ceil(2 * CROPS.glowberry.xp * ORDER_XP_MULTIPLIER));
   });
@@ -132,7 +138,7 @@ describe('generateOrder', () => {
     // third (0.9) picks index 3 of the 4 unlocked crops (moonroot).
     const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(4, rng);
-    expect(order.items).toEqual([{ cropId: 'moonroot', count: 3 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'moonroot', count: 3 }]);
     expect(order.coinReward).toBe(Math.ceil(3 * CROPS.moonroot.sellValue * ORDER_COIN_MULTIPLIER));
     expect(order.xpReward).toBe(Math.ceil(3 * CROPS.moonroot.xp * ORDER_XP_MULTIPLIER));
   });
@@ -143,7 +149,7 @@ describe('generateOrder', () => {
     // picks index 4 of the 5 unlocked crops (emberpepper).
     const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(5, rng);
-    expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'emberpepper', count: 2 }]);
     expect(order.coinReward).toBe(
       Math.ceil(2 * CROPS.emberpepper.sellValue * ORDER_COIN_MULTIPLIER),
     );
@@ -156,7 +162,7 @@ describe('generateOrder', () => {
     // third (0.9) picks index 5 of the 6 unlocked crops (dewmelon).
     const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(7, rng);
-    expect(order.items).toEqual([{ cropId: 'dewmelon', count: 2 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'dewmelon', count: 2 }]);
     expect(order.coinReward).toBe(Math.ceil(2 * CROPS.dewmelon.sellValue * ORDER_COIN_MULTIPLIER));
     expect(order.xpReward).toBe(Math.ceil(2 * CROPS.dewmelon.xp * ORDER_XP_MULTIPLIER));
   });
@@ -167,7 +173,7 @@ describe('generateOrder', () => {
     // roll; third (0.95) picks index 6 of the 7 unlocked crops (sagesprig).
     const rng = queuedRng([0.99, 0.99, 0.95]);
     const order = generateOrder(8, rng);
-    expect(order.items).toEqual([{ cropId: 'sagesprig', count: 1 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'sagesprig', count: 1 }]);
     expect(order.coinReward).toBe(Math.ceil(1 * CROPS.sagesprig.sellValue * ORDER_COIN_MULTIPLIER));
     expect(order.xpReward).toBe(Math.ceil(1 * CROPS.sagesprig.xp * ORDER_XP_MULTIPLIER));
   });
@@ -175,7 +181,7 @@ describe('generateOrder', () => {
   it('clamps a sub-1 level to level 1 rules', () => {
     const order = generateOrder(0, () => 0.99);
     expect(order.items).toEqual([
-      { cropId: 'sunwheat', count: ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL },
+      { kind: 'crop', cropId: 'sunwheat', count: ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL },
     ]);
   });
 });
@@ -192,6 +198,7 @@ describe('generateOrder premium orders', () => {
     const order = generateOrder(1, () => 0);
     expect(order.items).toEqual([
       {
+        kind: 'crop',
         cropId: 'sunwheat',
         count: (ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL) * PREMIUM_UNITS_MULT,
       },
@@ -202,8 +209,8 @@ describe('generateOrder premium orders', () => {
   it('a premium order at level 2 doubles the budget, picks two items, and stores rewards over the bigger items', () => {
     const order = generateOrder(2, () => 0);
     expect(order.items).toEqual([
-      { cropId: 'sunwheat', count: 1 },
-      { cropId: 'starcorn', count: 5 }, // pre-clamp split (7) capped to 5
+      { kind: 'crop', cropId: 'sunwheat', count: 1 },
+      { kind: 'crop', cropId: 'starcorn', count: 5 }, // pre-clamp split (7) capped to 5
     ]);
     expect(order.premium).toEqual({ moondust: PREMIUM_MOONDUST_MIN, flavor: PREMIUM_FLAVORS[0] });
     expect(order.coinReward).toBe(
@@ -221,7 +228,7 @@ describe('generateOrder premium orders', () => {
     // rolls the first.
     const rng = queuedRng([0, 0.99, 0.9, 0, 0]);
     const order = generateOrder(5, rng);
-    expect(order.items).toEqual([{ cropId: 'emberpepper', count: 2 }]);
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'emberpepper', count: 2 }]);
     expect(order.premium).toEqual({ moondust: PREMIUM_MOONDUST_MIN, flavor: PREMIUM_FLAVORS[0] });
     expect(order.coinReward).toBe(
       Math.ceil(2 * CROPS.emberpepper.sellValue * ORDER_COIN_MULTIPLIER),
@@ -271,7 +278,7 @@ describe('generateOrder premium orders', () => {
       // under the new value-based threshold.
       const rng = queuedRng([0, 0.99, 0]);
       const order = generateOrder(MAX_LEVEL, rng);
-      expect(order.items).toEqual([{ cropId: 'sunwheat', count: 20 }]);
+      expect(order.items).toEqual([{ kind: 'crop', cropId: 'sunwheat', count: 20 }]);
       expect(order.coinReward).toBeLessThan(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium?.chests).toBe(1);
     });
@@ -283,7 +290,7 @@ describe('generateOrder premium orders', () => {
       // alone crosses PREMIUM_TWO_CHEST_COIN_VALUE.
       const rng = queuedRng([0, 0.99, 0.95, 0, 0]);
       const order = generateOrder(MAX_LEVEL, rng);
-      expect(order.items).toEqual([{ cropId: 'sagesprig', count: 1 }]);
+      expect(order.items).toEqual([{ kind: 'crop', cropId: 'sagesprig', count: 1 }]);
       expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium?.chests).toBe(2);
     });
@@ -300,8 +307,8 @@ describe('generateOrder premium orders', () => {
       const belowRng = queuedRng([0, 0, 0, 0.9, 0.3, 0, 0]);
       const below = generateOrder(CHEST_UNLOCK_LEVEL, belowRng);
       expect(below.items).toEqual([
-        { cropId: 'sunwheat', count: 5 },
-        { cropId: 'emberpepper', count: 2 },
+        { kind: 'crop', cropId: 'sunwheat', count: 5 },
+        { kind: 'crop', cropId: 'emberpepper', count: 2 },
       ]);
       expect(below.coinReward).toBe(598);
       expect(below.premium?.chests).toBe(1);
@@ -309,8 +316,8 @@ describe('generateOrder premium orders', () => {
       const atRng = queuedRng([0, 0, 0, 0.9, 0.35, 0, 0]);
       const at = generateOrder(CHEST_UNLOCK_LEVEL, atRng);
       expect(at.items).toEqual([
-        { cropId: 'sunwheat', count: 6 },
-        { cropId: 'emberpepper', count: 2 },
+        { kind: 'crop', cropId: 'sunwheat', count: 6 },
+        { kind: 'crop', cropId: 'emberpepper', count: 2 },
       ]);
       expect(at.coinReward).toBe(609);
       expect(at.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
@@ -326,8 +333,8 @@ describe('generateOrder premium orders', () => {
       const rng = queuedRng([0, 0, 0, 0.9, 0.4, 0, 0]);
       const order = generateOrder(level, rng);
       expect(order.items).toEqual([
-        { cropId: 'sunwheat', count: 6 },
-        { cropId: 'emberpepper', count: 2 },
+        { kind: 'crop', cropId: 'sunwheat', count: 6 },
+        { kind: 'crop', cropId: 'emberpepper', count: 2 },
       ]);
       expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium).toBeDefined();
@@ -345,14 +352,14 @@ describe('generateOrder premium orders', () => {
 
 describe('isOrderCoverable', () => {
   const singleItemOrder: Order = {
-    items: [{ cropId: 'sunwheat', count: 3 }],
+    items: [{ kind: 'crop', cropId: 'sunwheat', count: 3 }],
     coinReward: 10,
     xpReward: 5,
   };
   const twoItemOrder: Order = {
     items: [
-      { cropId: 'sunwheat', count: 2 },
-      { cropId: 'starcorn', count: 1 },
+      { kind: 'crop', cropId: 'sunwheat', count: 2 },
+      { kind: 'crop', cropId: 'starcorn', count: 1 },
     ],
     coinReward: 20,
     xpReward: 10,
@@ -381,5 +388,128 @@ describe('isOrderCoverable', () => {
 
   it('ignores extra inventory crops the order does not ask for', () => {
     expect(isOrderCoverable(singleItemOrder, { sunwheat: 3, glowberry: 99 })).toBe(true);
+  });
+});
+
+describe('goods in orders (T4.3)', () => {
+  const MILL_GOODS = ['sunflour'] as const;
+
+  /** Every item across many generated orders, at a level where all crops exist. */
+  function sampleItems(availableGoods: readonly 'sunflour'[], count = 400, seed = 11) {
+    const rng = seededRng(seed);
+    return Array.from({ length: count }, () =>
+      generateOrder(MAX_LEVEL, rng, 0, availableGoods),
+    ).flatMap((order) => order.items);
+  }
+
+  it('never requests a good when the player owns no building that makes one', () => {
+    // The whole gate: an empty availableGoods keeps goods out of the pool, so
+    // a mill-less save can never draw a Sunflour order at any level or seed.
+    for (let level = 1; level <= MAX_LEVEL; level++) {
+      for (let seed = 1; seed <= 15; seed++) {
+        const rng = seededRng(seed);
+        for (let i = 0; i < 40; i++) {
+          for (const item of generateOrder(level, rng, 0, []).items) {
+            expect(item.kind).toBe('crop');
+          }
+        }
+      }
+    }
+  });
+
+  it('requests the good once it is available, and only ones that were passed in', () => {
+    const items = sampleItems(MILL_GOODS);
+    expect(items.some((item) => item.kind === 'good')).toBe(true);
+    for (const item of items) {
+      if (item.kind === 'good') expect(MILL_GOODS).toContain(item.goodId);
+    }
+  });
+
+  it('clamps a good item to its own low cap, never the crop caps', () => {
+    for (const item of sampleItems(MILL_GOODS)) {
+      if (item.kind !== 'good') continue;
+      expect(item.count).toBeGreaterThanOrEqual(1);
+      expect(item.count).toBeLessThanOrEqual(ORDER_GOOD_UNIT_CAPS[item.goodId]!);
+    }
+  });
+
+  it('prices a good item from GOODS, not CROPS', () => {
+    const sunflour = { kind: 'good', goodId: 'sunflour', count: 2 } as const;
+    expect(orderItemSellValue(sunflour)).toBe(GOODS.sunflour.sellValue);
+    expect(orderItemXp(sunflour)).toBe(GOODS.sunflour.xp);
+  });
+
+  it("a good order's stored rewards are the same multipliers over the good's own numbers", () => {
+    const rng = seededRng(3);
+    for (let i = 0; i < 300; i++) {
+      const order = generateOrder(MAX_LEVEL, rng, 0, MILL_GOODS);
+      if (!order.items.some((item) => item.kind === 'good')) continue;
+      const coinBase = order.items.reduce((sum, i2) => sum + i2.count * orderItemSellValue(i2), 0);
+      const xpBase = order.items.reduce((sum, i2) => sum + i2.count * orderItemXp(i2), 0);
+      expect(order.coinReward).toBe(Math.ceil(coinBase * ORDER_COIN_MULTIPLIER));
+      expect(order.xpReward).toBe(Math.ceil(xpBase * ORDER_XP_MULTIPLIER));
+    }
+  });
+
+  it('an order never asks for the same thing twice, crops and goods sharing one pool', () => {
+    const rng = seededRng(5);
+    for (let i = 0; i < 400; i++) {
+      const order = generateOrder(MAX_LEVEL, rng, 0, MILL_GOODS);
+      const keys = order.items.map((item) => (item.kind === 'crop' ? item.cropId : item.goodId));
+      expect(new Set(keys).size).toBe(keys.length);
+    }
+  });
+
+  it('passing no availableGoods reproduces the pre-T4.3 crop-only stream exactly', () => {
+    // The compatibility guarantee: the goods pool must not perturb the rng
+    // sequence when it is empty, or every existing pinned order would shift.
+    for (let level = 1; level <= MAX_LEVEL; level++) {
+      const a = Array.from({ length: 30 }, () => generateOrder(level, seededRng(9), 0.5));
+      const b = Array.from({ length: 30 }, () => generateOrder(level, seededRng(9), 0.5, []));
+      expect(a).toEqual(b);
+    }
+  });
+});
+
+describe('isOrderCoverable with goods (T4.3)', () => {
+  const goodOrder: Order = {
+    items: [{ kind: 'good', goodId: 'sunflour', count: 2 }],
+    coinReward: 65,
+    xpReward: 45,
+  };
+  const mixedOrder: Order = {
+    items: [
+      { kind: 'crop', cropId: 'sunwheat', count: 3 },
+      { kind: 'good', goodId: 'sunflour', count: 1 },
+    ],
+    coinReward: 100,
+    xpReward: 50,
+  };
+
+  it('checks a good item against goods, not inventory', () => {
+    expect(isOrderCoverable(goodOrder, {}, { sunflour: 2 })).toBe(true);
+    expect(isOrderCoverable(goodOrder, {}, { sunflour: 1 })).toBe(false);
+    expect(isOrderCoverable(goodOrder, {}, {})).toBe(false);
+  });
+
+  it('never pays a good item out of the crop inventory (the maps stay separate)', () => {
+    // A bag full of Sunwheat covers nothing a mill was supposed to make.
+    expect(isOrderCoverable(goodOrder, { sunwheat: 999 }, {})).toBe(false);
+  });
+
+  it('requires BOTH maps to cover a mixed order', () => {
+    expect(isOrderCoverable(mixedOrder, { sunwheat: 3 }, { sunflour: 1 })).toBe(true);
+    expect(isOrderCoverable(mixedOrder, { sunwheat: 2 }, { sunflour: 1 })).toBe(false);
+    expect(isOrderCoverable(mixedOrder, { sunwheat: 3 }, { sunflour: 0 })).toBe(false);
+  });
+
+  it('defaults goods to empty, so a crop-only call behaves exactly as before', () => {
+    const cropOnly: Order = {
+      items: [{ kind: 'crop', cropId: 'sunwheat', count: 3 }],
+      coinReward: 10,
+      xpReward: 5,
+    };
+    expect(isOrderCoverable(cropOnly, { sunwheat: 3 })).toBe(true);
+    expect(isOrderCoverable(goodOrder, {})).toBe(false);
   });
 });
