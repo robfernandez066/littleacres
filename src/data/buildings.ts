@@ -111,8 +111,10 @@ export interface BuildingDef {
  *   test) instead of by measurement luck, which is what the farmhouse's
  *   hand-tuned (137, 219) has to be re-verified for whenever its art moves.
  *
- * `price` and `slotUnlockCosts` are OWNER-SET (T4.2b-r1); unlockLevel and the
- * remaining milling numbers are PROVISIONAL and will be balanced later.
+ * `price`, `slotUnlockCosts` and `unlockLevel` are OWNER-SET (T4.2b-r1,
+ * T4.9 - mill L3, bakery L4, both inside the L8 cap so the processing chain
+ * comes online early and stays reachable); the remaining milling numbers are
+ * PROVISIONAL and will be balanced later.
  */
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   flour_mill: {
@@ -133,7 +135,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     defaultAnchor: { col: -3, row: 0 },
     price: 500,
     currency: 'coins',
-    unlockLevel: 6,
+    unlockLevel: 3,
     milling: {
       input: { kind: 'crop', cropId: 'sunwheat' },
       inputCount: 5,
@@ -179,7 +181,9 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
    *   renders at (540, 384) against the mill's (284, 768): a different
    *   diagonal AND a different row. Pinned by test.
    *
-   * `price`, `unlockLevel` and every milling number are PROVISIONAL.
+   * `unlockLevel` is OWNER-SET (T4.9): level 4, one level after the mill's 3,
+   * so the chain's second link opens soon after the first and both sit inside
+   * the L8 cap. `price` and every milling number are still PROVISIONAL.
    */
   bakery: {
     id: 'bakery',
@@ -195,7 +199,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     defaultAnchor: { col: -5, row: -4 },
     price: 2000,
     currency: 'coins',
-    unlockLevel: 9,
+    unlockLevel: 4,
     milling: {
       input: { kind: 'good', goodId: 'sunflour' },
       inputCount: 3,

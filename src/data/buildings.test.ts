@@ -11,6 +11,7 @@ import {
 import { STRUCTURE_FOOTPRINT_OFFSETS } from '../config';
 import { CROPS } from './crops';
 import { GOODS } from './goods';
+import { MAX_LEVEL } from './levels';
 import { gridToIso } from '../systems/iso';
 
 describe('BUILDINGS registry (T4.1)', () => {
@@ -37,6 +38,16 @@ describe('BUILDINGS registry (T4.1)', () => {
     }
   });
 
+  it('every building is REACHABLE - its gate sits inside 1..MAX_LEVEL', () => {
+    // NEW (T4.9): the bakery shipped at unlockLevel 9 against a MAX_LEVEL of
+    // 8, so no save could ever buy it. The same sweep crops already get, so a
+    // future building cannot be gated past the cap unnoticed.
+    for (const id of BUILDING_IDS) {
+      expect(BUILDINGS[id].unlockLevel).toBeGreaterThanOrEqual(1);
+      expect(BUILDINGS[id].unlockLevel).toBeLessThanOrEqual(MAX_LEVEL);
+    }
+  });
+
   it('the flour mill carries its balance numbers', () => {
     const mill = BUILDINGS.flour_mill;
     expect(mill.name).toBe('Flour Mill');
@@ -44,7 +55,9 @@ describe('BUILDINGS registry (T4.1)', () => {
     // RE-PIN (T4.2b-r1): owner-set build cost, 1500 -> 500. The mill is now
     // cheap to put up and its CAPACITY carries the coin sink (slotUnlockCosts).
     expect(mill.price).toBe(500);
-    expect(mill.unlockLevel).toBe(6);
+    // RE-PIN (T4.9): owner-set unlock level, 6 -> 3, so the processing chain
+    // opens early. Inside MAX_LEVEL (8), so the mill stays reachable.
+    expect(mill.unlockLevel).toBe(3);
   });
 
   it("the mill's footprint is the farmhouse's Art-Studio-tuned 2x2 block", () => {
@@ -161,7 +174,9 @@ describe('BUILDINGS registry (T4.1)', () => {
 });
 
 describe('buildingUnlockCardsForLevel (T4.2d)', () => {
-  it('returns the mill card at exactly its unlockLevel (6), with the fitted icon scale', () => {
+  // RE-PIN (T4.9): the mill's gate moved 6 -> 3; the assertion reads the gate
+  // off the def, so only the title's stated level needed updating.
+  it('returns the mill card at exactly its unlockLevel (3), with the fitted icon scale', () => {
     expect(buildingUnlockCardsForLevel(BUILDINGS.flour_mill.unlockLevel)).toEqual([
       {
         iconFrame: 'flour_mill',
@@ -205,7 +220,10 @@ describe('the bakery def (T4.4)', () => {
     expect(BAKERY.name).toBe('Bakery');
     expect(BAKERY.frame).toBe('bakery');
     expect(BAKERY.price).toBe(2000);
-    expect(BAKERY.unlockLevel).toBe(9);
+    // RE-PIN (T4.9): owner-set unlock level, 9 -> 4. The old 9 was ABOVE the
+    // MAX_LEVEL 8 cap, so the bakery was unreachable in-game; 4 puts it one
+    // level after the mill's 3.
+    expect(BAKERY.unlockLevel).toBe(4);
   });
 
   it('eats a GOOD - the reason MillingRecipe.input is a union', () => {
@@ -284,8 +302,9 @@ describe('the bakery def (T4.4)', () => {
 });
 
 describe('buildingUnlockCardsForLevel with two buildings (T4.4)', () => {
-  it('yields the bakery card at level 9', () => {
-    expect(buildingUnlockCardsForLevel(9)).toEqual([
+  // RE-PIN (T4.9): the bakery's gate moved 9 -> 4 (9 was above the L8 cap).
+  it('yields the bakery card at level 4', () => {
+    expect(buildingUnlockCardsForLevel(4)).toEqual([
       {
         iconFrame: 'bakery',
         label: 'Bakery available in the Shop!',
@@ -294,8 +313,9 @@ describe('buildingUnlockCardsForLevel with two buildings (T4.4)', () => {
     ]);
   });
 
-  it('still yields only the mill card at level 6', () => {
-    expect(buildingUnlockCardsForLevel(6)).toEqual([
+  // RE-PIN (T4.9): the mill's gate moved 6 -> 3.
+  it('still yields only the mill card at level 3', () => {
+    expect(buildingUnlockCardsForLevel(3)).toEqual([
       {
         iconFrame: 'flour_mill',
         label: 'Flour Mill available in the Shop!',
@@ -305,7 +325,10 @@ describe('buildingUnlockCardsForLevel with two buildings (T4.4)', () => {
   });
 
   it('yields nothing at a level that gates neither', () => {
-    for (const level of [1, 5, 7, 8, 10, 12]) {
+    // RE-PIN (T4.9): 6 and 9 gate nothing now that the mill sits at 3 and the
+    // bakery at 4, so both join the list they used to be excluded from; 2 is
+    // the new "just below the first gate" case.
+    for (const level of [1, 2, 5, 6, 7, 8, 9, 10, 12]) {
       expect(buildingUnlockCardsForLevel(level)).toEqual([]);
     }
   });
