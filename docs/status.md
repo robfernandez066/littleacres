@@ -10,7 +10,7 @@
 
 ## Queued next
 
-- **Paths/roads (in design with owner, not yet spec'd):** per-tile painting on the iso grid (reuse the drag-across-field gesture); tiered materials dirt (~1-5c) / gravel / stone / moonstone, pay-per-tile. Leaning: cosmetic ground-decal layer (renders under crops/structures like the grass_1 decal, no collision), one tile = the unit, width emergent. Doubles as economy sinks - stone = a late COIN sink (helps Q3 surplus), moonstone = a MOONDUST sink. OPEN forks: moonstone coin-vs-moondust (accent vs bulk), level-gate vs price-gate, erase = no refund. Start with the one dirt texture. Spin a docs/design/paths.md once the forks lock.
+- **Paths/roads (in design, see docs/design/paths.md):** per-tile painted iso roads, tiered COIN materials dirt -> gravel -> stone -> moonstone (moonstone locked as a coin sink 2026-07-21), a coin-sink ladder that helps the Q3 surplus. 4 tier raws staged but need rework (grass edges baked in; need edgeless diamond material). Forks locking incrementally.
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred - paths/stone may absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
