@@ -14,8 +14,33 @@
  * All gameplay numbers live here, never in scene/system logic.
  */
 
+import type { CropId } from './crops';
+import type { GoodId } from './goods';
+
 /** Every building. A union so it extends one entry at a time. */
 export type BuildingId = 'flour_mill';
+
+/**
+ * A building's production recipe (T4.2a): the crop it eats, the good it makes,
+ * how long one batch takes, and how many batches may run at once. Optional -
+ * a building without one produces nothing, and `startMilling` refuses on it.
+ *
+ * Co-located here rather than in gameState/scene logic, like every other
+ * building number: adding a second producer means adding one object, and no
+ * milling constant ever appears in the store.
+ */
+export interface MillingRecipe {
+  /** Crop consumed at batch START (deducted when the batch begins). */
+  inputCropId: CropId;
+  inputCount: number;
+  /** Good granted on manual collect, once the batch is ready. */
+  outputGoodId: GoodId;
+  outputCount: number;
+  /** Real-clock batch duration. `readyAt` = startedAt + this, never stored. */
+  batchMs: number;
+  /** Maximum concurrent batches. */
+  slots: number;
+}
 
 export interface BuildingDef {
   id: BuildingId;
@@ -41,6 +66,11 @@ export interface BuildingDef {
   currency: 'coins';
   /** Player level required to buy it (below it, the purchase refuses). */
   unlockLevel: number;
+  /**
+   * Production recipe (T4.2a), if this building makes anything. Absent for a
+   * purely decorative/functional building - `startMilling` refuses without it.
+   */
+  milling?: MillingRecipe;
 }
 
 /**
@@ -65,7 +95,8 @@ export interface BuildingDef {
  *   test) instead of by measurement luck, which is what the farmhouse's
  *   hand-tuned (137, 219) has to be re-verified for whenever its art moves.
  *
- * price and unlockLevel are PROVISIONAL and will be balanced later.
+ * price, unlockLevel and the milling numbers are PROVISIONAL and will be
+ * balanced later.
  */
 export const BUILDINGS: Record<BuildingId, BuildingDef> = {
   flour_mill: {
@@ -87,6 +118,16 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     price: 1500,
     currency: 'coins',
     unlockLevel: 6,
+    milling: {
+      inputCropId: 'sunwheat',
+      inputCount: 5,
+      outputGoodId: 'sunflour',
+      outputCount: 2,
+      // 20 minutes: long enough that a batch is worth coming back for, short
+      // enough to finish inside one sitting.
+      batchMs: 1_200_000,
+      slots: 3,
+    },
   },
 };
 

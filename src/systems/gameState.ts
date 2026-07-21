@@ -7,7 +7,7 @@ import {
   type StructureId,
 } from '../config';
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
-import { BUILDINGS, type BuildingId, findBuilding } from '../data/buildings';
+import { BUILDINGS, type BuildingId, findBuilding, type MillingRecipe } from '../data/buildings';
 import {
   CHEST_COINS_MAX,
   CHEST_COINS_MIN,
@@ -202,13 +202,48 @@ export interface StructuresState {
  * anchor tile's center + BUILDINGS[type].renderOffset (data/buildings.ts),
  * never stored, always derived.
  *
- * Kept deliberately minimal: T4.2's milling state (queue, timers) joins this
- * interface as additional fields, so a building instance stays ONE object.
+ * Milling state (T4.2a) co-locates here as `batches`, so a building instance
+ * stays ONE object.
  */
 export interface BuildingPlacement {
   type: BuildingId;
   col: number;
   row: number;
+  /**
+   * In-flight production batches (T4.2a, schema v24), oldest first. Capped at
+   * the building's `milling.slots`; a building with no milling recipe carries
+   * an empty array forever.
+   */
+  batches: MillBatch[];
+}
+
+/**
+ * One in-flight production batch (T4.2a). Stores ONLY `startedAt` - readiness
+ * is derived from `startedAt + recipe.batchMs` on every read, exactly like a
+ * GrowingPlot derives ready from `plantedAt + growMs`. Nothing stores a
+ * `readyAt` or a `ready` flag and nothing ticks a batch forward, which is what
+ * makes offline milling free and impossible to desync.
+ */
+export interface MillBatch {
+  /** Game-clock timestamp (see systems/time.ts) when the batch began. */
+  startedAt: number;
+}
+
+/**
+ * When `batch` finishes, DERIVED (T4.2a) - never stored. The single place the
+ * store, the tests, and the future mill panel agree on batch timing.
+ */
+export function millBatchReadyAt(batch: MillBatch, recipe: MillingRecipe): number {
+  return batch.startedAt + recipe.batchMs;
+}
+
+/**
+ * Whether `batch` is collectible at `nowMs` (T4.2a). Callers pass the game
+ * clock's `now()`, the same clock crops and orders read, so a warped dev clock
+ * fast-forwards batches too.
+ */
+export function isMillBatchReady(batch: MillBatch, recipe: MillingRecipe, nowMs: number): boolean {
+  return nowMs >= millBatchReadyAt(batch, recipe);
 }
 
 /**
@@ -448,9 +483,8 @@ export interface GameStateData {
    * - a building blocks its footprint like a structure but is bought, owned in
    * variable numbers, and extensible one BUILDINGS entry at a time.
    *
-   * Per-instance PROCESSING state (a mill's queue, its timers) lands here in
-   * T4.2 as extra fields on BuildingPlacement - the shape has room for it and
-   * deliberately carries none of it yet.
+   * Per-instance PROCESSING state lives on the placement itself (T4.2a's
+   * `batches`), so a building instance is always one object.
    */
   buildings: BuildingPlacement[];
   /** Permanent restoration upgrades (T3.25, schema v20). */
@@ -872,6 +906,17 @@ const v21ToV22: Migration = (raw) => ({ ...raw, goods: {} });
  */
 const v22ToV23: Migration = (raw) => ({ ...raw, buildings: [] });
 
+/**
+ * v23 -> v24: milling (T4.2a). Every EXISTING placement gains an empty
+ * `batches` list - a dev-placed mill is already out there, so this maps the
+ * list rather than assuming it is empty. Nothing was milling before this
+ * version, so there is no in-flight batch to reconstruct.
+ */
+const v23ToV24: Migration = (raw) => ({
+  ...raw,
+  buildings: ((raw.buildings as BuildingPlacement[]) ?? []).map((b) => ({ ...b, batches: [] })),
+});
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -896,6 +941,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v20ToV21,
   v21ToV22,
   v22ToV23,
+  v23ToV24,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1880,13 +1926,30 @@ function isStructuresState(value: unknown): value is StructuresState {
  * this build can honour.
  */
 function isBuildingPlacement(value: unknown): value is BuildingPlacement {
+  if (
+    !isRecord(value) ||
+    typeof value.type !== 'string' ||
+    !isPlotGridCoord(value.col) ||
+    !isPlotGridCoord(value.row)
+  ) {
+    return false;
+  }
+  const building = findBuilding(value.type);
+  if (building === undefined) return false;
+  // Batches are capped by the building's OWN slot count (T4.2a) - a save
+  // claiming more concurrent batches than the def allows is a save this build
+  // cannot honour, exactly like an unknown type. A building with no milling
+  // recipe allows zero, so its list must be empty.
   return (
-    isRecord(value) &&
-    typeof value.type === 'string' &&
-    findBuilding(value.type) !== undefined &&
-    isPlotGridCoord(value.col) &&
-    isPlotGridCoord(value.row)
+    Array.isArray(value.batches) &&
+    value.batches.length <= (building.milling?.slots ?? 0) &&
+    value.batches.every(isMillBatch)
   );
+}
+
+/** One in-flight batch (T4.2a): a finite `startedAt` and nothing else stored. */
+function isMillBatch(value: unknown): value is MillBatch {
+  return isRecord(value) && isFiniteNumber(value.startedAt);
 }
 
 /**
@@ -2603,7 +2666,77 @@ export class GameStateStore {
    *  real purchase and the dev grant put a new building, so they cannot drift. */
   private appendBuilding(type: BuildingId): void {
     const { defaultAnchor } = BUILDINGS[type];
-    this.state.buildings.push({ type, col: defaultAnchor.col, row: defaultAnchor.row });
+    this.state.buildings.push({
+      type,
+      col: defaultAnchor.col,
+      row: defaultAnchor.row,
+      batches: [],
+    });
+  }
+
+  /**
+   * Start one production batch on the building at `buildingIndex` (T4.2a).
+   * The recipe's input crop is consumed AT START, so a batch in flight is
+   * already paid for and cannot be refunded by walking away.
+   *
+   * Returns false without mutating anything when the index is out of range,
+   * the building has no milling recipe, every slot is already busy, or the bag
+   * holds fewer than `inputCount` of the input crop. One save on success.
+   */
+  startMilling(buildingIndex: number): boolean {
+    const placement = this.state.buildings[buildingIndex];
+    if (placement === undefined) return false;
+    const recipe = BUILDINGS[placement.type].milling;
+    if (recipe === undefined) return false;
+    if (placement.batches.length >= recipe.slots) return false;
+    const held = this.state.inventory[recipe.inputCropId] ?? 0;
+    if (held < recipe.inputCount) return false;
+    this.state.inventory[recipe.inputCropId] = held - recipe.inputCount;
+    placement.batches.push({ startedAt: now() });
+    this.save();
+    return true;
+  }
+
+  /**
+   * Collect the finished batch `batchIndex` on the building at `buildingIndex`
+   * (T4.2a), granting the recipe's output good and freeing the slot. Collection
+   * is MANUAL: a ready batch sits ready indefinitely until this is called.
+   *
+   * Returns the number of goods granted, or 0 without mutating anything when
+   * either index is out of range, the building has no recipe, or the batch is
+   * not ready yet. Readiness is derived from `startedAt + batchMs` against the
+   * game clock - nothing advanced the batch, so a batch that finished while the
+   * game was closed reads ready on the first check after load.
+   */
+  collectMilling(buildingIndex: number, batchIndex: number): number {
+    const placement = this.state.buildings[buildingIndex];
+    if (placement === undefined) return 0;
+    const recipe = BUILDINGS[placement.type].milling;
+    if (recipe === undefined) return 0;
+    const batch = placement.batches[batchIndex];
+    if (batch === undefined) return 0;
+    if (!isMillBatchReady(batch, recipe, now())) return 0;
+    placement.batches.splice(batchIndex, 1);
+    const goodId = recipe.outputGoodId;
+    this.state.goods[goodId] = (this.state.goods[goodId] ?? 0) + recipe.outputCount;
+    this.save();
+    return recipe.outputCount;
+  }
+
+  /**
+   * Back-date every batch on every building so all of them read ready right
+   * now (dev tooling, T4.2a). The only way to exercise collection - including
+   * the offline path - without waiting out a real 20-minute batch. Wired to
+   * `dev.finishMilling`.
+   */
+  devFinishMilling(): void {
+    const nowMs = now();
+    for (const placement of this.state.buildings) {
+      const recipe = BUILDINGS[placement.type].milling;
+      if (recipe === undefined) continue;
+      for (const batch of placement.batches) batch.startedAt = nowMs - recipe.batchMs;
+    }
+    this.save();
   }
 
   /**
@@ -3342,6 +3475,10 @@ export class GameStateStore {
    * at load time the in-memory warp offset is always zero, and the point is
    * to reconcile against reality. Growth restarts from now for any clamped
    * plot; the warped "progress" is lost, but the plot can never freeze again.
+   *
+   * Milling batches (T4.2a) get the identical treatment: a batch whose
+   * `startedAt` is in the future would never come ready, so it restarts from
+   * now for the same reason and by the same rule.
    */
   private clampFuturePlantedAt(): void {
     const nowMs = Date.now();
@@ -3352,8 +3489,16 @@ export class GameStateStore {
         clampedCount++;
       }
     }
+    for (const placement of this.state.buildings) {
+      for (const batch of placement.batches) {
+        if (batch.startedAt > nowMs) {
+          batch.startedAt = nowMs;
+          clampedCount++;
+        }
+      }
+    }
     if (clampedCount > 0) {
-      console.info(`littleacres: clamped ${clampedCount} future crop timestamps`);
+      console.info(`littleacres: clamped ${clampedCount} future timestamps`);
     }
   }
 

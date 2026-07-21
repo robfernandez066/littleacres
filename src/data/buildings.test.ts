@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import { BUILDINGS, BUILDING_IDS, findBuilding } from './buildings';
 import { STRUCTURE_FOOTPRINT_OFFSETS } from '../config';
+import { CROPS } from './crops';
+import { GOODS } from './goods';
 import { gridToIso } from '../systems/iso';
 
 describe('BUILDINGS registry (T4.1)', () => {
@@ -66,6 +68,42 @@ describe('BUILDINGS registry (T4.1)', () => {
     // Prototype keys are not building ids - the validator leans on this.
     expect(findBuilding('toString')).toBeUndefined();
     expect(findBuilding('constructor')).toBeUndefined();
+  });
+
+  it("the mill's milling recipe carries its provisional numbers (T4.2a)", () => {
+    expect(BUILDINGS.flour_mill.milling).toEqual({
+      inputCropId: 'sunwheat',
+      inputCount: 5,
+      outputGoodId: 'sunflour',
+      outputCount: 2,
+      batchMs: 1_200_000, // 20 minutes
+      slots: 3,
+    });
+  });
+
+  it('every milling recipe names a real crop and a real good, with sane counts', () => {
+    for (const id of BUILDING_IDS) {
+      const recipe = BUILDINGS[id].milling;
+      if (recipe === undefined) continue;
+      expect(CROPS[recipe.inputCropId]).toBeDefined();
+      expect(GOODS[recipe.outputGoodId]).toBeDefined();
+      expect(recipe.inputCount).toBeGreaterThan(0);
+      expect(recipe.outputCount).toBeGreaterThan(0);
+      expect(recipe.slots).toBeGreaterThan(0);
+      expect(recipe.batchMs).toBeGreaterThan(0);
+      expect(Number.isInteger(recipe.inputCount)).toBe(true);
+      expect(Number.isInteger(recipe.outputCount)).toBe(true);
+      expect(Number.isInteger(recipe.slots)).toBe(true);
+    }
+  });
+
+  it('milling the mill is profitable: the output beats the input at sell value', () => {
+    // THE reason the mill is worth building - if this ever inverts, the
+    // processing premium is gone and the balance numbers need another look.
+    const recipe = BUILDINGS.flour_mill.milling!;
+    const inputValue = CROPS[recipe.inputCropId].sellValue * recipe.inputCount;
+    const outputValue = GOODS[recipe.outputGoodId].sellValue * recipe.outputCount;
+    expect(outputValue).toBeGreaterThan(inputValue);
   });
 
   it('no user-facing string uses an em dash (project rule)', () => {

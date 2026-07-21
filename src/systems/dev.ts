@@ -1,5 +1,6 @@
 import type { GroundMode } from '../config';
 import type { CropId } from '../data/crops';
+import type { GoodId } from '../data/goods';
 import type { GameStateData, GameStateStore } from './gameState';
 import { advanceTime, getTimeOffsetMs } from './time';
 
@@ -40,6 +41,24 @@ export interface DevTools {
    * already owned - one per save).
    */
   buildMill(): boolean;
+  /**
+   * Grant `count` of a processed good straight into the bag (T4.0) - a pipe to
+   * `gameState.devGrantGood`, for exercising the sell path without milling.
+   */
+  grantGood(goodId: GoodId, count: number): void;
+  /**
+   * Start one milling batch on the placed mill (T4.2a). Resolves the mill's own
+   * index in `state.buildings`, so the caller does not have to know it. Returns
+   * false if no mill is placed, its slots are full, or the bag is short of the
+   * recipe's input crop.
+   */
+  startMilling(): boolean;
+  /**
+   * Back-date every in-flight batch so all of them read ready immediately
+   * (T4.2a) - the dev fast-forward that makes collection testable without
+   * waiting out a real 20-minute batch.
+   */
+  finishMilling(): void;
   /**
    * Dev-only restoration toggle (T3.25): a straight pipe to
    * `gameState.devSetFarmhouseRestored` - flips the farmhouse between its
@@ -172,6 +191,12 @@ export function installDevTools(store: GameStateStore): void {
     grantPlots: (n) => store.grantPlots(n),
     unlockRegion: (id) => store.devUnlockRegion(id),
     buildMill: () => store.devBuildBuilding('flour_mill'),
+    grantGood: (goodId, count) => store.devGrantGood(goodId, count),
+    startMilling: () => {
+      const index = store.getState().buildings.findIndex((b) => b.type === 'flour_mill');
+      return index >= 0 && store.startMilling(index);
+    },
+    finishMilling: () => store.devFinishMilling(),
     setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };
