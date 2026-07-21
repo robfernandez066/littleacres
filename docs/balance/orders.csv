@@ -1,0 +1,10 @@
+item_id,item_type,name,orderable_from_level,unit_sell_value,order_coins_per_unit,unit_xp,order_xp_per_unit,unit_cap,notes
+sunwheat,crop,Sunwheat,1,8,10,2,3,-,Uncapped.
+starcorn,crop,Starcorn,2,20,26,9,14,5,
+glowberry,crop,Glowberry,3,55,72,15,22,2,
+moonroot,crop,Moonroot,4,100,130,28,42,3,
+emberpepper,crop,Emberpepper,5,210,273,70,105,2,
+dewmelon,crop,Dewmelon,7,500,650,150,225,2,
+sagesprig,crop,Sagesprig,8,1200,1560,400,600,1,
+sunflour,good,Sunflour,3,25,32,15,22,2,Gated on owning a Flour Mill.
+bread,good,Bread,4,95,124,70,105,1,Gated on owning a Bakery. Slowest item -> cap 1.

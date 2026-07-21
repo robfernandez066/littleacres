@@ -1,0 +1,9 @@
+level,xp_to_reach,cumulative_xp,unlocks
+1,0,0,"Sunwheat. Start: 50 coins, 12 plots (4x3), order board active."
+2,30,30,Starcorn.
+3,60,90,Glowberry. Flour Mill (500c). Sunflour milling.
+4,360,450,"Moonroot. Bakery (2,000c). Bread baking."
+5,550,1000,Emberpepper.
+6,1000,2000,Treasure Chests (premium orders start carrying chests).
+7,1500,3500,"Dewmelon. East Meadow region purchasable (7,500c, +6 plots)."
+8,2000,5500,Sagesprig. MAX level.

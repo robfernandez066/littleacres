@@ -1,0 +1,29 @@
+Key,Value,Unit,Notes
+GROWTH_TIME_MULT,1.0,multiplier,MIRROR-ONLY (no code lever). Scales crop grow times in this sheet's what-ifs.
+PRODUCTION_TIME_MULT,1.0,multiplier,MIRROR-ONLY. Scales building batch times in what-ifs.
+SELL_PRICE_MULT,1.0,multiplier,MIRROR-ONLY. Scales all sell prices.
+XP_MULT,1.0,multiplier,MIRROR-ONLY. Scales all XP.
+ORDER_COIN_MULT,1.3,multiplier,REAL (orders.ts ORDER_COIN_MULTIPLIER). Order coins = goods sell value x this.
+ORDER_XP_MULT,1.5,multiplier,REAL (orders.ts ORDER_XP_MULTIPLIER). Order XP = goods xp x this.
+ORDER_BASE_UNITS,2,units,REAL. Total item units in an order at level 1.
+ORDER_UNITS_PER_LEVEL,1,units/level,REAL. Added units per player level.
+SECOND_ITEM_CHANCE,0.45,probability,REAL. Chance an order asks for a 2nd distinct item.
+PREMIUM_CHANCE,0.1,probability,REAL. Chance a generated order is premium.
+PREMIUM_UNITS_MULT,2,multiplier,REAL. Premium orders carry this x the unit budget.
+PREMIUM_MOONDUST_MIN,1,moondust,REAL. Min moondust on a premium order.
+PREMIUM_MOONDUST_MAX,2,moondust,REAL. Max moondust on a premium order.
+MOONDUST_PER_LEVEL,1,moondust,REAL (moondust.ts). Moondust granted per level gained.
+RADIANT_CHANCE,0.02,probability,REAL. Chance a harvest procs Radiant (bonus yield).
+RADIANT_YIELD_MULT,5,multiplier,REAL. A Radiant harvest yields this many instead of 1.
+RADIANT_MOONDUST_CHANCE,0.5,probability,REAL. Chance a Radiant harvest also grants +1 moondust.
+CHEST_UNLOCK_LEVEL,6,level,REAL (chests.ts). Premium orders start carrying chests here.
+CHEST_COINS_MIN,150,coins,REAL. Min coins per chest.
+CHEST_COINS_MAX,400,coins,REAL. Max coins per chest.
+CHEST_MOONDUST_CHANCE,0.5,probability,REAL. Chance a chest also rolls moondust.
+CHEST_MOONDUST_AMOUNT,1,moondust,REAL. Moondust when a chest's roll hits.
+PREMIUM_TWO_CHEST_COIN_VALUE,600,coins,REAL. Premium coinReward >= this rolls 2 chests.
+ORDER_SLOTS,3,slots,REAL. Concurrent order-board slots.
+STARTING_COINS,50,coins,REAL (gameState.ts). New-save coins.
+STARTING_MOONDUST,0,moondust,REAL. New-save moondust.
+STARTING_PLOTS,12,plots,REAL (BASE_PLOT_COUNT = 4x3). New-save plots.
+MAX_LEVEL,8,level,REAL (levels.ts). Highest attainable level this pass.

@@ -1,0 +1,8 @@
+id,name,unlock_level,seed_cost,growth_sec_base,growth_sec_eff,yield_qty,sell_price_base,sell_price_eff,xp_base,xp_eff,revenue_per_harvest,profit_per_harvest,coins_per_hour,xp_per_hour,niche
+sunwheat,Sunwheat,1,5,30,30,1,8,8,2,2,8,3,360,240,Active coins/hr king; fast loop
+starcorn,Starcorn,2,12,120,120,1,20,20,9,9,20,8,240,270,XP leader
+glowberry,Glowberry,3,30,300,300,1,55,55,15,15,55,25,300,180,Payload + order value
+moonroot,Moonroot,4,60,480,480,1,100,100,28,28,100,40,300,210,"Half-session crop, 8 min"
+emberpepper,Emberpepper,5,110,1200,1200,1,210,210,70,70,210,100,300,210,"Leave-and-return, 20 min"
+dewmelon,Dewmelon,7,260,2700,2700,1,500,500,150,150,500,240,320,200,"Session-bridging, 45 min, big payload"
+sagesprig,Sagesprig,8,600,7200,7200,1,1200,1200,400,400,1200,600,300,200,"Overnight/2h prestige crop, biggest payload"
