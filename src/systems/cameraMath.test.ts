@@ -17,11 +17,13 @@ const VIEWPORT: Viewport = { width: 1080, height: 1920 };
 const WORLD: WorldBounds = { x: 0, y: 0, width: 1080, height: 1920 };
 /**
  * The world rect (config.ts WORLD_MIN_X/Y + WORLD_WIDTH/HEIGHT). Born 1440x2560
- * in T3.3a-r2; grown EAST to 1952x2560 in T3.3b (regions) - WORLD_MIN_X stays
- * -180, the east edge moves 1260 -> 1772, so the world is no longer centered on
- * the legacy 1080x1920 rect.
+ * in T3.3a-r2; grown EAST to 1952x2560 in T3.3b (regions) - the east edge moved
+ * 1260 -> 1772, so the world is no longer centered on the legacy 1080x1920
+ * rect. T4.10 grew it WEST: WORLD_MIN_X -180 -> -256 and WORLD_WIDTH
+ * 1952 -> 2028, so the east edge stays at -256 + 2028 = 1772 (unchanged) while
+ * the west apron widens to carry the 2 new starter plot columns.
  */
-const REGIONS_WORLD: WorldBounds = { x: -180, y: -320, width: 1952, height: 2560 };
+const REGIONS_WORLD: WorldBounds = { x: -256, y: -320, width: 2028, height: 2560 };
 const MAX_IN = 1.6;
 
 /** Phaser's forward camera transform (zoom about the viewport center) - the
@@ -43,12 +45,13 @@ describe('fitZoom', () => {
     expect(fitZoom({ x: 0, y: 0, width: 2160, height: 1920 }, VIEWPORT)).toBe(0.5);
   });
 
-  it('is the width fit for the T3.3b 1952x2560 world - the new zoom-out floor', () => {
-    // The east growth (T3.3b) makes WIDTH the limiting axis: 1080/1952 ~= 0.553
-    // is smaller than the height fit 1920/2560 = 0.75, so the floor DROPS from
-    // the old 0.75 to exactly the width fit (derives, never re-hardcoded).
+  it('is the width fit for the 2028x2560 world - the zoom-out floor', () => {
+    // The east growth (T3.3b) made WIDTH the limiting axis and the west growth
+    // (T4.10) widened it further: 1080/2028 ~= 0.5325 is smaller than the
+    // height fit 1920/2560 = 0.75, so the floor DROPS from the old 0.75 to
+    // exactly the width fit (derives, never re-hardcoded).
     expect(fitZoom(REGIONS_WORLD, VIEWPORT)).toBe(VIEWPORT.width / REGIONS_WORLD.width);
-    expect(fitZoom(REGIONS_WORLD, VIEWPORT)).toBeCloseTo(0.5533, 4);
+    expect(fitZoom(REGIONS_WORLD, VIEWPORT)).toBeCloseTo(0.5325, 4);
     expect(fitZoom(REGIONS_WORLD, VIEWPORT)).toBeLessThan(0.75);
   });
 });
@@ -119,21 +122,31 @@ describe('scrollRange / clampScroll', () => {
 
   it('collapses the T3.3b world to a single centered scroll at the width-fit floor (off-center east)', () => {
     // At the floor both axes fit inside the view, so scroll collapses to the
-    // world CENTER. The world grew east only (center x = (-180+1772)/2 = 796),
-    // so the collapsed scrollX is worldCenterX - halfW = 796 - 540 = 256 (no
-    // longer 0 - the world is not centered on the legacy rect anymore); y is
-    // still centered on the legacy rect, so scrollY collapses to 0.
+    // world CENTER. The world is off-center east (center x =
+    // (-256+1772)/2 = 758 after T4.10's west growth), so the collapsed scrollX
+    // is worldCenterX - halfW = 758 - 540 = 218 (no longer 0 - the world is not
+    // centered on the legacy rect anymore); y is still centered on the legacy
+    // rect, so scrollY collapses to 0.
     const floor = VIEWPORT.width / REGIONS_WORLD.width;
     const range = scrollRange(floor, REGIONS_WORLD, VIEWPORT);
-    expect(range).toEqual({ minX: 256, maxX: 256, minY: 0, maxY: 0 });
+    // closeTo on x: 1080/2028 is not exactly representable, so the collapsed
+    // scroll lands within ~1e-13 of 218 rather than on it (the old 1952-wide
+    // pin happened to divide cleanly).
+    expect(range).toEqual({
+      minX: expect.closeTo(218, 6),
+      maxX: expect.closeTo(218, 6),
+      minY: 0,
+      maxY: 0,
+    });
   });
 
-  it('pins the T3.3b-world pan range at zoom 1: -180 west, +692 east, +/-320 vertical, home (0,0) inside', () => {
+  it('pins the T3.3b-world pan range at zoom 1: -256 west, +692 east, +/-320 vertical, home (0,0) inside', () => {
     // Visible rect at zoom 1 is the 1080x1920 legacy rect. West travel is the
-    // 180px apron (WORLD_MIN_X = -180); east travel reaches the grown edge:
-    // (-180 + 1952) - 540 - 540 = 692. Vertical is the unchanged 320px apron.
+    // 256px apron (WORLD_MIN_X = -256 since T4.10); east travel reaches the
+    // unchanged east edge: (-256 + 2028) - 540 - 540 = 692. Vertical is the
+    // unchanged 320px apron.
     const range = scrollRange(1, REGIONS_WORLD, VIEWPORT);
-    expect(range).toEqual({ minX: -180, maxX: 692, minY: -320, maxY: 320 });
+    expect(range).toEqual({ minX: -256, maxX: 692, minY: -320, maxY: 320 });
     // Home (0, 0) is still inside the range, so a player who never pans is unmoved.
     expect(clampScroll(0, 0, 1, REGIONS_WORLD, VIEWPORT)).toEqual({ scrollX: 0, scrollY: 0 });
   });

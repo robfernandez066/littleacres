@@ -123,8 +123,10 @@ export const MAX_FENCES = 60;
  * (1) SHAPE/VALUE change (flagged - the Art Studio parse surface reads these):
  *     the legacy hand-tuned rect (x 0..1080, y 380..1520) grew to cover the
  *     full BASE plot-placeable rect, so decor may sit anywhere a plot may -
- *     these now DERIVE from PLOT_PLACEABLE_* (west mere reserve and south
- *     seed-bar dead band respected exactly as the plot rect does), folding in
+ *     these now DERIVE from PLOT_PLACEABLE_* (west edge and south seed-bar
+ *     dead band respected exactly as the plot rect does - so DECOR_X_MIN
+ *     followed PLOT_PLACEABLE_MIN_X 20 -> -236 when T4.10 grew the default
+ *     buildable area west, absorbing the old "mere reserve"), folding in
  *     the flagged backlog fix.
  * (2) The LIVE clamp authority is now `decorClampBounds(regionsUnlocked)` (see
  *     below), region-aware so an unlocked band becomes decoratable. These

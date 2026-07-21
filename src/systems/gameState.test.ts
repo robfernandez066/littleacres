@@ -1346,15 +1346,17 @@ describe('setDecorationTransform', () => {
   it('clamps x/y/scale to their legal ranges, flip unclamped', () => {
     const store = storeWithOneDecoration();
     // T3.3b RE-PIN: the base decor clamp widened to the full base plot rect -
-    // x [DECOR_X_MIN 20, DECOR_X_MAX 1240], y [DECOR_Y_MIN -300, DECOR_Y_MAX
-    // 2010] (west mere reserve + south seed-bar dead band), superseding the old
+    // x [DECOR_X_MIN -236, DECOR_X_MAX 1240], y [DECOR_Y_MIN -300, DECOR_Y_MAX
+    // 2010] (T4.10 moved DECOR_X_MIN with PLOT_PLACEABLE_MIN_X 20 -> -236 when
+    // the default area grew 2 columns west, absorbing the old comment-only
+    // "mere reserve"; the south bound is the seed-bar dead band), superseding the old
     // hand-tuned 0..1080 / 380..1520. Scale range (0.35..bench max 0.85)
     // unchanged. Both clamp corners land on open ground (no permanent object),
     // so the commit succeeds.
     expect(store.setDecorationTransform(0, -5000, -5000, 0, false)).toBe(true);
     expect(store.getState().decorations[0]).toEqual({
       frame: 'decor_bench',
-      x: 20,
+      x: -236,
       y: -300,
       scale: 0.35,
       flip: false,
@@ -1953,13 +1955,16 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     }
   });
 
-  it('pins the derivation: 136 tiles, negative coordinates present, the whole legacy 4x4 included', () => {
+  it('pins the derivation: 170 tiles, negative coordinates present, the whole legacy 4x4 included', () => {
     const tiles = placeablePlotTiles();
-    expect(tiles).toHaveLength(136);
+    // T4.10 RE-PIN 136 -> 170: the base rect grew 2 columns west
+    // (PLOT_PLACEABLE_MIN_X 20 -> -236), admitting col-row -4 and -5.
+    expect(tiles).toHaveLength(170);
     // Negative col/row are expected - tile (0, 0) is the legacy grid's top
     // corner, not the scene's.
     expect(tiles).toContainEqual({ col: -5, row: -2 });
     expect(tiles).toContainEqual({ col: 0, row: -1 });
+    expect(tiles).toContainEqual({ col: -5, row: 0 }); // col-row -5, newly placeable
     for (let row = 0; row < 4; row++) {
       for (let col = 0; col < FARM_COLS; col++) {
         expect(tiles).toContainEqual({ col, row });
@@ -1967,7 +1972,7 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     }
   });
 
-  it('T3.3a-r2 world growth: apron tiles included on three sides, the west mere reserve excluded', () => {
+  it('T3.3a-r2 world growth: apron tiles included on three sides, the west edge at the T4.10 line (former mere reserve absorbed)', () => {
     const tiles = placeablePlotTiles();
     // North apron: center y = -192, above even the old scene top (y 0).
     expect(tiles).toContainEqual({ col: -8, row: -7 });
@@ -1980,11 +1985,14 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     expect(tiles).not.toContainEqual({ col: 10, row: 9 });
     // East strip: center x = 1052, right edge 1180 - past the old 1060 limit.
     expect(tiles).toContainEqual({ col: 4, row: 0 });
-    // West mere reserve (x < 20): the next column west (col-row = -4 puts the
-    // diamond's left edge at -100) must NOT be placeable.
-    expect(tiles).not.toContainEqual({ col: -4, row: 0 });
+    // West edge (x < -236 since T4.10; the old comment-only "mere reserve" at
+    // x < 20 is absorbed). col-row = -5 puts the diamond's left edge at -228,
+    // which fits - so it IS placeable; col-row = -6 puts it at -356 < -236,
+    // which does not.
+    expect(tiles).toContainEqual({ col: -4, row: 0 }); // col-row -4, placeable since T4.10
+    expect(tiles).not.toContainEqual({ col: -6, row: 0 }); // col-row -6, still off the west edge
     for (const { col, row } of tiles) {
-      expect(col - row).toBeGreaterThanOrEqual(-3);
+      expect(col - row).toBeGreaterThanOrEqual(-5);
     }
   });
 
@@ -1992,11 +2000,14 @@ describe('placeablePlotTiles (T3.3a-r placement authority)', () => {
     const tiles = placeablePlotTiles();
     const cols = tiles.map((tile) => tile.col);
     const rows = tiles.map((tile) => tile.row);
-    expect(Math.min(...cols)).toBe(-9);
+    // T4.10 RE-PIN: the west growth admits col-row down to -5, pushing min col
+    // -9 -> -10 and max row 10 -> 11 (max col / min row are set by the east and
+    // north edges, unchanged).
+    expect(Math.min(...cols)).toBe(-10);
     expect(Math.max(...cols)).toBe(11);
     expect(Math.min(...rows)).toBe(-9);
-    expect(Math.max(...rows)).toBe(10);
-    expect(PLOT_GRID_COORD_MIN).toBeLessThan(-9);
+    expect(Math.max(...rows)).toBe(11);
+    expect(PLOT_GRID_COORD_MIN).toBeLessThan(-10);
     expect(PLOT_GRID_COORD_MAX).toBeGreaterThan(11);
   });
 });
@@ -2008,21 +2019,22 @@ describe('placeablePlotTiles region union + bounds (T3.3b)', () => {
    *  col+row = 1 -> center y = 768 + 64 = 832, well inside y [-300, 2010]. */
   const BAND_TILE = { col: 4, row: -3 };
 
-  it('with no region unlocked returns exactly the base set (136 tiles)', () => {
+  it('with no region unlocked returns exactly the base set (170 tiles)', () => {
     expect(placeablePlotTiles([])).toEqual(placeablePlotTiles());
-    expect(placeablePlotTiles([])).toHaveLength(136);
+    expect(placeablePlotTiles([])).toHaveLength(170); // T4.10 re-pin: 136 + 34 west
     expect(placeablePlotTiles([])).not.toContainEqual(BAND_TILE);
   });
 
-  it('unlocking east_meadow adds the band AND the seam column (136 -> 204), base tiles preserved', () => {
+  it('unlocking east_meadow adds the band AND the seam column (170 -> 238), base tiles preserved', () => {
     // DERIVATION (T3.3b-r1 seam fix): the domain now enumerates over the
-    // MERGED rect x [20, 1752] y [-300, 2010] (base and band share the full
+    // MERGED rect x [-236, 1752] y [-300, 2010] (base and band share the full
     // y-range and touch at x=1240), not the two rects separately. That is the
-    // 136 base tiles + the band's own 34 + the 34 tiles whose diamonds straddle
-    // x=1240 and so fitted inside NEITHER rect before = 204.
+    // 170 base tiles + the band's own 34 + the 34 tiles whose diamonds straddle
+    // x=1240 and so fitted inside NEITHER rect before = 238. T4.10 re-pin:
+    // only the base moved (136 -> 170 west); the region's +68 is unchanged.
     const base = placeablePlotTiles();
     const withRegion = placeablePlotTiles(['east_meadow']);
-    expect(withRegion).toHaveLength(204);
+    expect(withRegion).toHaveLength(238);
     for (const tile of base) expect(withRegion).toContainEqual(tile);
     expect(withRegion).toContainEqual(BAND_TILE);
   });
@@ -2043,20 +2055,21 @@ describe('placeablePlotTiles region union + bounds (T3.3b)', () => {
   });
 
   it('ignores unknown region ids (base set only)', () => {
-    expect(placeablePlotTiles(['not_a_region'])).toHaveLength(136);
+    expect(placeablePlotTiles(['not_a_region'])).toHaveLength(170); // T4.10 re-pin
   });
 
   it('the static validator bounds enclose the region-union set with >=1 tile margin (T3.3b re-pin)', () => {
-    // Base col [-9, 11] / row [-9, 10] UNION the East Meadow band pushes the
-    // union to col [-9, 13] and row [-11, 10]; [-12, 14] gives row -11 and
-    // col 13 exactly 1 tile of margin, the rest more.
+    // T4.10 RE-PIN: base col [-10, 11] / row [-9, 11] (grown 2 columns west)
+    // UNION the East Meadow band pushes the union to col [-10, 13] and
+    // row [-11, 11]; [-12, 14] gives row -11 and col 13 exactly 1 tile of
+    // margin, the rest more (col -10 gets 2, row 11 gets 3).
     const union = placeablePlotTiles(REGIONS.map((region) => region.id));
     const cols = union.map((tile) => tile.col);
     const rows = union.map((tile) => tile.row);
-    expect(Math.min(...cols)).toBe(-9);
+    expect(Math.min(...cols)).toBe(-10);
     expect(Math.max(...cols)).toBe(13);
     expect(Math.min(...rows)).toBe(-11);
-    expect(Math.max(...rows)).toBe(10);
+    expect(Math.max(...rows)).toBe(11);
     expect(PLOT_GRID_COORD_MIN).toBeLessThanOrEqual(-11 - 1);
     expect(PLOT_GRID_COORD_MAX).toBeGreaterThanOrEqual(13 + 1);
   });
@@ -2327,7 +2340,10 @@ describe('isPlotTileFree (T3.3a-r collision rules)', () => {
   it('rejects non-placeable and non-integer coordinates', () => {
     const state = slice([]);
     expect(isPlotTileFree(state, 5, 0)).toBe(false); // col-row = 5: diamond off the world's east edge
-    expect(isPlotTileFree(state, 0, 4)).toBe(false); // col-row = -4: in the west mere reserve (x < 20)
+    // T4.10 RE-TARGET: col-row = -4 became placeable when the default area grew
+    // 2 columns west, so this west-edge guard moves out to col-row = -6
+    // (diamond left edge -356 < PLOT_PLACEABLE_MIN_X -236).
+    expect(isPlotTileFree(state, 0, 6)).toBe(false); // col-row = -6: off the world's west edge
     expect(isPlotTileFree(state, 99, 99)).toBe(false);
     expect(isPlotTileFree(state, 0.5, 3)).toBe(false);
     expect(isPlotTileFree(state, Number.NaN, 0)).toBe(false);
@@ -2713,7 +2729,8 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
   it('placePlot rejects non-placeable tiles, blocked tiles, and non-integer coords', () => {
     const store = expandedStore();
     expect(store.placePlot(5, 0)).toBe(false); // diamond off the world's east edge
-    expect(store.placePlot(0, 4)).toBe(false); // west mere reserve (x < 20)
+    // T4.10 RE-TARGET: col-row -4 is placeable now, so the west guard is -6.
+    expect(store.placePlot(0, 6)).toBe(false); // off the world's west edge (x < -236)
     expect(store.placePlot(0, -2)).toBe(false); // farmhouse footprint
     expect(store.placePlot(6, 3)).toBe(false); // notice-board footprint (5-tile diamond, T3.3b-r1)
     expect(store.placePlot(0.5, 3)).toBe(false);
@@ -2768,7 +2785,8 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
     expect(store.movePlot(5, 0, -2)).toBe(false); // farmhouse footprint
     expect(store.movePlot(5, 6, 3)).toBe(false); // notice-board footprint
     expect(store.movePlot(5, 5, 0)).toBe(false); // off the world's east edge
-    expect(store.movePlot(5, 0, 4)).toBe(false); // west mere reserve (x < 20)
+    // T4.10 RE-TARGET: col-row -4 is placeable now, so the west guard is -6.
+    expect(store.movePlot(5, 0, 6)).toBe(false); // off the world's west edge (x < -236)
     expect(store.movePlot(5, 1, 3.5)).toBe(false);
     expect(store.getState().plots[5]).toEqual({ state: 'empty', ...tileOf(5) });
   });

@@ -64,8 +64,10 @@ describe('fenceEdgeSnapDeltas (plot-edge snap anchors, T3.3a2-r1)', () => {
 describe('decorClampBounds (T3.3b region-aware decoration clamp)', () => {
   it('base bounds derive from the full base plot-placeable rect (T3.3b widened clamp)', () => {
     // The legacy hand-tuned rect (x 0..1080, y 380..1520) grew to cover the
-    // full BASE plot-placeable rect - west mere reserve and south seed-bar
-    // dead band respected exactly as the plot rect does.
+    // full BASE plot-placeable rect - west edge and south seed-bar dead band
+    // respected exactly as the plot rect does. (The west bound was the "mere
+    // reserve" until T4.10 absorbed it into the default buildable area; these
+    // stay derived, so DECOR_X_MIN moved 20 -> -236 with it.)
     expect(DECOR_X_MIN).toBe(PLOT_PLACEABLE_MIN_X);
     expect(DECOR_X_MAX).toBe(PLOT_PLACEABLE_MAX_X);
     expect(DECOR_Y_MIN).toBe(PLOT_PLACEABLE_MIN_Y);

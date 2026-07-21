@@ -7,21 +7,30 @@ export const DESIGN_HEIGHT = 1920;
  * legacy 1080x1920 design rect - which stays exactly where it is (no existing
  * coordinate changes) - with a 180px grass apron east/west and a 320px apron
  * north/south. The default (home) camera view is still the legacy design rect
- * at zoom 1; pinch/pan reaches the apron. The world's west strip is reserved
- * for the mere (see PLOT_PLACEABLE_MIN_X in data/farm.ts).
+ * at zoom 1; pinch/pan reaches the apron.
  *
  * T3.3b (regions): the world grows EAST for the first purchasable region (the
- * "East Meadow" band). WORLD_MIN_X stays -180; WORLD_WIDTH 1440 -> 1952 moves
- * the east edge 1260 -> 1772, so the locked band and its region sign are
- * pannable/visible before purchase. The camera zoom-out floor is fitZoom(world)
- * and DROPS with the wider world (0.75 -> 1080/1952 ~= 0.553; it derives, never
- * re-hardcoded); the ground TileSprite covers the grown rect because it derives
- * from these constants (see FarmScene.createGroundTexture). REGIONS'
- * placeableRect (data/farm.ts) is measured off this east edge.
+ * "East Meadow" band). WORLD_WIDTH 1440 -> 1952 moved the east edge
+ * 1260 -> 1772, so the locked band and its region sign are pannable/visible
+ * before purchase.
+ *
+ * T4.10 (default area grows WEST): the STARTER placeable rect gains 2 columns
+ * west (PLOT_PLACEABLE_MIN_X 20 -> -236, data/farm.ts), so the world's west
+ * edge moves with it: WORLD_MIN_X -180 -> -256, keeping the standard 20px
+ * edge margin west of the new plots. WORLD_WIDTH 1952 -> 2028 so the EAST edge
+ * is unchanged at -256 + 2028 = 1772 (East Meadow untouched). The west apron
+ * absorbed the former "mere reserve" strip - that reserve was comment-only
+ * (no art, no code) and no longer exists.
+ *
+ * The camera zoom-out floor is fitZoom(world) and DROPS with the wider world
+ * (0.75 -> 1080/2028 ~= 0.5325; it derives, never re-hardcoded); the ground
+ * TileSprite covers the grown rect because it derives from these constants
+ * (see FarmScene.createGroundTexture). REGIONS' placeableRect (data/farm.ts)
+ * is measured off this east edge.
  */
-export const WORLD_MIN_X = -180;
+export const WORLD_MIN_X = -256;
 export const WORLD_MIN_Y = -320;
-export const WORLD_WIDTH = 1952;
+export const WORLD_WIDTH = 2028;
 export const WORLD_HEIGHT = 2560;
 
 /** Texture key of the single texture atlas loaded in Preload. */

@@ -167,8 +167,10 @@ const FIELD_MAX_Y = WORLD_MIN_Y + WORLD_HEIGHT;
 /**
  * Grid range scanned when laying grass; wide enough to fill the world rect.
  * Derivation: tile centers sit at (540 + (col-row)*128, 768 + (col+row)*64);
- * covering x in [-180-128, 1260+128] and y in [-320, 2240] needs
- * col-row in [-6, 6] and col+row in [-17, 23], i.e. col/row in [-11, 14].
+ * covering the world rect's x [-256-128, 1772+128] (T3.3b grew the east edge
+ * to 1772, T4.10 the west edge to -256) and y [-320, 2240] needs col-row in
+ * [-8, 11] and col+row in [-17, 23]; col/row in [-11, 14] still encloses all
+ * of that with room to spare.
  */
 const GRASS_GRID_MIN = -11;
 const GRASS_GRID_MAX = 14;
@@ -808,9 +810,9 @@ const CAMERA_MAX_ZOOM_IN = 1.6;
  * T3.3a-r2 splits the two rects the T3.4b gestures share:
  * - WORLD: the full world rect (config.ts) - pan reaches everywhere in it,
  *   rubber-banding at its true edges, and the zoom-out floor is fitZoom(world),
- *   showing grass to every edge. It grew EAST in T3.3b (regions) to 1952x2560,
- *   so the floor DROPPED from 0.75 to the width fit ~0.553 (derived, pinned in
- *   cameraMath.test.ts) - never re-hardcoded here.
+ *   showing grass to every edge. It grew EAST in T3.3b (regions) and WEST in
+ *   T4.10, reaching 2028x2560, so the floor DROPPED from 0.75 to the width fit
+ *   ~0.5325 (derived, pinned in cameraMath.test.ts) - never re-hardcoded here.
  * - OWNED: the legacy 1080x1920 design rect, still exactly where it was -
  *   the HOME view (default + Recenter target) is fitZoom(owned) pulled back by
  *   CAMERA_HOME_ZOOM_OUT (see there), centered on the same rect.
@@ -829,7 +831,7 @@ const CAMERA_OWNED_BOUNDS: WorldBounds = { x: 0, y: 0, width: DESIGN_WIDTH, heig
  * Expressed as a FRACTION of that fit rather than an absolute zoom, so it
  * stays meaningful if the owned rect or the design viewport ever changes.
  * 0.7 shows the farm noticeably wider than the old fitZoom(owned) = 1 while
- * staying clear of the gesture floor (fitZoom(world) ~= 0.553, the fully
+ * staying clear of the gesture floor (fitZoom(world) ~= 0.5325, the fully
  * zoomed-out view): it spends about two thirds of the available zoom-out
  * range, so the player can still pinch out further to see the whole world.
  * `cameraHome` clamps against that floor anyway, so this can never push past it.
@@ -2998,7 +3000,7 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /** The gesture zoom-out FLOOR (T3.3a-r2): the zoom that fits the whole
-   *  WORLD - the width fit (~0.553) for the T3.3b 1952x2560 world in the design
+   *  WORLD - the width fit (~0.5325) for the 2028x2560 world in the design
    *  viewport (derived from CAMERA_WORLD_BOUNDS, pinned in cameraMath.test.ts). */
   private cameraFitZoom(viewport: Viewport): number {
     return fitZoom(CAMERA_WORLD_BOUNDS, viewport);

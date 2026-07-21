@@ -20,10 +20,7 @@ export const FARM_MAX_ROWS = 4;
 /**
  * The placeable rect (T3.3a-r, grown to the day-one world in T3.3a-r2): the
  * design-space region a plot tile's diamond must fit inside to be placeable -
- * the full 1440x2560 world rect (config.ts WORLD_MIN_X/Y + WORLD_WIDTH/
- * HEIGHT) EXCEPT:
- * - the west strip x < 20: the MERE RESERVE (art pending - no plots may
- *   ever sit there);
+ * the world rect (config.ts WORLD_MIN_X/Y + WORLD_WIDTH/HEIGHT) EXCEPT:
  * - the south band y > 2010 (T3.3a-r2x PM ruling): a tile diamond below
  *   that line can never scroll clear of the screen-fixed seed-bar band
  *   (band top at screen y 1560) even at max zoom-in - at zoom 1.6 and the
@@ -32,8 +29,16 @@ export const FARM_MAX_ROWS = 4;
  * with a small margin at the remaining world edges. `placeablePlotTiles`
  * (systems/gameState.ts) enumerates the hidden-grid tiles whose diamonds
  * fit here, in the frozen iso frame.
+ *
+ * T4.10: the DEFAULT buildable area grows 2 columns WEST - MIN_X 20 -> -236
+ * (2 x TILE_WIDTH/2 = 256px), so the leftmost admissible visual column
+ * (col - row) goes -3 -> -5 and the base set goes 136 -> 170 tiles. The west
+ * strip is no longer a "mere reserve": that reserve was comment-only (no art,
+ * no code ever existed for it) and is absorbed by this expansion. WORLD_MIN_X
+ * moved -180 -> -256 to keep the standard 20px edge margin west of the new
+ * plots; the east edge is unchanged.
  */
-export const PLOT_PLACEABLE_MIN_X = 20;
+export const PLOT_PLACEABLE_MIN_X = -236;
 export const PLOT_PLACEABLE_MAX_X = 1240;
 export const PLOT_PLACEABLE_MIN_Y = -300;
 export const PLOT_PLACEABLE_MAX_Y = 2010;
@@ -43,10 +48,11 @@ export const PLOT_PLACEABLE_MAX_Y = 2010;
  * the ENLARGED placeable set (base rect UNION every region's band since T3.3b)
  * with margin, and also bound the scan `computePlaceablePlotTiles` runs.
  * Derivation (pinned by a test): in the frozen frame the base rect admits
- * col [-9, 11] / row [-9, 10]; the East Meadow band (REGIONS, x 1240..1752)
- * pushes the union to col [-9, 13] and row [-11, 10]. [-12, 14] encloses all
- * of that with at least a 1-tile margin on every side (row -11 gets exactly 1,
- * col 13 gets exactly 1; the rest more). Negative coordinates are expected -
+ * col [-10, 11] / row [-9, 11] (T4.10 west growth); the East Meadow band
+ * (REGIONS, x 1240..1752) pushes the union to col [-10, 13] and row [-11, 11].
+ * [-12, 14] encloses all of that with at least a 1-tile margin on every side
+ * (col -10 gets 2, col 13 gets exactly 1, row -11 gets exactly 1, row 11
+ * gets 3). Negative coordinates are expected -
  * tile (0, 0) is the legacy grid's top corner, not the scene's. Still a pure
  * LOOSENING of the T3.3a-r bounds ([-10, 12]) - no schema bump.
  */
