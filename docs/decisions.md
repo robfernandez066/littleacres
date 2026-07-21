@@ -19,6 +19,18 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-21 - Mill UI + unlockable slots shipped (T4.2b, T4.2b-r1)
+**Context:** T4.2a gave the mill a working milling model; it needed a player-facing face, and after playtesting the owner reshaped the slots into an earned progression instead of three free ones.
+**Decision:** The mill tap opens a SLOTS-ONLY panel (the dev-oriented recipe/on-hand header was cut): each slot shows the recipe as icons + Mill, milling shows an exact mm:ss countdown + bar, ready shows Collect. Mill starts with 1 usable slot; slots 2 and 3 are bought with coins (2,500 / 10,000) through a two-tap pay-to-unlock that is sequential and coin-gated (`unlockMillSlot`; schema v24->v25 adds `unlockedSlots` default 1; `startMilling` caps on it; batches behind a locked slot survive and return when the slot is bought). One combined top-middle field indicator - output good icon + green radial ring (fills over the soonest-to-finish batch) + ready-count badge - replaced the earlier lower-left puff and top-right badge. The panel is good-agnostic (reads the recipe, never names Sunflour) so future producers reuse it. Mill build price cut 1500->500. Still dev-placed; player acquisition is T4.2d.
+**Verdict:** COMMIT 7122767 (T4.2b: panel/tap/indicators/millSlots + camera default; tests 631), then COMMIT cce75b5 (T4.2b-r1: unlockable slots + slots-only redesign + top-middle indicator; schema v25, tests 647). Parked feel-tweaks: 3s arm window, slot-3 inert Unlock look, ring green at 0.75 zoom.
+**Trigger:** owner feedback after playtesting T4.2b.
+
+## 2026-07-21 - Camera home default zoomed out (0.75x owned-fit)
+**Context:** At zoom 1.0 the plot block filled the screen; the owner wanted a wider default view.
+**Decision:** Camera home is now `fitZoom(owned) * 0.75`, floored at the pinch-out fit zoom so Recenter always has a reachable target, and the camera is seated at home on boot (`snapCameraHome`) so a fresh session never starts off-home. Expressed as a fraction of fit zoom so it survives world/viewport changes. At the new default the farmhouse, notice board, mill, and whole plot block are visible at once.
+**Verdict:** COMMIT 7122767 (rode with T4.2b, shared FarmScene.ts; tests 631).
+**Trigger:** owner request ("zoom out a bit as the default").
+
 ## 2026-07-20 - Milling model shipped (T4.2a)
 **Context:** Phase 4's flour mill needed a working production loop before any UI: turn Sunwheat into Sunflour on a real-clock timer that keeps running while the game is closed.
 **Decision:** Co-located a `MillingRecipe` on the flour_mill BuildingDef (5 Sunwheat -> 2 Sunflour, ~20 min, 3 slots; provisional). Milling state lives on the placement as `batches: MillBatch[]` storing only `startedAt` - readiness is DERIVED (`startedAt + batchMs`), never stored, exactly like a crop's `plantedAt + growMs`, so offline progress is free and cannot desync (no per-tick advancer). Added `startMilling`/`collectMilling` reducers (input consumed at start, manual collect), pure `millBatchReadyAt`/`isMillBatchReady` helpers, a v23->v24 migration (existing placements gain `batches: []`), a validator that caps batches at the recipe's slot count, `clampFuturePlantedAt` extended to batches, and dev `grantGood`/`startMilling`/`finishMilling`. Model-only, dev-inert - no UI or shop entry.
