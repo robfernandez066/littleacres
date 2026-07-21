@@ -1,14 +1,14 @@
 item_id,name,type,currency,price,notes
-decor_bench,Bench,shop,coins,400,
-decor_flowerbed,Flowerbed,shop,coins,600,
-decor_fence,Fence,shop,coins,250,
-decor_barrels,Barrels,shop,coins,350,
-decor_scarecrow,Scarecrow,shop,coins,900,
-decor_birdbath,Birdbath,shop,coins,1200,
-decor_well,Well,shop,coins,2000,
-decor_mushrooms,Mushrooms,shop,moondust,4,"THE moondust sink (with Gnome, Lantern)."
-decor_gnome,Gnome,shop,moondust,6,
-decor_lantern,Lantern,shop,moondust,8,
+decor_bench,Bench,shop,coins,600,
+decor_flowerbed,Flowerbed,shop,coins,900,
+decor_fence,Fence,shop,coins,400,
+decor_barrels,Barrels,shop,coins,550,
+decor_scarecrow,Scarecrow,shop,coins,1500,
+decor_birdbath,Birdbath,shop,coins,2000,
+decor_well,Well,shop,coins,5000,
+decor_mushrooms,Mushrooms,shop,moondust,12,"THE moondust sink (with Gnome, Lantern)."
+decor_gnome,Gnome,shop,moondust,25,
+decor_lantern,Lantern,shop,moondust,50,
 trophy_goldscarecrow,Golden Scarecrow,trophy,-,-,Quest: Golden Fields (500 Sunwheat).
 trophy_starbanner,Star Banner,trophy,-,-,Quest: Star Farmer (300 Starcorn).
 trophy_moonwell,Moonwell,trophy,-,-,Quest: Keeper of the Glow (200 Glowberry).

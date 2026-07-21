@@ -1,20 +1,20 @@
 currency,flow,source_or_sink,amount,notes
 coins,source,Sell crops,see Crops,Baseline income. Worst coins/hr per the Crops sheet.
 coins,source,Sell goods,see Goods,Processed premium over raw crops.
-coins,source,Standard orders,sum(sell) x 1.3,Best routine income; drives the order board.
-coins,source,Premium orders,x2 units + chests,10% of orders. Bigger payout + 1-2 chests at L6+.
-coins,source,Treasure chests,150-400 each,From premium orders at L6+ (1-2 chests; 2 if reward >= 600).
+coins,source,Standard orders,sum(sell) x 1.6,Best routine income; drives the order board.
+coins,source,Premium orders,x2 units + chests,10% of orders. 2x units + chests at L6+.
+coins,source,Treasure chests,150-400 each,"From premium orders at L6+ (1-2 chests; 2 if reward >= 1,000)."
 coins,source,Radiant harvest,5x crop yield,2% of harvests yield 5 instead of 1 (sell value x5).
 coins,sink,Seeds,see Crops,Continuous drain (seed_cost per plant).
 coins,sink,Buildings,"500 / 2,000","Flour Mill 500, Bakery 2,000. Major early sink."
-coins,sink,Building slots,2.5k/10k; 5k/20k,"Mill slot 2/3 = 2,500/10,000; Bakery = 5,000/20,000."
-coins,sink,Decor (coin items),"250 - 2,000","Bench 400, Flowerbed 600, Fence 250, Barrels 350, Scarecrow 900, Birdbath 1,200, Well 2,000."
-coins,sink,Farm expansion,500,Expand sign: +4 plots (12 -> 16).
-coins,sink,Region: East Meadow,"7,500",Level 7 gate. +6 plots. Dominant mid-game sink.
-coins,sink,Restore farmhouse,"50,000",Long-term goal. Also costs 20 moondust.
+coins,sink,Building slots,2000 + 6000 / 4000 + 12000,"Mill slot 2/3 = 2,000/6,000; Bakery = 4,000/12,000."
+coins,sink,Decor (coin items),"400 - 5,000","Bench 600, Flowerbed 900, Fence 400, Barrels 550, Scarecrow 1,500, Birdbath 2,000, Well 5,000"
+coins,sink,Farm expansion,750,Expand sign: +4 plots (12 -> 16).
+coins,sink,Region: East Meadow,"15,000",Level 7 gate. +6 plots. Dominant mid-game sink.
+coins,sink,Restore farmhouse,"100,000",Long-term goal. Also costs 20 moondust.
 moondust,source,Level up,1 per level,MOONDUST_PER_LEVEL. Reliable trickle.
-moondust,source,Radiant harvest,+1 @ 50%,"On a Radiant proc (2% of harvests), 50% also gives +1 moondust."
-moondust,source,Premium orders,1-2 @ 10%,Premium order completion grants 1-2 moondust.
-moondust,source,Treasure chests,+1 @ 50%,Each chest has a 50% chance to roll 1 moondust.
-moondust,sink,Decor (moondust items),4 / 6 / 8,"Mushrooms 4, Gnome 6, Lantern 8."
+moondust,source,Radiant harvest,+1 @ 5%,"On a Radiant proc (2% of harvests), 5% also gives +1 moondust."
+moondust,source,Premium orders,1 @ 10%,Premium order completion grants 1 moondust. Main faucet.
+moondust,source,Treasure chests,+1 @ 25%,Each chest has a 25% chance to roll 1 moondust.
+moondust,sink,Decor (moondust items),12 / 25 / 50,"Mushrooms 12, Gnome 25, Lantern 50."
 moondust,sink,Restore farmhouse,20,"Paired with the 50,000-coin farmhouse restore."

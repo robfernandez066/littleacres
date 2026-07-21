@@ -1,21 +1,22 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-21
-**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Applying the economy balance pass v2 (T4.11).
-**Schema:** v27 · **Tests:** 720 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11).
+**Schema:** v27 · **Tests:** 722 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **T4.11 - economy balance pass v2 APPLY (not yet committed).** Full crop/good/order/level/moondust/decor/quest retune from a simulation-expert agent, PM-verified (11.45d L1->L8, 21/21 invariants, sim re-run in-sandbox). Fixes the flat-coins/hr dead-tier via session-gap-matched crops + sublinear payoff. Owner calls: growth re-spacing accepted (Q1), Sagesprig 9h->7h (Q5), farmhouse 50k->100k (Q4). Coder task written = data-only across ~11 src/data files + broad test re-pins; XP thresholds jump hard (config not schema; stored level only increases; SAVE BACKUP first). After it commits, PM re-exports docs/balance/*.csv from src/data.
+- None.
 
 ## Queued next
 
-- **Q2 - ORDER_REFRESH_COOLDOWN** (new per-slot lever; small feature task; fixes the day-1 order spike). Runs after T4.11.
+- **Q2 - ORDER_REFRESH_COOLDOWN** (new per-slot lever; small feature task; fixes the day-1 order spike). Next up.
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- T4.11 economy balance pass v2 (crop/good/order/level/moondust/decor/quest retune + onboarding L2 reshape + 2-chest revive) - a9e542b (schema v27 unchanged; balance mirror re-exported)
 - T4.10 starter area +2 columns west - 077d6ce (no schema change)
 - T4.8 building flip (mill/bakery/farmhouse) - 0bdfdc1, schema v27
 - T4.9 unlock levels mill L3 / bakery L4 - 35a4f43
@@ -37,10 +38,11 @@
 ## Watch items
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
-- Applying T4.11's XP-threshold jump: confirm no existing save is demoted (stored level only increases, T1.7).
+- T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
 
 ## Backlog nits (fold into convenient tasks)
 
+- gameState.test.ts "harvesting queues the same kind of event as addXp": its comment still says the L2 threshold is 900 and over-sizes the loop guard to 1000 - the test passes (L2 is 30, so it exits at ~15) but the derivation is stale; fix next time that file is touched.
 - Decorations polish pass (sounds, arrange-mode juice, shop scroll >10 items, decor-over-plot rules).
 - Partial crop selling (sell X, not all) - scheduling with owner.
 - MAX-level order cards still advertise xp at the cap - de-emphasize.
@@ -50,6 +52,7 @@
 ## Open validations (real-device evidence still needed)
 
 - Camera feel on the LIVE site from a real phone (post-deploy).
+- T4.11 tutorial on a FRESH save (save backup first): the level-2 celebration + Starcorn reveal should fire on the ORDER A delivery, and plant-mixed should complete with 57 coins. The logic is unit-covered; this is the visual eyeball only.
 
 ## Waiting on user
 

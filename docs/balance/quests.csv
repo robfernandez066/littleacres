@@ -1,12 +1,12 @@
 scope,id,name,counter,target,reward,notes
-long,golden_fields,Golden Fields,Sunwheat harvested (lifetime),500,Golden Scarecrow trophy,
-long,star_farmer,Star Farmer,Starcorn harvested (lifetime),300,Star Banner trophy,
-long,keeper_glow,Keeper of the Glow,Glowberries harvested (lifetime),200,Moonwell trophy,
-long,village_favorite,Village Favorite,Orders fulfilled (lifetime),50,2 chests,
-long,premium_partner,Premium Partner,Premium orders fulfilled (lifetime),25,Trader's Cart trophy,
-long,treasure_hunter,Treasure Hunter,Chests opened (lifetime),10,3 chests,
-long,deep_roots,Deep Roots,Any crop harvested (lifetime),2000,Ancient Oak trophy,
-weekly,weekly_growth,Growing Strong,Grow-minutes harvested,level-scaled: 240/240/400/600/900/1300/1900/2800,1 chest,"Counts grow-MINUTES, not harvests, so it can't be Sunwheat-spammed. Target by level L1-8 (snapshot when the week is drawn)."
-weekly,weekly_specialist,Specialist,Featured-crop harvests,per crop: SW60/SC25/GB15/MR12/EP8/DM5/SS3,1 chest + 2 moondust,Featured crop rotates weekly; each crop has its own target (dewmelon/sagesprig added since v2).
-weekly,weekly_trader,Weekly Trader,Orders fulfilled this week,12,3 moondust,
-weekly,weekly_radiance,Weekly Radiance,Radiant crops harvested this week,2,1 chest,
+long,golden_fields,Golden Fields,Sunwheat harvested (lifetime),1000,Golden Scarecrow trophy,
+long,star_farmer,Star Farmer,Starcorn harvested (lifetime),100,Star Banner trophy,
+long,keeper_glow,Keeper of the Glow,Glowberries harvested (lifetime),50,Moonwell trophy,
+long,village_favorite,Village Favorite,Orders fulfilled (lifetime),100,2 chests,
+long,premium_partner,Premium Partner,Premium orders fulfilled (lifetime),10,Trader's Cart trophy,
+long,treasure_hunter,Treasure Hunter,Chests opened (lifetime),5,3 chests,
+long,deep_roots,Deep Roots,Any crop harvested (lifetime),1500,Ancient Oak trophy,
+weekly,weekly_growth,Growing Strong,Grow-minutes harvested,level-scaled: 200/400/1000/4000/5000/5000/10000/10000,1 chest,"Counts grow-MINUTES, not harvests, so it can't be Sunwheat-spammed. Target by level L1-8 (snapshot when the week is drawn)."
+weekly,weekly_specialist,Specialist,Featured-crop harvests,per crop: SW200/SC50/GB20/MR10/EP40/DM8/SS3,1 chest + 2 moondust,Featured crop rotates weekly; each crop has its own target (dewmelon/sagesprig added since v2).
+weekly,weekly_trader,Weekly Trader,Orders fulfilled this week,20,3 moondust,
+weekly,weekly_radiance,Weekly Radiance,Radiant crops harvested this week,8,1 chest,

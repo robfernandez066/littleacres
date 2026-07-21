@@ -1,3 +1,3 @@
 id,name,unlock_level,coin_cost,place_sec,slots_default,slots_max,slot2_cost,slot3_cost,batch_input,batch_output,batch_sec,notes
-flour_mill,Flour Mill,3,500,0,1,3,2500,10000,5 Sunwheat,2 Sunflour,1200,First production building. Sunwheat -> Sunflour. Instant placement (no build timer).
-bakery,Bakery,4,2000,0,1,3,5000,20000,3 Sunflour,1 Bread,1800,Second tier. Sunflour -> Bread. Instant placement.
+flour_mill,Flour Mill,3,500,0,1,3,2000,6000,5 Sunwheat,2 Sunflour,1200,First production building. Sunwheat -> Sunflour. Instant placement (no build timer).
+bakery,Bakery,4,2000,0,1,3,4000,12000,3 Sunflour,1 Bread,1800,Second tier. Sunflour -> Bread. Instant placement.
