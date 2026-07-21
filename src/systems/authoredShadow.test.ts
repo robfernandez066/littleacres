@@ -46,10 +46,11 @@ if (shadowFrame === undefined) throw new Error('farmhouse_shadow missing from at
 
 /**
  * Every frame served by a hand-authored shadow rather than generateCastShadow
- * (T4.1: the flour mill joined the farmhouse). Anything else ending in `_shadow`
- * is generic and must stay out of SHADOW_PLACEMENT_OVERRIDES.
+ * (T4.1: the flour mill joined the farmhouse; T4.5: the bakery joined them).
+ * Anything else ending in `_shadow` is generic and must stay out of
+ * SHADOW_PLACEMENT_OVERRIDES.
  */
-const AUTHORED_SHADOW_FRAMES = ['farmhouse_shadow', 'flour_mill_shadow'];
+const AUTHORED_SHADOW_FRAMES = ['farmhouse_shadow', 'flour_mill_shadow', 'bakery_shadow'];
 
 /** The one anchor derivation - mirrored from tools/shadow-lib.mjs deriveAnchor. */
 const derivedAnchor = {
@@ -88,14 +89,17 @@ describe('authored building-shadow workflow (T3.29)', () => {
     expect(SHADOW_TUCK_RATIO).not.toBe(0);
   });
 
-  it('the override set is exactly the two authored buildings (farmhouse + flour mill)', () => {
-    // Re-pinned in T4.1: major buildings get an authored shadow (T3.29), so the
-    // flour mill joined the farmhouse as an authored override. Pinned as a
-    // WHOLE-MAP toEqual (keys AND values) rather than a key list or a count, so a
-    // stray third override, a dropped one, or an anchor drift all still fail.
+  it('the override set is exactly the three authored buildings (farmhouse + flour mill + bakery)', () => {
+    // Re-pinned in T4.1, again in T4.5: major buildings get an authored shadow
+    // (T3.29), so the flour mill and then the bakery joined the farmhouse as
+    // authored overrides. Pinned as a WHOLE-MAP toEqual (keys AND values) rather
+    // than a key list or a count, so a stray fourth override, a dropped one, or
+    // an anchor drift all still fail.
     // Values are each manifest's DERIVED anchor (sourceFrameRect +
     // sourceGroundPoint): farmhouse (131+128, 24+256) = (259,280); flour mill
-    // (128+129, 26+255) = (257,281). Both carry their own contact => tuckRatio 0.
+    // (128+129, 26+255) = (257,281); bakery (128+129, 26+255) = (257,281), which
+    // shares the mill's canvas and anchor. All carry their own contact =>
+    // tuckRatio 0.
     expect(SHADOW_PLACEMENT_OVERRIDES).toEqual({
       farmhouse_shadow: {
         logicalWidth: 412,
@@ -105,6 +109,13 @@ describe('authored building-shadow workflow (T3.29)', () => {
         tuckRatio: 0,
       },
       flour_mill_shadow: {
+        logicalWidth: 410,
+        logicalHeight: 390,
+        anchorX: 257,
+        anchorY: 281,
+        tuckRatio: 0,
+      },
+      bakery_shadow: {
         logicalWidth: 410,
         logicalHeight: 390,
         anchorX: 257,

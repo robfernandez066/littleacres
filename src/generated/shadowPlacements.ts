@@ -15,6 +15,7 @@ export interface ShadowPlacementOverride {
 }
 
 export const SHADOW_PLACEMENT_OVERRIDES: Readonly<Record<string, ShadowPlacementOverride>> = {
+  "bakery_shadow": { logicalWidth: 410, logicalHeight: 390, anchorX: 257, anchorY: 281, tuckRatio: 0 },
   "farmhouse_shadow": { logicalWidth: 412, logicalHeight: 385, anchorX: 259, anchorY: 280, tuckRatio: 0 },
   "flour_mill_shadow": { logicalWidth: 410, logicalHeight: 390, anchorX: 257, anchorY: 281, tuckRatio: 0 },
 };

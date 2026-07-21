@@ -1,0 +1,26 @@
+{
+  "building": "bakery",
+  "frame": "bakery_shadow",
+  "sourceFrame": "bakery",
+  "variants": [],
+  "logicalWidth": 410,
+  "logicalHeight": 390,
+  "sourceFrameRect": {
+    "x": 128,
+    "y": 26,
+    "width": 256,
+    "height": 256
+  },
+  "sourceGroundPoint": {
+    "x": 129,
+    "y": 255
+  },
+  "previewScale": 1.640625,
+  "tuckRatio": 0,
+  "validation": {
+    "minAlpha": 8,
+    "requireSingleComponent": true,
+    "requireUpperEdgeAboveAnchor": true
+  },
+  "description": "Authored bakery shadow; previewScale 1.640625 = BUILDING_DISPLAY_HEIGHT 420 / STRUCTURE_FRAME_SIZE 256 so the lab matches the game."
+}

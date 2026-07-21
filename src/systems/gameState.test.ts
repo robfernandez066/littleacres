@@ -169,6 +169,37 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * A fixed epoch to pin the wall clock to. Deliberately a literal constant -
+ * seeding from Date.now()/new Date() would reintroduce the nondeterminism this
+ * exists to remove.
+ */
+const FROZEN_EPOCH_MS = 1_700_000_000_000;
+
+/**
+ * Freezes the wall clock for the enclosing describe block.
+ *
+ * `now()` (systems/time.ts) is `Date.now() + offset`, so with a live clock any
+ * real millisecond that elapses BETWEEN two store calls also moves game time.
+ * That makes "one ms short of the boundary" tests flaky: a batch stamped at
+ * startedAt, advanced by `batchMs - 1`, reads ready anyway once >=1ms of real
+ * time passes before the collect call. With Date frozen, `now()` is exactly
+ * `FROZEN_EPOCH_MS + offset`, so advanceTime() is the only thing that moves
+ * time and the boundaries are exact.
+ *
+ * Only `Date` is faked: the store's autosave uses window.setInterval, which
+ * must keep running on real timers.
+ */
+function useFrozenClock(): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(FROZEN_EPOCH_MS);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+}
+
 describe('fresh default state', () => {
   it('creates a valid new-player state', () => {
     const store = new GameStateStore({ storage: null });
@@ -2776,6 +2807,10 @@ describe('grantPlots / placePlot / movePlot (T3.3a)', () => {
 });
 
 describe('orders', () => {
+  // Skip-cooldown tests assert exact `readyAt === before + cooldown` equality
+  // and straddle SKIP_STREAK_RESET_MS, both of which drift with a live clock.
+  useFrozenClock();
+
   /** A hand-built two-crop order with arbitrary stored rewards - fulfillment
    * must pay exactly these, not anything recomputed from crop data. */
   const TEST_ORDER: Order = {
@@ -3184,6 +3219,10 @@ describe('orders', () => {
 });
 
 describe('onboarding', () => {
+  // The review-order dwell test advances to REVIEW_ORDER_DWELL_MS - 1 and must
+  // still read "not yet dwelt".
+  useFrozenClock();
+
   /** Index of a step id in the chain; the walk test asserts against these. */
   function stepIndex(id: string): number {
     return ONBOARDING_STEPS.findIndex((step) => step.id === id);
@@ -6888,6 +6927,10 @@ function fullMillStore(wheat: number, storage: SaveStorage | null = null): GameS
 }
 
 describe('milling (T4.2a)', () => {
+  // Every batch boundary here is derived from startedAt + batchMs against a
+  // live now(); freeze the clock so advanceTime() alone decides readiness.
+  useFrozenClock();
+
   describe('startMilling', () => {
     it('deducts exactly inputCount and adds one batch stamped with the game clock', () => {
       const store = millStore(RECIPE.inputCount + 3);
