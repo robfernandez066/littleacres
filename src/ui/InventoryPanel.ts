@@ -1,22 +1,92 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
-import { CROPS, type CropDef, type CropId } from '../data/crops';
+import { CROPS, type CropId } from '../data/crops';
+import { GOODS, type GoodId } from '../data/goods';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { ModalBackdrop } from './ModalBackdrop';
 
 /**
- * Modal-style inventory panel: one row per crop showing its icon, name,
- * held count, unit sell value, and a "Sell all" button. Toggled by the HUD's
- * bag button; renders purely from the `GameStateData` passed to `refresh`.
+ * Modal-style inventory panel: one row per sellable - every crop first, then
+ * every processed good (T4.2c) - showing its icon, name, held count, unit sell
+ * value, and a "Sell all" button. Toggled by the HUD's bag button; renders
+ * purely from the `GameStateData` passed to `refresh`.
  */
 
+/**
+ * What a row sells. Crops and goods live in separate registries and separate
+ * save maps, so a row's identity is the pair, never a bare id - that is what
+ * lets `refresh` read each row's count from the right map and lets the HUD
+ * route the sale to `sellCrop` vs `sellGood`.
+ */
+export type SellableRef = { kind: 'crop'; id: CropId } | { kind: 'good'; id: GoodId };
+
+const sameRef = (a: SellableRef, b: SellableRef): boolean => a.kind === b.kind && a.id === b.id;
+
+/**
+ * THE count source for a row - crops from `inventory`, goods from `goods`.
+ * Row display, the armed snapshot, and the disarm-on-change check all read
+ * through here, so an armed good row reacts to its stack changing exactly the
+ * way an armed crop row does.
+ */
+const countOf = (state: GameStateData, ref: SellableRef): number =>
+  ref.kind === 'crop' ? (state.inventory[ref.id] ?? 0) : (state.goods[ref.id] ?? 0);
+
+/** Everything the panel needs to draw one row, derived from either registry. */
+interface RowDescriptor {
+  ref: SellableRef;
+  name: string;
+  iconFrame: string;
+  sellValue: number;
+}
+
+/**
+ * Crops first, then goods - both straight from their registries, so a new crop
+ * or good is one registry entry and no change here.
+ */
+const ROW_DESCRIPTORS: RowDescriptor[] = [
+  ...Object.values(CROPS).map<RowDescriptor>((crop) => ({
+    ref: { kind: 'crop', id: crop.id },
+    name: crop.name,
+    iconFrame: crop.stageFrames[2],
+    sellValue: crop.sellValue,
+  })),
+  ...Object.values(GOODS).map<RowDescriptor>((good) => ({
+    ref: { kind: 'good', id: good.id },
+    name: good.name,
+    iconFrame: good.frame,
+    sellValue: good.sellValue,
+  })),
+];
+
+const CROP_ROW_COUNT = Object.keys(CROPS).length;
+const GOOD_ROW_COUNT = Object.keys(GOODS).length;
+
+/** 10px between 100px-tall sell buttons; 115 was too tall for 7 rows (T3.11). */
+const ROW_SPACING = 110;
+/** 160px below the panel top - the title clearance the 7-row panel used. */
+const ROW_TOP_INSET = 160;
+/** Same clearance below the last row the 5- and 7-row panels had. */
+const ROW_BOTTOM_CLEARANCE = 80;
+/** Extra breathing room (and the separator rule) between the crop and good groups. */
+const SECTION_GAP = 40;
+/** Only paid for when there is actually a good group to separate. */
+const SECTION_GAP_TOTAL = GOOD_ROW_COUNT > 0 && CROP_ROW_COUNT > 0 ? SECTION_GAP : 0;
+
 const PANEL_WIDTH = 960;
-/** Tall enough for all 7 crop rows (T3.11) with the same 80px clearance below
- * the last row that the 5-row panel had. */
-const PANEL_HEIGHT = 900;
+/**
+ * DERIVED from the row count (T4.2c), not a hand-tuned number: top inset, one
+ * ROW_SPACING per gap between rows, the crop/good section gap, and the bottom
+ * clearance. Adding a crop or a good to its registry keeps every row fitting.
+ * With 7 crops and no goods this is the historical 900.
+ */
+const PANEL_HEIGHT =
+  ROW_TOP_INSET +
+  (ROW_DESCRIPTORS.length - 1) * ROW_SPACING +
+  SECTION_GAP_TOTAL +
+  ROW_BOTTOM_CLEARANCE;
 const PANEL_CENTER_X = DESIGN_WIDTH / 2;
 const PANEL_CENTER_Y = 780;
 /** Above the seed bar (2000), below flying coins (2200). */
@@ -33,12 +103,9 @@ const CLOSE_OFFSET_Y = -PANEL_HEIGHT / 2 + 50;
  * button, and stay legible up to "x9999" / "9999" without colliding with it -
  * regardless of digit count, not just the values the MVP crops happen to use.
  */
-/** 160px below the panel top, same title clearance as before the 7-row refit. */
-const ROW_START_Y = -PANEL_HEIGHT / 2 + 160;
+const ROW_START_Y = -PANEL_HEIGHT / 2 + ROW_TOP_INSET;
 /** Column header labels ("Owned"/"Value") sit just above the first row (T3.24). */
 const HEADER_Y = ROW_START_Y - 55;
-/** 10px between 100px-tall sell buttons; 115 was too tall for 7 rows (T3.11). */
-const ROW_SPACING = 110;
 const ROW_ICON_X = -405;
 const ROW_ICON_SCALE = 0.5;
 const ROW_NAME_X = -352;
@@ -55,6 +122,13 @@ const ROW_UNIT_HEADER_X = 185;
 const ROW_SELL_BUTTON_X = 325;
 const SELL_BUTTON_WIDTH = 210;
 const SELL_BUTTON_HEIGHT = 100;
+
+/** Low-key rule sitting in SECTION_GAP, between the last crop row and the first good row. */
+const SEPARATOR_WIDTH = 800;
+const SEPARATOR_THICKNESS = 3;
+const SEPARATOR_COLOR = 0x4a3218;
+const SEPARATOR_ALPHA = 0.18;
+const SEPARATOR_Y = ROW_START_Y + (CROP_ROW_COUNT - 0.5) * ROW_SPACING + SECTION_GAP_TOTAL / 2;
 
 const SELL_BUTTON_ENABLED_ALPHA = 1;
 const SELL_BUTTON_DISABLED_ALPHA = 0.4;
@@ -130,7 +204,9 @@ const SELL_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 };
 
 interface InventoryRow {
-  cropId: CropId;
+  ref: SellableRef;
+  /** Unit sell value, cached from the descriptor for the armed "for N?" total. */
+  sellValue: number;
   countText: Phaser.GameObjects.Text;
   sellButton: Phaser.GameObjects.NineSlice;
   sellText: Phaser.GameObjects.Text;
@@ -145,10 +221,10 @@ export class InventoryPanel {
   private readonly backdrop: ModalBackdrop;
   private visible = false;
   /** The one row currently armed (two-tap sell confirm), or null. */
-  private armedCropId: CropId | null = null;
+  private armedRef: SellableRef | null = null;
   /** Real wall-clock arm time (UI timer, not game time) - drives ARM_TIMEOUT_MS. */
   private armedAt = -Infinity;
-  /** Inventory count at the moment of arming; a mismatch on refresh disarms. */
+  /** Held count at the moment of arming; a mismatch on refresh disarms. */
   private armedCount = 0;
   private armPulseTween: Phaser.Tweens.Tween | null = null;
   private armedSellButton: Phaser.GameObjects.NineSlice | null = null;
@@ -156,7 +232,7 @@ export class InventoryPanel {
 
   constructor(
     private readonly scene: Phaser.Scene,
-    private readonly onSell: (cropId: CropId, worldX: number, worldY: number) => void,
+    private readonly onSell: (ref: SellableRef, worldX: number, worldY: number) => void,
     private readonly audio: AudioManager,
   ) {
     // Tap sounds live on the user-driven close seams (backdrop and X), never
@@ -214,18 +290,30 @@ export class InventoryPanel {
       .setOrigin(1, 0.5);
     this.container.add([bg, title, closeButton, ownedHeader, eachHeader]);
 
-    Object.values(CROPS).forEach((crop, index) => {
-      this.rows.push(this.buildRow(crop, index));
+    if (SECTION_GAP_TOTAL > 0) {
+      this.container.add(
+        this.scene.add
+          .rectangle(0, SEPARATOR_Y, SEPARATOR_WIDTH, SEPARATOR_THICKNESS, SEPARATOR_COLOR)
+          .setAlpha(SEPARATOR_ALPHA),
+      );
+    }
+
+    ROW_DESCRIPTORS.forEach((descriptor, index) => {
+      this.rows.push(this.buildRow(descriptor, index));
     });
   }
 
-  private buildRow(crop: CropDef, index: number): InventoryRow {
-    const y = ROW_START_Y + index * ROW_SPACING;
+  private buildRow(descriptor: RowDescriptor, index: number): InventoryRow {
+    // Good rows sit one SECTION_GAP lower than their index alone would put them.
+    const y =
+      ROW_START_Y + index * ROW_SPACING + (descriptor.ref.kind === 'good' ? SECTION_GAP_TOTAL : 0);
 
     const icon = this.scene.add
-      .image(ROW_ICON_X, y, ATLAS_KEY, crop.stageFrames[2])
+      .image(ROW_ICON_X, y, ATLAS_KEY, descriptor.iconFrame)
       .setScale(ROW_ICON_SCALE);
-    const nameText = this.scene.add.text(ROW_NAME_X, y, crop.name, NAME_STYLE).setOrigin(0, 0.5);
+    const nameText = this.scene.add
+      .text(ROW_NAME_X, y, descriptor.name, NAME_STYLE)
+      .setOrigin(0, 0.5);
     const countText = this.scene.add
       .text(ROW_COUNT_RIGHT_X, y, 'x0', COUNT_STYLE)
       .setOrigin(1, 0.5);
@@ -233,7 +321,7 @@ export class InventoryPanel {
       .image(ROW_UNIT_COIN_X, y, ATLAS_KEY, 'coin')
       .setScale(ROW_UNIT_COIN_SCALE);
     const unitText = this.scene.add
-      .text(ROW_UNIT_TEXT_RIGHT_X, y, String(crop.sellValue), UNIT_VALUE_STYLE)
+      .text(ROW_UNIT_TEXT_RIGHT_X, y, String(descriptor.sellValue), UNIT_VALUE_STYLE)
       .setOrigin(1, 0.5);
 
     const sellButton = this.scene.add.nineslice(
@@ -255,13 +343,14 @@ export class InventoryPanel {
     // Only fires when the button is interactive (count > 0). First tap arms;
     // second tap (while already armed) sells - see `handleSellTap`.
     sellButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.handleSellTap(crop.id);
+      this.handleSellTap(descriptor.ref);
     });
 
     this.container.add([icon, nameText, countText, unitCoin, unitText, sellButton, sellText]);
 
     return {
-      cropId: crop.id,
+      ref: descriptor.ref,
+      sellValue: descriptor.sellValue,
       countText,
       sellButton,
       sellText,
@@ -277,14 +366,14 @@ export class InventoryPanel {
    * closing and another row arming are handled at their own call sites.
    */
   refresh(state: GameStateData): void {
-    if (this.armedCropId !== null) {
-      const currentCount = state.inventory[this.armedCropId] ?? 0;
+    if (this.armedRef !== null) {
+      const currentCount = countOf(state, this.armedRef);
       const timedOut = Date.now() - this.armedAt >= ARM_TIMEOUT_MS;
       if (timedOut || currentCount !== this.armedCount) this.disarm();
     }
 
     for (const row of this.rows) {
-      const count = state.inventory[row.cropId] ?? 0;
+      const count = countOf(state, row.ref);
       row.countText.setText(`x${count}`);
       const enabled = count > 0;
       row.sellButton.setAlpha(enabled ? SELL_BUTTON_ENABLED_ALPHA : SELL_BUTTON_DISABLED_ALPHA);
@@ -318,29 +407,29 @@ export class InventoryPanel {
   }
 
   /** First tap on an unarmed row arms it (disarming any other); a second tap while armed sells. */
-  private handleSellTap(cropId: CropId): void {
+  private handleSellTap(ref: SellableRef): void {
     this.audio.sfx('tap');
-    if (this.armedCropId === cropId) {
-      const row = this.rows.find((r) => r.cropId === cropId);
+    if (this.armedRef !== null && sameRef(this.armedRef, ref)) {
+      const row = this.rows.find((r) => sameRef(r.ref, ref));
       this.disarm();
-      if (row !== undefined) this.onSell(cropId, row.worldX, row.worldY);
+      if (row !== undefined) this.onSell(ref, row.worldX, row.worldY);
       return;
     }
-    this.armRow(cropId);
+    this.armRow(ref);
   }
 
-  private armRow(cropId: CropId): void {
-    const row = this.rows.find((r) => r.cropId === cropId);
+  private armRow(ref: SellableRef): void {
+    const row = this.rows.find((r) => sameRef(r.ref, ref));
     if (row === undefined) return;
-    this.armedCropId = cropId;
+    this.armedRef = ref;
     this.armedAt = Date.now();
-    this.armedCount = gameState.getState().inventory[cropId] ?? 0;
+    this.armedCount = countOf(gameState.getState(), ref);
     this.renderArmedRows();
   }
 
   private disarm(): void {
-    if (this.armedCropId === null) return;
-    this.armedCropId = null;
+    if (this.armedRef === null) return;
+    this.armedRef = null;
     this.armedAt = -Infinity;
     this.armedCount = 0;
     this.renderArmedRows();
@@ -350,8 +439,8 @@ export class InventoryPanel {
   private renderArmedRows(): void {
     this.stopArmedPulse();
     for (const row of this.rows) {
-      if (row.cropId === this.armedCropId) {
-        const total = this.armedCount * CROPS[row.cropId].sellValue;
+      if (this.armedRef !== null && sameRef(row.ref, this.armedRef)) {
+        const total = this.armedCount * row.sellValue;
         row.sellText.setText(`Sell ${this.armedCount}\nfor ${total}?`);
         this.fitArmedText(row.sellText);
         this.startArmedPulse(row.sellButton);

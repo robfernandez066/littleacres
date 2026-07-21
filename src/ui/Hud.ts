@@ -25,7 +25,7 @@ import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
 import type { GoalsPanel } from './GoalsPanel';
 import type { MillPanel } from './MillPanel';
-import { InventoryPanel } from './InventoryPanel';
+import { InventoryPanel, type SellableRef } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
 import type { QuestBoard } from './QuestBoard';
@@ -689,7 +689,7 @@ export class Hud {
 
     this.inventoryPanel = new InventoryPanel(
       this.scene,
-      (cropId, worldX, worldY) => this.sellCrop(cropId, worldX, worldY),
+      (ref, worldX, worldY) => this.sellSellable(ref, worldX, worldY),
       this.audio,
     );
 
@@ -1272,13 +1272,15 @@ export class Hud {
   }
 
   /**
-   * Sell an entire crop stack: batched coin arcs from the sell button to the
-   * HUD coin, an equal per-arrival ticker bump with a final true-up, a
-   * floating "+N" label, and a light haptic buzz.
+   * Sell an entire stack - a crop or a processed good (T4.2c): batched coin
+   * arcs from the sell button to the HUD coin, an equal per-arrival ticker bump
+   * with a final true-up, a floating "+N" label, and a light haptic buzz. Only
+   * the store call differs by kind; the choreography is currency-agnostic and
+   * shared, since both reducers return the coins gained.
    */
-  private sellCrop(cropId: CropId, worldX: number, worldY: number): void {
+  private sellSellable(ref: SellableRef, worldX: number, worldY: number): void {
     const before = gameState.getState().coins;
-    const gained = gameState.sellCrop(cropId);
+    const gained = ref.kind === 'crop' ? gameState.sellCrop(ref.id) : gameState.sellGood(ref.id);
     if (gained <= 0) return;
 
     this.flyCoinsToCounter(worldX, worldY, before, gained);
