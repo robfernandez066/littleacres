@@ -146,8 +146,8 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
       batchMs: 1_200_000,
       slots: 3,
       // Owner-set: the mill is cheap to build (500) and its capacity is the
-      // real coin sink - slot 2 at 2,500, slot 3 at 10,000.
-      slotUnlockCosts: [2500, 10_000],
+      // real coin sink - slot 2 at 2,000, slot 3 at 6,000.
+      slotUnlockCosts: [2000, 6000],
     },
   },
   /**
@@ -209,7 +209,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
       // own output and sits a step further up the chain.
       batchMs: 1_800_000,
       slots: 3,
-      slotUnlockCosts: [5000, 20_000],
+      slotUnlockCosts: [4000, 12_000],
     },
   },
 };

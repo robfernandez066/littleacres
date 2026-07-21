@@ -22,11 +22,13 @@ describe('GOODS registry (T4.0)', () => {
     expect(sunflour.name).toBe('Sunflour');
     expect(sunflour.pluralName).toBe('Sunflour');
     expect(sunflour.frame).toBe('sunflour');
-    expect(sunflour.sellValue).toBe(25);
-    // T4.3: provisional, set between Glowberry (15) and Moonroot (28) so an
-    // order for the processed good out-earns its input crop without beating
-    // the deep-tier crops.
-    expect(sunflour.xp).toBe(15);
+    // RE-PIN (Balance Pass v2): sellValue 25 -> 40, 5x the 8-coin Sunwheat it
+    // is milled from (5 Sunwheat in -> 2 Sunflour out is a +40 margin).
+    expect(sunflour.sellValue).toBe(40);
+    // RE-PIN (Balance Pass v2): xp 15 -> 25, still between Glowberry (20) and
+    // Moonroot (55) so an order for the processed good out-earns its input
+    // crop without beating the deep-tier crops.
+    expect(sunflour.xp).toBe(25);
   });
 
   it('every good carries a positive integer order xp (T4.3)', () => {
@@ -39,7 +41,7 @@ describe('GOODS registry (T4.0)', () => {
   });
 
   it('every good carries a processing premium over the crop economy it comes from', () => {
-    // Sunflour is milled from Sunwheat (8), so its 25 must beat the raw crop -
+    // Sunflour is milled from Sunwheat (8), so its 40 must beat the raw crop -
     // the premium is the whole reason to build the mill. Pinned as a floor,
     // not an exact ratio, so the balance pass can retune the multiplier.
     for (const good of Object.values(GOODS)) {

@@ -123,17 +123,18 @@ describe('generateOrder', () => {
   it('a single-item glowberry order (no second item) is still capped', () => {
     // First rng() (0.99) fails premium; second (0.99) fails the second-item
     // roll; third (0.9) picks index 2 of the 3 unlocked crops at level 3
-    // (glowberry). The single-item count equals totalUnits (5), which the
-    // cap clamps to 2.
+    // (glowberry). RE-PIN (Balance Pass v2): totalUnits is now
+    // ORDER_BASE_UNITS 3 + 1*3 = 6 (was 5), and glowberry's cap rose 2 -> 4,
+    // so the single-item count clamps to 4 instead of 2.
     const rng = queuedRng([0.99, 0.99, 0.9]);
     const order = generateOrder(3, rng);
-    expect(order.items).toEqual([{ kind: 'crop', cropId: 'glowberry', count: 2 }]);
-    expect(order.coinReward).toBe(Math.ceil(2 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
-    expect(order.xpReward).toBe(Math.ceil(2 * CROPS.glowberry.xp * ORDER_XP_MULTIPLIER));
+    expect(order.items).toEqual([{ kind: 'crop', cropId: 'glowberry', count: 4 }]);
+    expect(order.coinReward).toBe(Math.ceil(4 * CROPS.glowberry.sellValue * ORDER_COIN_MULTIPLIER));
+    expect(order.xpReward).toBe(Math.ceil(4 * CROPS.glowberry.xp * ORDER_XP_MULTIPLIER));
   });
 
   it('a single-item moonroot order (no second item) is still capped', () => {
-    // Level 4 unlocks moonroot; totalUnits = 2 + 1*4 = 6, capped to 3. First
+    // Level 4 unlocks moonroot; totalUnits = ORDER_BASE_UNITS 3 + 1*4 = 7, capped to 3. First
     // rng() (0.99) fails premium; second (0.99) fails the second-item roll;
     // third (0.9) picks index 3 of the 4 unlocked crops (moonroot).
     const rng = queuedRng([0.99, 0.99, 0.9]);
@@ -144,7 +145,7 @@ describe('generateOrder', () => {
   });
 
   it('a single-item emberpepper order (no second item) is still capped', () => {
-    // Level 5; totalUnits = 2 + 1*5 = 7, capped to 2. First rng() (0.99)
+    // Level 5; totalUnits = ORDER_BASE_UNITS 3 + 1*5 = 8, capped to 2. First rng() (0.99)
     // fails premium; second (0.99) fails the second-item roll; third (0.9)
     // picks index 4 of the 5 unlocked crops (emberpepper).
     const rng = queuedRng([0.99, 0.99, 0.9]);
@@ -157,7 +158,7 @@ describe('generateOrder', () => {
   });
 
   it('a single-item dewmelon order (no second item) is still capped (T3.11)', () => {
-    // Level 7 unlocks dewmelon; totalUnits = 2 + 1*7 = 9, capped to 2. First
+    // Level 7 unlocks dewmelon; totalUnits = ORDER_BASE_UNITS 3 + 1*7 = 10, capped to 2. First
     // rng() (0.99) fails premium; second (0.99) fails the second-item roll;
     // third (0.9) picks index 5 of the 6 unlocked crops (dewmelon).
     const rng = queuedRng([0.99, 0.99, 0.9]);
@@ -168,7 +169,7 @@ describe('generateOrder', () => {
   });
 
   it('a single-item sagesprig order (no second item) is still capped (T3.11)', () => {
-    // Level 8 unlocks sagesprig; totalUnits = 2 + 1*8 = 10, capped to 1.
+    // Level 8 unlocks sagesprig; totalUnits = ORDER_BASE_UNITS 3 + 1*8 = 11, capped to 1.
     // First rng() (0.99) fails premium; second (0.99) fails the second-item
     // roll; third (0.95) picks index 6 of the 7 unlocked crops (sagesprig).
     const rng = queuedRng([0.99, 0.99, 0.95]);
@@ -210,14 +211,16 @@ describe('generateOrder premium orders', () => {
     const order = generateOrder(2, () => 0);
     expect(order.items).toEqual([
       { kind: 'crop', cropId: 'sunwheat', count: 1 },
-      { kind: 'crop', cropId: 'starcorn', count: 5 }, // pre-clamp split (7) capped to 5
+      // RE-PIN (Balance Pass v2): totalUnits is now (3 + 1*2) * 2 = 10 (was 8),
+      // so the split leaves 9 for starcorn, and its cap rose 5 -> 6.
+      { kind: 'crop', cropId: 'starcorn', count: 6 }, // pre-clamp split (9) capped to 6
     ]);
     expect(order.premium).toEqual({ moondust: PREMIUM_MOONDUST_MIN, flavor: PREMIUM_FLAVORS[0] });
     expect(order.coinReward).toBe(
-      Math.ceil((CROPS.sunwheat.sellValue + 5 * CROPS.starcorn.sellValue) * ORDER_COIN_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.sellValue + 6 * CROPS.starcorn.sellValue) * ORDER_COIN_MULTIPLIER),
     );
     expect(order.xpReward).toBe(
-      Math.ceil((CROPS.sunwheat.xp + 5 * CROPS.starcorn.xp) * ORDER_XP_MULTIPLIER),
+      Math.ceil((CROPS.sunwheat.xp + 6 * CROPS.starcorn.xp) * ORDER_XP_MULTIPLIER),
     );
   });
 
@@ -272,71 +275,96 @@ describe('generateOrder premium orders', () => {
     it('a Sunwheat-only max-budget premium at level 8 carries 1 chest, not 2 (the Sunwheat-bias fix)', () => {
       // premium roll (0), second-item roll fails (0.99), pick(unlocked)
       // lands on sunwheat (0, first of 7 unlocked crops, uncapped) - the
-      // doubled single-item budget at MAX_LEVEL (20 units) used to trigger
-      // the old raw-unit threshold every time, purely because Sunwheat has
-      // no ORDER_UNIT_CAPS entry. Its low sell value keeps coinReward well
+      // doubled single-item budget at MAX_LEVEL used to trigger the old
+      // raw-unit threshold every time, purely because Sunwheat has no
+      // ORDER_UNIT_CAPS entry. Its low sell value keeps coinReward well
       // under the new value-based threshold.
+      // RE-PIN (Balance Pass v2): the doubled MAX_LEVEL budget is now
+      // (ORDER_BASE_UNITS 3 + 1*8) * 2 = 22 units, up from 20.
       const rng = queuedRng([0, 0.99, 0]);
       const order = generateOrder(MAX_LEVEL, rng);
-      expect(order.items).toEqual([{ kind: 'crop', cropId: 'sunwheat', count: 20 }]);
+      expect(order.items).toEqual([{ kind: 'crop', cropId: 'sunwheat', count: 22 }]);
       expect(order.coinReward).toBeLessThan(PREMIUM_TWO_CHEST_COIN_VALUE);
       expect(order.premium?.chests).toBe(1);
     });
 
-    it('a high-value premium (coinReward >= the threshold) carries 2 chests despite requesting very few units', () => {
-      // premium roll (0), second-item roll fails (0.99), pick(unlocked)
-      // lands on sagesprig (index 6 of 7 unlocked at MAX_LEVEL); the doubled
-      // budget (20) clamps to sagesprig's cap of 1, but its high sell value
-      // alone crosses PREMIUM_TWO_CHEST_COIN_VALUE.
-      const rng = queuedRng([0, 0.99, 0.95, 0, 0]);
-      const order = generateOrder(MAX_LEVEL, rng);
-      expect(order.items).toEqual([{ kind: 'crop', cropId: 'sagesprig', count: 1 }]);
-      expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
-      expect(order.premium?.chests).toBe(2);
+    /**
+     * The 2-chest tier's reachability guard.
+     *
+     * RE-PIN (T4.11-fix): this test was introduced asserting the OPPOSITE -
+     * Balance Pass v2 cut the deep crops' sell values (sagesprig 1200 -> 330,
+     * dewmelon 500 -> 200) while raising PREMIUM_TWO_CHEST_COIN_VALUE
+     * 600 -> 1500, which put the tier out of reach and made it dead code.
+     * Lowering the threshold to 1000 brings it back: the richest reachable
+     * order pays 1168, comfortably above it.
+     *
+     * The exhaustive sweep is kept (it is what caught the dead tier in the
+     * first place) and now guards the opposite direction - it fails the moment
+     * a balance pass pushes the threshold back above what the generator can
+     * actually produce.
+     */
+    it('the 2-chest tier is reachable, and the tiering is >= the threshold', () => {
+      // Exhaustive over the generator's own shape rules: every level, every
+      // item pairing from that level's pool, every legal unit split.
+      const cropPool = Object.values(CROPS);
+      let maxCoinReward = 0;
+      for (let level = 1; level <= MAX_LEVEL; level++) {
+        const pool = cropPool.filter((crop) => crop.unlockLevel <= level);
+        const totalUnits = (ORDER_BASE_UNITS + ORDER_UNITS_PER_LEVEL * level) * PREMIUM_UNITS_MULT;
+        const clamp = (crop: (typeof cropPool)[number], units: number) =>
+          Math.min(units, ORDER_UNIT_CAPS[crop.id] ?? units) * crop.sellValue;
+        for (const first of pool) {
+          maxCoinReward = Math.max(
+            maxCoinReward,
+            Math.ceil(clamp(first, totalUnits) * ORDER_COIN_MULTIPLIER),
+          );
+          for (const second of pool) {
+            if (second.id === first.id) continue;
+            for (let split = 1; split < totalUnits; split++) {
+              const base = clamp(first, split) + clamp(second, totalUnits - split);
+              maxCoinReward = Math.max(maxCoinReward, Math.ceil(base * ORDER_COIN_MULTIPLIER));
+            }
+          }
+        }
+      }
+      // Derivation: the richest reachable order is L8 dewmelon x2 (2 x 200,
+      // its cap) + sagesprig x1 (330, its cap) = 730 base, x1.6 = 1168.
+      expect(maxCoinReward).toBe(1168);
+      // RE-PIN (T4.11-fix): threshold 1500 -> 1000, so the top of the
+      // reachable range now clears it instead of falling 332 short.
+      expect(maxCoinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
+
+      // ...and the tier really does fire: across a wide sample at least one
+      // premium advertises 2 chests, and EVERY chest count is exactly what the
+      // >= comparison dictates (which is what pins >= rather than >).
+      const chested = sampleOrders(MAX_LEVEL, 2000).filter(
+        (order) => order.premium?.chests !== undefined,
+      );
+      expect(chested.length).toBeGreaterThan(0);
+      expect(chested.some((order) => order.premium!.chests === 2)).toBe(true);
+      for (const order of chested) {
+        const expected = order.coinReward >= PREMIUM_TWO_CHEST_COIN_VALUE ? 2 : 1;
+        expect(order.premium!.chests).toBe(expected);
+      }
     });
 
-    it('the threshold is inclusive at the tightest achievable margin', () => {
-      // No integer combination of crop sell values lands coinReward exactly
-      // on PREMIUM_TWO_CHEST_COIN_VALUE (every crop but Glowberry has an
-      // even sell value, and no reachable combination sums to the one odd
-      // coinBase - 461 - that would ceil to it). These two orders differ by
-      // exactly one Sunwheat unit and are the closest achievable pair
-      // straddling the threshold: 598 (below) still rolls 1 chest, 609 (the
-      // next reachable value, at/above) rolls 2 - proving the comparison is
-      // >=, not >.
-      const belowRng = queuedRng([0, 0, 0, 0.9, 0.3, 0, 0]);
-      const below = generateOrder(CHEST_UNLOCK_LEVEL, belowRng);
-      expect(below.items).toEqual([
-        { kind: 'crop', cropId: 'sunwheat', count: 5 },
-        { kind: 'crop', cropId: 'emberpepper', count: 2 },
-      ]);
-      expect(below.coinReward).toBe(598);
-      expect(below.premium?.chests).toBe(1);
-
-      const atRng = queuedRng([0, 0, 0, 0.9, 0.35, 0, 0]);
-      const at = generateOrder(CHEST_UNLOCK_LEVEL, atRng);
-      expect(at.items).toEqual([
-        { kind: 'crop', cropId: 'sunwheat', count: 6 },
-        { kind: 'crop', cropId: 'emberpepper', count: 2 },
-      ]);
-      expect(at.coinReward).toBe(609);
-      expect(at.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
-      expect(at.premium?.chests).toBe(2);
-    });
-
-    it('is absent below CHEST_UNLOCK_LEVEL, even when the coinReward would clear the threshold', () => {
+    it('is absent below CHEST_UNLOCK_LEVEL - the level gate, not the value', () => {
       expect(CHEST_UNLOCK_LEVEL).toBeGreaterThan(1);
       const level = CHEST_UNLOCK_LEVEL - 1;
-      // Same Sunwheat + Emberpepper shape as the boundary test above (still
-      // well clear of the threshold at this level's smaller budget), proving
-      // the level gate applies regardless of value.
+      // A premium Sunwheat + Emberpepper order one level below the gate.
+      // RE-PIN (Balance Pass v2): totalUnits is now (3 + 1*5) * 2 = 16 (was
+      // 14), so the 0.4 split gives Sunwheat 1 + floor(0.4 * 15) = 7 (was 6)
+      // and Emberpepper takes 9 clamped to its cap of 2.
       const rng = queuedRng([0, 0, 0, 0.9, 0.4, 0, 0]);
       const order = generateOrder(level, rng);
       expect(order.items).toEqual([
-        { kind: 'crop', cropId: 'sunwheat', count: 6 },
+        { kind: 'crop', cropId: 'sunwheat', count: 7 },
         { kind: 'crop', cropId: 'emberpepper', count: 2 },
       ]);
-      expect(order.coinReward).toBeGreaterThanOrEqual(PREMIUM_TWO_CHEST_COIN_VALUE);
+      // The old "even when the coinReward would clear the threshold" clause is
+      // gone: Balance Pass v2 put PREMIUM_TWO_CHEST_COIN_VALUE out of reach
+      // entirely (see the FLAGGED test above). The level gate is what this
+      // test is actually about, and it still holds.
       expect(order.premium).toBeDefined();
       expect(order.premium?.chests).toBeUndefined();
     });

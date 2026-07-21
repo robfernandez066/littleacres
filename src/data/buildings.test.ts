@@ -103,9 +103,10 @@ describe('BUILDINGS registry (T4.1)', () => {
       outputCount: 2,
       batchMs: 1_200_000, // 20 minutes
       slots: 3,
-      // RE-PIN (T4.2b-r1): owner-set slot prices - slot 2 at 2,500, slot 3 at
-      // 10,000. Only the slots PAST the first are priced, so length = slots - 1.
-      slotUnlockCosts: [2500, 10_000],
+      // RE-PIN (Balance Pass v2): owner-set slot prices dropped - slot 2 at
+      // 2,000 (was 2,500), slot 3 at 6,000 (was 10,000). Only the slots PAST
+      // the first are priced, so length = slots - 1.
+      slotUnlockCosts: [2000, 6000],
     });
   });
 
@@ -234,7 +235,8 @@ describe('the bakery def (T4.4)', () => {
       outputCount: 1,
       batchMs: 1_800_000, // 30 minutes
       slots: 3,
-      slotUnlockCosts: [5000, 20_000],
+      // RE-PIN (Balance Pass v2): slot 2 5,000 -> 4,000, slot 3 20,000 -> 12,000.
+      slotUnlockCosts: [4000, 12_000],
     });
   });
 

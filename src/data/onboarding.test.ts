@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
+import { xpForLevel } from './levels';
 import {
   ONBOARDING_ORDER_A,
   ONBOARDING_ORDER_B,
   ONBOARDING_STEPS,
   orderItemsText,
 } from './onboarding';
+import {
+  ORDER_COIN_MULTIPLIER,
+  ORDER_XP_MULTIPLIER,
+  orderItemSellValue,
+  orderItemXp,
+} from './orders';
 
 describe('onboarding step chain', () => {
   it('is exactly the 10-step full-rails chain, in order', () => {
@@ -26,6 +33,36 @@ describe('onboarding step chain', () => {
   it('ORDER A pays the 95 coins that fund the plant-mixed step without selling', () => {
     expect(ONBOARDING_ORDER_A.coinReward).toBe(95);
     expect(ONBOARDING_ORDER_A.xpReward).toBe(10);
+  });
+
+  it('ORDER A lands the tutorial exactly on the level-2 threshold', () => {
+    // THE onboarding contract (T4.11-fix): the 10 scripted harvests pay
+    // CROPS.sunwheat.xp (2) each and ORDER A adds its explicit +10, so the
+    // tutorial ends at 30 xp - which must be exactly xpForLevel(2), or step 10
+    // (plant-mixed) never gets its Starcorn unlock and the chain wedges.
+    expect(10 * 2 + ONBOARDING_ORDER_A.xpReward).toBe(30);
+    expect(xpForLevel(2)).toBe(30);
+  });
+
+  it('ORDER B carries the live generator formula over its own items', () => {
+    // RE-PIN (T4.11-fix): ORDER B's rewards are precomputed, so they are
+    // derived here from the SAME multipliers and per-item values the generator
+    // uses - this fails the moment a balance pass moves either and leaves the
+    // constant stale (which is exactly how the old 1.3-era 188 survived).
+    const coinBase = ONBOARDING_ORDER_B.items.reduce(
+      (sum, item) => sum + item.count * orderItemSellValue(item),
+      0,
+    );
+    const xpBase = ONBOARDING_ORDER_B.items.reduce(
+      (sum, item) => sum + item.count * orderItemXp(item),
+      0,
+    );
+    expect(ONBOARDING_ORDER_B.coinReward).toBe(Math.ceil(coinBase * ORDER_COIN_MULTIPLIER));
+    expect(ONBOARDING_ORDER_B.xpReward).toBe(Math.ceil(xpBase * ORDER_XP_MULTIPLIER));
+    // Derivation: coins ceil((8*8 + 4*19) * 1.6) = 224 (was 188 at the old 1.3
+    // multiplier and Starcorn 20); xp ceil((8*2 + 4*9) * 1.5) = 78, unchanged.
+    expect(ONBOARDING_ORDER_B.coinReward).toBe(224);
+    expect(ONBOARDING_ORDER_B.xpReward).toBe(78);
   });
 
   it('derives the review-order chip copy from the ORDER B config', () => {

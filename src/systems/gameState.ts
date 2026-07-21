@@ -1127,7 +1127,7 @@ export function createDefaultState(version: number): GameStateData {
   const now = Date.now();
   return {
     version,
-    coins: 50,
+    coins: 100,
     xp: 0,
     level: 1,
     plots: Array.from({ length: PLOT_COUNT }, (_, i): PlotState => ({

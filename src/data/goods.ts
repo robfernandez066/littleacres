@@ -33,10 +33,11 @@ export interface GoodDef {
 }
 
 /**
- * Balance numbers are provisional and will be tuned later.
+ * Balance Pass v2 (owner-approved, simulation-verified).
  *
- * Sunflour's 25 is roughly 3x the 8-coin Sunwheat it is milled from - the
- * processing premium that makes the mill worth building.
+ * Sunflour's 40 is 5x the 8-coin Sunwheat it is milled from - the processing
+ * premium that makes the mill worth building. One batch eats 5 Sunwheat
+ * (40 coins) and makes 2 Sunflour (80 coins), a +40 margin.
  */
 export const GOODS: Record<GoodId, GoodDef> = {
   sunflour: {
@@ -45,11 +46,11 @@ export const GOODS: Record<GoodId, GoodDef> = {
     // Mass-noun plural: "4 Sunflour", never "Sunflours" - like Sunwheat.
     pluralName: 'Sunflour',
     frame: 'sunflour',
-    sellValue: 25,
-    // Provisional (T4.3): above Sunwheat's 2 and between Glowberry (15) and
-    // Moonroot (28) - a processed good is worth more than the crop it eats,
-    // but an order for it should not out-earn the deep-tier crops.
-    xp: 15,
+    sellValue: 40,
+    // Above Sunwheat's 2 and between Glowberry (20) and Moonroot (55) - a
+    // processed good is worth more than the crop it eats, but an order for it
+    // should not out-earn the deep-tier crops.
+    xp: 25,
   },
   /**
    * Bread (T4.4): the second link in the production chain - the bakery bakes
@@ -65,23 +66,16 @@ export const GOODS: Record<GoodId, GoodDef> = {
     pluralName: 'Loaves',
     frame: 'bread',
     /**
-     * DEVIATION FROM THE TASK'S PROVISIONAL 60 - FLAGGED FOR THE OWNER.
-     *
-     * The bakery eats 3 Sunflour (3 x 25 = 75 coins of input) per loaf. At 60
-     * the loaf is worth LESS than the flour it is baked from, so baking would
-     * destroy 15 coins of value and no player should ever do it - even through
-     * an order, where 1 x 60 x 1.3 = 78 barely clears the 75 of flour and
-     * still costs a 30-minute bake.
-     *
-     * 95 restores the mill's own processing premium to the second link:
-     * the mill turns 40 coins of Sunwheat into 50 of Sunflour (1.25x), and
-     * 75 x 1.25 = 93.75, rounded to 95. Provisional like every number here;
-     * the sweep test 'EVERY production building is profitable' is what pins
-     * the invariant rather than this exact figure.
+     * The bakery eats 3 Sunflour (3 x 40 = 120 coins of input) per loaf, so the
+     * loaf must clear 120 or baking would destroy value and no player should
+     * ever do it. 200 leaves a +80 margin - the second link's processing
+     * premium, twice the mill's own +40 for a step that takes 30 minutes and
+     * consumes the mill's output. The sweep test 'EVERY production building is
+     * profitable' pins the invariant rather than this exact figure.
      */
-    sellValue: 95,
-    /** Raised with sellValue for the same reason: 3 x 15 = 45 xp of input in. */
-    xp: 70,
+    sellValue: 200,
+    /** Raised with sellValue for the same reason: 3 x 25 = 75 xp of input in. */
+    xp: 90,
   },
 };
 

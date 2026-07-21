@@ -74,10 +74,14 @@ export interface OnboardingStep {
  * begins. Rewards are explicit, NOT the generator formula: the 10 tutorial
  * harvests pay 20 xp, so the +10 here lands the fulfillment at exactly the
  * 30 xp level-2 threshold - the celebration and starcorn reveal fire
- * mid-tutorial by design. The 95 coins fund the plant-mixed step with no
- * selling (the rails forbid it): start 50 -> plant 10 sunwheat (-50) -> 0
- * coins -> harvest 10 -> deliver 6 (+95) -> 95 coins, 4 sunwheat held ->
- * plant 8 sunwheat + 4 starcorn (-88) -> tutorial done with 7 coins.
+ * mid-tutorial by design. This is the contract XP_THRESHOLDS[1] = 30 exists to
+ * honor (see data/levels.ts); if either number moves, the tutorial's step 10
+ * loses its Starcorn unlock and wedges.
+ *
+ * The 95 coins fund the plant-mixed step with no selling (the rails forbid
+ * it). Coin flow at STARTING_COINS 100 (T4.11): start 100 -> plant 10 sunwheat
+ * (-50) -> 50 coins -> harvest 10 -> deliver 6 (+95) -> 145 coins, 4 sunwheat
+ * held -> plant 8 sunwheat + 4 starcorn (-88) -> tutorial done with 57 coins.
  */
 export const ONBOARDING_ORDER_A: Order = {
   items: [{ kind: 'crop', cropId: 'sunwheat', count: 6 }],
@@ -90,16 +94,21 @@ export const ONBOARDING_ORDER_A: Order = {
  * onboarding, so the board immediately shows the order the plant-mixed step
  * grows toward. Its item counts ARE that step's goals (8 sunwheat, 4
  * starcorn) and the review-order chip derives its copy from these items.
- * Rewards are the standard generator formula, precomputed:
- * coins ceil((8*8 + 4*20) * 1.3) = 188, xp ceil((8*2 + 4*9) * 1.5) = 78.
- * Fulfilling it post-tutorial lands level 3 (and glowberry) naturally.
+ *
+ * Rewards are the standard generator formula, precomputed - so they must be
+ * recomputed whenever the multipliers or the two crops' values move. T4.11-fix
+ * refreshes the coins for Balance Pass v2 (ORDER_COIN_MULTIPLIER 1.3 -> 1.6,
+ * Starcorn sellValue 20 -> 19):
+ *   coins ceil((8*8 + 4*19) * 1.6) = 224   (was ceil((8*8 + 4*20) * 1.3) = 188)
+ *   xp    ceil((8*2 + 4*9)  * 1.5) = 78    (unchanged - neither input moved)
+ * Pinned against the live generator formula in data/onboarding.test.ts.
  */
 export const ONBOARDING_ORDER_B: Order = {
   items: [
     { kind: 'crop', cropId: 'sunwheat', count: 8 },
     { kind: 'crop', cropId: 'starcorn', count: 4 },
   ],
-  coinReward: 188,
+  coinReward: 224,
   xpReward: 78,
 };
 

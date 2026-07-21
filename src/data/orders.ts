@@ -27,7 +27,7 @@ export const SKIP_STREAK_RESET_MS = 6 * 60 * 60 * 1000;
  * Reward multipliers over raw sell value / harvest xp. Both are > 1 so
  * fulfilling an order always beats selling the same crops directly.
  */
-export const ORDER_COIN_MULTIPLIER = 1.3;
+export const ORDER_COIN_MULTIPLIER = 1.6;
 export const ORDER_XP_MULTIPLIER = 1.5;
 
 /**
@@ -47,7 +47,7 @@ export const PREMIUM_UNITS_MULT = 2;
 
 /** Inclusive range for a premium order's moondust reward. */
 export const PREMIUM_MOONDUST_MIN = 1;
-export const PREMIUM_MOONDUST_MAX = 2;
+export const PREMIUM_MOONDUST_MAX = 1;
 
 /** Flavor line pool for premium orders - PM-authored copy, no em dashes. */
 export const PREMIUM_FLAVORS: readonly string[] = [
@@ -60,7 +60,7 @@ export const PREMIUM_FLAVORS: readonly string[] = [
 ];
 
 /** Total units requested per order: BASE + PER_LEVEL * level, split across items. */
-export const ORDER_BASE_UNITS = 2;
+export const ORDER_BASE_UNITS = 3;
 export const ORDER_UNITS_PER_LEVEL = 1;
 
 /**
@@ -70,8 +70,8 @@ export const ORDER_UNITS_PER_LEVEL = 1;
  * item. Crops with no entry are uncapped.
  */
 export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
-  starcorn: 5,
-  glowberry: 2,
+  starcorn: 6,
+  glowberry: 4,
   moonroot: 3,
   emberpepper: 2,
   dewmelon: 2,
@@ -86,11 +86,11 @@ export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
  * the mill's throughput.
  */
 export const ORDER_GOOD_UNIT_CAPS: Partial<Record<GoodId, number>> = {
-  sunflour: 2,
-  // Bread (T4.4) is capped at ONE: a loaf is 3 Sunflour plus a 30-minute bake,
-  // so it is the slowest thing on the farm to produce and even two would make
-  // an order a multi-hour commitment.
-  bread: 1,
+  sunflour: 3,
+  // Bread (T4.4) is capped LOW: a loaf is 3 Sunflour plus a 30-minute bake, so
+  // it is the slowest thing on the farm to produce and a crop-sized pile would
+  // make an order a multi-hour commitment.
+  bread: 2,
 };
 
 /**

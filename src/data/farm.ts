@@ -66,7 +66,7 @@ export const BASE_PLOT_COUNT = FARM_COLS * FARM_ROWS;
 export const EXPANDED_PLOT_COUNT = FARM_COLS * FARM_MAX_ROWS;
 
 /** Coin cost of the base -> expanded expansion. */
-export const EXPANSION_COST = 500;
+export const EXPANSION_COST = 750;
 
 /**
  * Purchasable regions (T3.3b): config-extensible land the world grows into.
@@ -129,7 +129,7 @@ export const REGIONS: readonly RegionDef[] = [
   {
     id: 'east_meadow',
     name: 'East Meadow',
-    costCoins: 7500,
+    costCoins: 15000,
     levelGate: 7,
     plotGrant: 6,
     entitlementIncrease: 6,

@@ -21,7 +21,7 @@ export interface RestorationCost {
  * play data on coin/moondust income.
  */
 export const RESTORE_FARMHOUSE_COST: RestorationCost = {
-  coins: 50000,
+  coins: 100000,
   moondust: 20,
 };
 

@@ -102,20 +102,24 @@ describe('region entry status', () => {
 
 describe('progress line', () => {
   it('tracks both currencies on one line each, with no "Saved" prefix and no "and"', () => {
+    // RE-PIN (Balance Pass v2): RESTORE_FARMHOUSE_COST.coins 50,000 -> 100,000
+    // (moondust 20 unchanged), so every denominator below follows.
     const line = goalProgressLine(GOALS[0]!, stateWith({ coins: 12300, moondust: 3 }));
-    expect(line).toBe('12,300 / 50,000 coins\n3 / 20 moondust');
-    expect(line.split('\n')).toEqual(['12,300 / 50,000 coins', '3 / 20 moondust']);
+    expect(line).toBe('12,300 / 100,000 coins\n3 / 20 moondust');
+    expect(line.split('\n')).toEqual(['12,300 / 100,000 coins', '3 / 20 moondust']);
   });
 
   it('clamps each numerator at its price so a rich player never reads past 100%', () => {
+    // RE-PIN (Balance Pass v2): restore cost coins 50,000 -> 100,000.
     const line = goalProgressLine(GOALS[0]!, stateWith({ coins: 999999, moondust: 400 }));
-    expect(line).toBe('50,000 / 50,000 coins\n20 / 20 moondust');
+    expect(line).toBe('100,000 / 100,000 coins\n20 / 20 moondust');
   });
 
   it('returns the single coins line for a coins-only goal', () => {
     // No such goal ships today - this pins the branch so one can be added safely.
+    // RE-PIN (Balance Pass v2): restore cost coins 50,000 -> 100,000.
     const coinsOnly = { ...GOALS[0]!, costMoondust: 0 };
-    expect(goalProgressLine(coinsOnly, stateWith({ coins: 12300 }))).toBe('12,300 / 50,000 coins');
+    expect(goalProgressLine(coinsOnly, stateWith({ coins: 12300 }))).toBe('12,300 / 100,000 coins');
   });
 
   it('is empty for entries that do not track progress (the region rows)', () => {

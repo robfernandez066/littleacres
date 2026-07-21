@@ -25,16 +25,16 @@ export interface DecorItemDef {
 
 /** The 10 purchasable decorations. Balance numbers are the owner's sheet values. */
 export const DECOR_ITEMS: readonly DecorItemDef[] = [
-  { frame: 'decor_bench', name: 'Bench', currency: 'coins', price: 400 },
-  { frame: 'decor_flowerbed', name: 'Flowerbed', currency: 'coins', price: 600 },
-  { frame: 'decor_fence', name: 'Fence', currency: 'coins', price: 250 },
-  { frame: 'decor_barrels', name: 'Barrels', currency: 'coins', price: 350 },
-  { frame: 'decor_scarecrow', name: 'Scarecrow', currency: 'coins', price: 900 },
-  { frame: 'decor_birdbath', name: 'Birdbath', currency: 'coins', price: 1200 },
-  { frame: 'decor_well', name: 'Well', currency: 'coins', price: 2000 },
-  { frame: 'decor_mushrooms', name: 'Mushrooms', currency: 'moondust', price: 4 },
-  { frame: 'decor_gnome', name: 'Gnome', currency: 'moondust', price: 6 },
-  { frame: 'decor_lantern', name: 'Lantern', currency: 'moondust', price: 8 },
+  { frame: 'decor_bench', name: 'Bench', currency: 'coins', price: 600 },
+  { frame: 'decor_flowerbed', name: 'Flowerbed', currency: 'coins', price: 900 },
+  { frame: 'decor_fence', name: 'Fence', currency: 'coins', price: 400 },
+  { frame: 'decor_barrels', name: 'Barrels', currency: 'coins', price: 550 },
+  { frame: 'decor_scarecrow', name: 'Scarecrow', currency: 'coins', price: 1500 },
+  { frame: 'decor_birdbath', name: 'Birdbath', currency: 'coins', price: 2000 },
+  { frame: 'decor_well', name: 'Well', currency: 'coins', price: 5000 },
+  { frame: 'decor_mushrooms', name: 'Mushrooms', currency: 'moondust', price: 12 },
+  { frame: 'decor_gnome', name: 'Gnome', currency: 'moondust', price: 25 },
+  { frame: 'decor_lantern', name: 'Lantern', currency: 'moondust', price: 50 },
 ];
 
 export interface TrophyDef {

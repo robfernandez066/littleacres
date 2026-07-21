@@ -13,4 +13,4 @@ export const RADIANT_CHANCE = 0.02;
 export const RADIANT_YIELD_MULT = 5;
 
 /** Chance a Radiant harvest also grants +1 moondust. */
-export const RADIANT_MOONDUST_CHANCE = 0.5;
+export const RADIANT_MOONDUST_CHANCE = 0.05;

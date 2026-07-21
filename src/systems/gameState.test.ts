@@ -211,7 +211,7 @@ describe('fresh default state', () => {
     const store = new GameStateStore({ storage: null });
     const state = store.getState();
     expect(state.version).toBe(store.currentVersion);
-    expect(state.coins).toBe(50);
+    expect(state.coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(state.xp).toBe(0);
     expect(state.level).toBe(1);
     expect(state.plots).toHaveLength(PLOT_COUNT);
@@ -235,7 +235,7 @@ describe('fresh default state', () => {
   it('load with no existing save keeps a fresh state and does not warn', () => {
     const store = new GameStateStore({ storage: makeStorage() });
     store.load();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).not.toHaveBeenCalled();
   });
 });
@@ -250,7 +250,8 @@ describe('save and load', () => {
     const reader = new GameStateStore({ storage });
     reader.load();
     expect(reader.getState()).toEqual(writer.getState());
-    expect(reader.getState().coins).toBe(75);
+    // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100, so 100 + 25 = 125.
+    expect(reader.getState().coins).toBe(125);
   });
 
   it('save returns false without crashing when storage throws', () => {
@@ -365,7 +366,7 @@ describe('corrupt or invalid saves', () => {
     const storage = makeStorage({ [SAVE_KEY]: 'not json{{{' });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).toHaveBeenCalled();
     // The junk was replaced with a valid save.
     const reloaded = new GameStateStore({ storage });
@@ -378,7 +379,7 @@ describe('corrupt or invalid saves', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(bad) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.getState().plots).toHaveLength(PLOT_COUNT);
     expect(console.warn).toHaveBeenCalled();
   });
@@ -407,7 +408,7 @@ describe('backup and recovery slots (T3.17)', () => {
     expect(backupRaw).toBeDefined();
     const backup = JSON.parse(backupRaw!) as GameStateData;
     expect(isValidState(backup, store.currentVersion)).toBe(true);
-    expect(backup.coins).toBe(50 + 123);
+    expect(backup.coins).toBe(100 + 123); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
   });
 
   it('recovers from BACKUP_KEY when SAVE_KEY is corrupt: backup state loads, SAVE_KEY is rewritten, RECOVERY_KEY stashes the original', () => {
@@ -423,10 +424,10 @@ describe('backup and recovery slots (T3.17)', () => {
     storage.data.set(SAVE_KEY, 'not json');
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().coins).toBe(50 + 500);
+    expect(store.getState().coins).toBe(100 + 500); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
     const rewritten = JSON.parse(storage.data.get(SAVE_KEY)!) as GameStateData;
-    expect(rewritten.coins).toBe(50 + 500);
+    expect(rewritten.coins).toBe(100 + 500); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).toHaveBeenCalled();
   });
 
@@ -434,7 +435,7 @@ describe('backup and recovery slots (T3.17)', () => {
     const storage = makeStorage({ [SAVE_KEY]: 'not json', [BACKUP_KEY]: 'also broken{{' });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.getState().plots).toHaveLength(PLOT_COUNT);
     // The reset overwrote SAVE_KEY with a fresh save but left the stash alone.
     expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
@@ -445,7 +446,7 @@ describe('backup and recovery slots (T3.17)', () => {
     const storage = makeStorage({ [SAVE_KEY]: 'not json' });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(storage.data.has(BACKUP_KEY)).toBe(false);
     expect(storage.data.get(RECOVERY_KEY)).toBe('not json');
   });
@@ -460,7 +461,8 @@ describe('migrations', () => {
     expect(store.currentVersion).toBe(2);
     store.load();
     expect(store.getState().version).toBe(2);
-    expect(store.getState().coins).toBe(150);
+    // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100, and v1toV2 adds 100.
+    expect(store.getState().coins).toBe(200);
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -482,7 +484,7 @@ describe('migrations', () => {
     const store = new GameStateStore({ storage, migrations: [broken] });
     store.load();
     expect(store.getState().version).toBe(2);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).toHaveBeenCalled();
   });
 });
@@ -562,7 +564,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).toHaveBeenCalled();
   });
 });
@@ -792,7 +794,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     expect(store.getState().version).toBe(27);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -1040,7 +1042,8 @@ describe('buyDecoration', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
-    store.addCoins(400 - store.getState().coins);
+    // RE-PIN (Balance Pass v2): decor_bench price 400 -> 600.
+    store.addCoins(600 - store.getState().coins);
     expect(store.buyDecoration('decor_bench')).toBe(true);
     const state = store.getState();
     expect(state.coins).toBe(0);
@@ -1056,11 +1059,13 @@ describe('buyDecoration', () => {
   it('deducts moondust for a moondust-priced item', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    // decor_mushrooms costs 4 moondust; MOONDUST_PER_LEVEL (1) per level-up
-    // is the only way to earn it, so level up 4 times via xp.
+    // RE-PIN (Balance Pass v2): decor_mushrooms costs 12 moondust, up from 4.
+    // Level-ups grant MOONDUST_PER_LEVEL (1) each and MAX_LEVEL is 8, so the
+    // old "level up until you can afford it" route tops out at 7 - the grant
+    // is now made directly instead.
     expect(store.buyDecoration('decor_mushrooms')).toBe(false); // 0 moondust yet
-    store.addXp(xpForLevel(5));
-    expect(store.getState().moondust).toBe(4);
+    store.addMoondust(12);
+    expect(store.getState().moondust).toBe(12);
     expect(store.buyDecoration('decor_mushrooms')).toBe(true);
     const state = store.getState();
     expect(state.moondust).toBe(0);
@@ -1071,7 +1076,7 @@ describe('buyDecoration', () => {
   it('stacks repeat purchases of the same frame in the warehouse', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     expect(store.buyDecoration('decor_bench')).toBe(true);
     expect(store.buyDecoration('decor_bench')).toBe(true);
     expect(store.getState().warehouse).toEqual({ decor_bench: 2 });
@@ -1157,7 +1162,7 @@ describe('buyDecoration', () => {
 
   it('fails without mutation while onboarding is active', () => {
     const store = new GameStateStore({ storage: null });
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     // Onboarding left active (not completed).
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.buyDecoration('decor_bench')).toBe(false);
@@ -1170,7 +1175,7 @@ describe('placeFromWarehouse', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_bench');
     expect(store.getState().warehouse).toEqual({ decor_bench: 2 });
@@ -1191,7 +1196,7 @@ describe('placeFromWarehouse', () => {
   it('removes the key entirely once its count reaches 0 (never leaves a 0 entry)', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     expect(store.placeFromWarehouse('decor_bench')).toBe(0);
     expect(store.getState().warehouse).toEqual({});
@@ -1208,7 +1213,7 @@ describe('placeFromWarehouse', () => {
   it('appends across multiple placements, indices increasing', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_fence');
     expect(store.placeFromWarehouse('decor_bench')).toBe(0);
@@ -1236,7 +1241,7 @@ describe('storeDecoration', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
     expect(store.storeDecoration(0)).toBe(true);
@@ -1253,7 +1258,7 @@ describe('storeDecoration', () => {
   it('round-trips place -> store -> place, preserving counts exactly', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
@@ -1273,7 +1278,7 @@ describe('storeDecoration', () => {
   it('fails on an out-of-range index without mutation', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
     const snapshot = JSON.parse(store.exportSave()) as unknown;
@@ -1285,7 +1290,7 @@ describe('storeDecoration', () => {
   it('accumulates the warehouse count across multiple stores of the same frame, index shift accounted for', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
@@ -1302,7 +1307,7 @@ describe('setDecorationTransform', () => {
   function storeWithOneDecoration(): GameStateStore {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
     return store;
@@ -1312,7 +1317,7 @@ describe('setDecorationTransform', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
-    store.addCoins(1000);
+    store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.placeFromWarehouse('decor_bench');
     expect(store.setDecorationTransform(0, 600, 900, 0.7, true)).toBe(true);
@@ -1445,7 +1450,8 @@ describe('export and import', () => {
     store.addCoins(10);
     expect(store.importSave('garbage')).toBe(false);
     expect(store.importSave('{"version":1}')).toBe(false);
-    expect(store.getState().coins).toBe(60);
+    // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100, so 100 + 10 = 110.
+    expect(store.getState().coins).toBe(110);
     expect(console.warn).toHaveBeenCalled();
   });
 });
@@ -1458,7 +1464,7 @@ describe('plantCrop', () => {
     const before = now();
     expect(store.plantCrop(0, 'sunwheat')).toBe(true);
     const state = store.getState();
-    expect(state.coins).toBe(50 - CROPS.sunwheat.seedCost);
+    expect(state.coins).toBe(100 - CROPS.sunwheat.seedCost); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     const plot = state.plots[0];
     expect(plot?.state).toBe('growing');
     if (plot?.state === 'growing') {
@@ -1486,7 +1492,7 @@ describe('plantCrop', () => {
     expect(store.plantCrop(-1, 'sunwheat')).toBe(false);
     expect(store.plantCrop(PLOT_COUNT, 'sunwheat')).toBe(false);
     expect(store.plantCrop(0.5, 'sunwheat')).toBe(false);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.getState().plots.every((p) => p.state === 'empty')).toBe(true);
   });
 
@@ -1494,14 +1500,15 @@ describe('plantCrop', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     expect(store.plantCrop(0, 'tomato' as CropId)).toBe(false);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 
   it('fails when coins are insufficient without mutation', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(-(50 - CROPS.sunwheat.seedCost + 1)); // one coin short
+    // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
+    store.addCoins(-(100 - CROPS.sunwheat.seedCost + 1)); // one coin short
     const coinsBefore = store.getState().coins;
     expect(store.plantCrop(0, 'sunwheat')).toBe(false);
     expect(store.getState().coins).toBe(coinsBefore);
@@ -1513,7 +1520,7 @@ describe('plantCrop', () => {
     completeOnboarding(store);
     expect(CROPS.starcorn.unlockLevel).toBeGreaterThan(store.getState().level);
     expect(store.plantCrop(0, 'starcorn')).toBe(false);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.getState().plots[0]).toEqual({ state: 'empty', ...tileOf(0) });
   });
 });
@@ -2178,7 +2185,7 @@ describe('purchaseRegion (T3.3b)', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     store.setLevel(7);
-    store.addCoins(7500); // 50 default + 7500 = 7550
+    store.addCoins(15000); // 100 default + 15000 = 15100 (Balance Pass v2: region 7500 -> 15000)
     return store;
   }
 
@@ -2207,11 +2214,11 @@ describe('purchaseRegion (T3.3b)', () => {
     expect(store.getState().unplacedPlots).toBe(0);
   });
 
-  it('purchases: deducts exactly 7500, unlocks, grants 6 plots, raises the cap to 22', () => {
+  it('purchases: deducts exactly 15000, unlocks, grants 6 plots, raises the cap to 22', () => {
     const store = readyStore();
     const before = store.getState().coins;
     expect(store.purchaseRegion('east_meadow')).toBe(true);
-    expect(store.getState().coins).toBe(before - 7500);
+    expect(store.getState().coins).toBe(before - 15000); // RE-PIN (Balance Pass v2): east_meadow costCoins 7500 -> 15000.
     expect(store.getState().regionsUnlocked).toEqual(['east_meadow']);
     expect(store.getState().unplacedPlots).toBe(6);
     expect(store.consumePlotGrantEvents()).toEqual([{ count: 6 }]);
@@ -2222,7 +2229,7 @@ describe('purchaseRegion (T3.3b)', () => {
 
   it('refuses a second purchase of the same region', () => {
     const store = readyStore();
-    store.addCoins(7500);
+    store.addCoins(15000); // RE-PIN (Balance Pass v2): east_meadow costCoins 7500 -> 15000.
     expect(store.purchaseRegion('east_meadow')).toBe(true);
     expect(store.purchaseRegion('east_meadow')).toBe(false);
   });
@@ -2238,11 +2245,11 @@ describe('purchaseRegion (T3.3b)', () => {
 
   it('devUnlockRegion unlocks and grants without the level or coin gates', () => {
     const store = new GameStateStore({ storage: null });
-    completeOnboarding(store); // level 1, 50 coins - a real purchase would refuse
+    completeOnboarding(store); // level 1, 100 coins - a real purchase would refuse
     expect(store.devUnlockRegion('east_meadow')).toBe(true);
     expect(store.getState().regionsUnlocked).toEqual(['east_meadow']);
     expect(store.getState().unplacedPlots).toBe(6);
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.devUnlockRegion('east_meadow')).toBe(false); // already unlocked
     expect(store.devUnlockRegion('not_a_region')).toBe(false);
   });
@@ -3275,12 +3282,15 @@ describe('onboarding', () => {
 
     // 2 plant-first: one sunwheat.
     expect(store.plantCrop(0, 'sunwheat')).toBe(true);
-    expect(store.getState().coins).toBe(45);
+    // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100, so 100 - 5 = 95.
+    expect(store.getState().coins).toBe(95);
     expect(onboarding().step).toBe(stepIndex('plant-rest'));
 
-    // 3 plant-rest: nine more; the seed spend lands coins exactly on 0.
+    // 3 plant-rest: nine more. RE-PIN (Balance Pass v2): ten sunwheat seeds
+    // cost 50 of the now-100 starting coins, so this lands on 50, not 0 - the
+    // starting purse is no longer exactly ten plantings.
     for (let i = 1; i <= 9; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
-    expect(store.getState().coins).toBe(0);
+    expect(store.getState().coins).toBe(50);
     expect(onboarding()).toEqual({
       completed: false,
       step: stepIndex('harvest-first'),
@@ -3313,8 +3323,9 @@ describe('onboarding', () => {
 
     // 7 deliver-sunwheat: +95 coins, +10 xp -> exactly the 30 xp level-2
     // threshold; the celebration and starcorn reveal fire here by design.
+    // (T4.11-fix restored XP_THRESHOLDS[1] to 30 for exactly this contract.)
     expect(store.fulfillOrder(0)).toBe(true);
-    expect(store.getState().coins).toBe(95);
+    expect(store.getState().coins).toBe(145);
     expect(store.getState().xp).toBe(30);
     expect(store.getState().xp).toBe(xpForLevel(2));
     expect(store.getState().level).toBe(2);
@@ -3340,7 +3351,11 @@ describe('onboarding', () => {
     expect(onboarding().step).toBe(stepIndex('plant-mixed'));
 
     // 10 plant-mixed: 8 sunwheat then 4 starcorn, affordable WITHOUT selling
-    // -> exactly 7 coins left, and the tutorial completes permanently.
+    // -> 57 coins left, and the tutorial completes permanently.
+    // RE-PIN (T4.11): the whole coin flow shifted +50 with STARTING_COINS
+    // 50 -> 100 - 145 after the delivery, -40 for 8 Sunwheat, -48 for 4
+    // Starcorn (seedCost 12). The step stays affordable without selling,
+    // which is the property this pins.
     for (let i = 0; i < 8; i++) expect(store.plantCrop(i, 'sunwheat')).toBe(true);
     expect(onboarding()).toEqual({
       completed: false,
@@ -3350,10 +3365,10 @@ describe('onboarding', () => {
     });
     // The rails reject a 9th sunwheat outright - no coins spent.
     expect(store.plantCrop(8, 'sunwheat')).toBe(false);
-    expect(store.getState().coins).toBe(55);
+    expect(store.getState().coins).toBe(105); // 145 - 8 x 5
     expect(store.getState().plots[8]).toEqual({ state: 'empty', ...tileOf(8) });
     for (let i = 8; i < 12; i++) expect(store.plantCrop(i, 'starcorn')).toBe(true);
-    expect(store.getState().coins).toBe(7);
+    expect(store.getState().coins).toBe(57); // 105 - 4 x 12
     expect(store.getState().inventory.sunwheat).toBe(4);
     expect(store.getState().level).toBe(2);
     expect(store.getState().plots.every((plot) => plot.state === 'growing')).toBe(true);
@@ -3469,7 +3484,7 @@ describe('onboarding', () => {
     expect(store.sellCrop('sunwheat')).toBe(0);
     expect(store.sellCrop('starcorn')).toBe(0);
     expect(store.getState().inventory).toEqual({ sunwheat: 10, starcorn: 3 });
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
   });
 
   it('rails: fulfillOrder permits only slot 0 during deliver-sunwheat', () => {
@@ -3755,10 +3770,13 @@ describe('leveling', () => {
   it('harvesting queues the same kind of event as addXp', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
-    store.addCoins(1000); // enough seed cost for many plantings
+    // RE-PIN (Balance Pass v2): the level-2 xp threshold rose 30 -> 900, so at
+    // CROPS.sunwheat.xp (2) per harvest this needs 450 harvests, not 15 - both
+    // the seed budget (450 x 5 coins) and the loop guard grow to match.
+    store.addCoins(5000); // enough seed cost for many plantings
     // sunwheat xp is small; plant/warp/harvest enough to cross the level-2 threshold.
     let harvested = 0;
-    while (store.getState().level < 2 && harvested < 100) {
+    while (store.getState().level < 2 && harvested < 1000) {
       store.plantCrop(0, 'sunwheat');
       advanceTime(CROPS.sunwheat.growMs);
       store.harvestPlot(0);
@@ -4387,11 +4405,11 @@ describe('reset', () => {
     store.addCoins(500);
     store.save();
     store.reset();
-    expect(store.getState().coins).toBe(50);
+    expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
 
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
-    expect(reloaded.getState().coins).toBe(50);
+    expect(reloaded.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
   });
 });
 
@@ -4986,16 +5004,16 @@ describe('sellGood / devGrantGood (T4.0)', () => {
     const store = sellingStore(storage);
     const before = store.getState().coins;
     store.devGrantGood('sunflour', 4);
-    // 4 * GOODS.sunflour.sellValue (25) = 100.
+    // RE-PIN (Balance Pass v2): 4 * GOODS.sunflour.sellValue (40) = 160, was 100.
     expect(store.sellGood('sunflour')).toBe(4 * GOODS.sunflour.sellValue);
-    expect(store.getState().coins).toBe(before + 100);
+    expect(store.getState().coins).toBe(before + 160);
     expect(store.getState().goods.sunflour).toBe(0);
     const persisted = JSON.parse(storage.data.get(SAVE_KEY) as string) as {
       goods: Record<string, number>;
       coins: number;
     };
     expect(persisted.goods.sunflour).toBe(0);
-    expect(persisted.coins).toBe(before + 100);
+    expect(persisted.coins).toBe(before + 160);
   });
 
   it('an empty (or never-granted) stack sells for 0 and mutates nothing', () => {
@@ -5232,7 +5250,7 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     const store = new GameStateStore({ storage });
     completeOnboarding(store);
     store.setLevel(7);
-    store.addCoins(7500);
+    store.addCoins(15000); // RE-PIN (Balance Pass v2): east_meadow costCoins 7500 -> 15000.
     expect(store.purchaseRegion('east_meadow')).toBe(true);
     const reloaded = new GameStateStore({ storage });
     reloaded.load();
@@ -6258,29 +6276,32 @@ describe('featured crop draws from unlocked crops only (T3.19)', () => {
 });
 
 describe('weekly_specialist per-crop targets are exhaustive (T3.19)', () => {
-  it('every crop has a positive target; dewmelon is 5, sagesprig is 3', () => {
+  it('every crop has a positive target; dewmelon is 8, sagesprig is 3', () => {
     const specialist = WEEKLY_QUESTS.find((quest) => quest.id === 'weekly_specialist')!;
     for (const cropId of Object.keys(CROPS) as CropId[]) {
       expect(specialist.perCropTarget![cropId]).toBeGreaterThan(0);
     }
-    expect(specialist.perCropTarget!.dewmelon).toBe(5);
+    // RE-PIN (Balance Pass v2): dewmelon 5 -> 8; sagesprig unchanged at 3.
+    expect(specialist.perCropTarget!.dewmelon).toBe(8);
     expect(specialist.perCropTarget!.sagesprig).toBe(3);
   });
 });
 
 describe('growthTargetForLevel (T3.19)', () => {
   it('matches the owner-approved table exactly for levels 1..8', () => {
-    expect(GROWTH_TARGETS_BY_LEVEL).toEqual([240, 240, 400, 600, 900, 1300, 1900, 2800]);
+    // RE-PIN (Balance Pass v2): the owner-approved table was retuned end to end.
+    expect(GROWTH_TARGETS_BY_LEVEL).toEqual([200, 400, 1000, 4000, 5000, 5000, 10_000, 10_000]);
     for (let level = 1; level <= 8; level++) {
       expect(growthTargetForLevel(level)).toBe(GROWTH_TARGETS_BY_LEVEL[level - 1]);
     }
   });
 
   it('clamps below 1 to the first entry and above 8 to the last', () => {
-    expect(growthTargetForLevel(0)).toBe(240);
-    expect(growthTargetForLevel(-3)).toBe(240);
-    expect(growthTargetForLevel(9)).toBe(2800);
-    expect(growthTargetForLevel(99)).toBe(2800);
+    // RE-PIN (Balance Pass v2): first entry 240 -> 200, last 2800 -> 10,000.
+    expect(growthTargetForLevel(0)).toBe(200);
+    expect(growthTargetForLevel(-3)).toBe(200);
+    expect(growthTargetForLevel(9)).toBe(10_000);
+    expect(growthTargetForLevel(99)).toBe(10_000);
   });
 });
 
@@ -6299,11 +6320,12 @@ describe('growth target snapshot at rollover (T3.19)', () => {
     return saved;
   }
 
-  it('a rollover at level 8 stamps 2800 as the new week growthTarget', () => {
+  it('a rollover at level 8 stamps 10,000 as the new week growthTarget', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(expiredSave(8)) });
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
-    expect(store.getState().quests.weekly.growthTarget).toBe(2800);
+    // RE-PIN (Balance Pass v2): GROWTH_TARGETS_BY_LEVEL[7] 2800 -> 10,000.
+    expect(store.getState().quests.weekly.growthTarget).toBe(10_000);
   });
 
   it('gaining a level mid-week does not move the active target, and a quest completed before the level-up stays complete', () => {
@@ -6311,19 +6333,19 @@ describe('growth target snapshot at rollover (T3.19)', () => {
     // rng () => 0 redraws activeIds as [weekly_growth, weekly_specialist].
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
-    expect(store.getState().quests.weekly.growthTarget).toBe(400);
-    store.getState().quests.weekly.growMinutes = 400;
+    expect(store.getState().quests.weekly.growthTarget).toBe(1000); // RE-PIN (Balance Pass v2): GROWTH_TARGETS_BY_LEVEL[2] 400 -> 1000.
+    store.getState().quests.weekly.growMinutes = 1000;
     expect(store.questProgress('weekly_growth')).toEqual({
-      current: 400,
-      target: 400,
+      current: 1000,
+      target: 1000,
       complete: true,
       claimed: false,
     });
 
-    store.setLevel(4); // level 4 would mean 600 if the target were re-derived
+    store.setLevel(4); // level 4 would mean 4000 if the target were re-derived
     expect(store.questProgress('weekly_growth')).toEqual({
-      current: 400,
-      target: 400,
+      current: 1000,
+      target: 1000,
       complete: true,
       claimed: false,
     });
@@ -6347,7 +6369,7 @@ describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', ()
   it('grants a completed-unclaimed weekly_trader exactly once and queues one notice naming it and the new quests', () => {
     const saved = expiredSave();
     saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
-    saved.quests.weekly.orders = 12; // complete, unclaimed
+    saved.quests.weekly.orders = 20; // RE-PIN (Balance Pass v2): weekly_trader target 12 -> 20. // complete, unclaimed
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     // rng () => 0: no rng in the moondust-only grant; redraw picks
     // [weekly_growth, weekly_specialist] and sunwheat.
@@ -6369,7 +6391,7 @@ describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', ()
   it('does not re-grant an already-claimed quest, does not grant an incomplete one, and a bare rotation queues no notice', () => {
     const saved = expiredSave();
     saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
-    saved.quests.weekly.orders = 12;
+    saved.quests.weekly.orders = 20; // RE-PIN (Balance Pass v2): weekly_trader target 12 -> 20.
     saved.quests.weekly.claimed = ['weekly_trader']; // already claimed mid-week
     // weekly_radiance is incomplete (radiants 0/2).
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
@@ -6390,7 +6412,7 @@ describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', ()
     // (1 -> miss); the redraw then consumes the remaining values.
     const store = new GameStateStore({ storage, rng: stubRng(0, 1, 0, 0, 0) });
     store.load();
-    expect(store.getState().coins).toBe(50 + CHEST_COINS_MIN);
+    expect(store.getState().coins).toBe(100 + CHEST_COINS_MIN); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(store.consumeChestEvents()).toEqual([
       { contents: [{ coins: CHEST_COINS_MIN, moondust: 0 }] },
     ]);
@@ -6403,7 +6425,7 @@ describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', ()
     const saved = expiredSave(4);
     const oldAnchor = saved.quests.weekly.anchor;
     saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
-    saved.quests.weekly.orders = 12;
+    saved.quests.weekly.orders = 20; // RE-PIN (Balance Pass v2): weekly_trader target 12 -> 20.
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
@@ -6415,7 +6437,7 @@ describe('weekly rollover auto-grant of completed-unclaimed rewards (T3.19)', ()
   it('the notice queue is cleared by load() like the other transient queues', () => {
     const saved = expiredSave();
     saved.quests.weekly.activeIds = ['weekly_trader', 'weekly_radiance'];
-    saved.quests.weekly.orders = 12;
+    saved.quests.weekly.orders = 20; // RE-PIN (Balance Pass v2): weekly_trader target 12 -> 20.
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load(); // queues one notice via the load-time rollover
