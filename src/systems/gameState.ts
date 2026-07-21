@@ -194,6 +194,16 @@ export interface DecorationPlacement {
 export interface StructureAnchor {
   col: number;
   row: number;
+  /**
+   * Horizontal mirror (T4.8, schema v27) - `setFlipX` on the sprite, exactly
+   * like a decoration's `flip`. Purely visual: the anchor, footprint, render
+   * offset and cast shadow are all untouched by it.
+   *
+   * The notice board carries the field for shape uniformity but is never
+   * toggled (it is a sign - mirroring would mirror its text), so its value
+   * stays false forever; the arrange UI is what excludes it.
+   */
+  flipped: boolean;
 }
 
 /** The two movable structures' anchors (T3.3s). The expand sign stays fixed. */
@@ -230,6 +240,13 @@ export interface BuildingPlacement {
    * with no recipe carries 1 and never uses it.
    */
   unlockedSlots: number;
+  /**
+   * Horizontal mirror (T4.8, schema v27) - the building twin of
+   * `StructureAnchor.flipped` and of a decoration's `flip`. Visual only:
+   * `setFlipX` mirrors around the sprite's own origin, so anchor, footprint,
+   * render offset and shadow are all unchanged.
+   */
+  flipped: boolean;
 }
 
 /**
@@ -917,8 +934,9 @@ const v16ToV17: Migration = (raw) => ({
  * ever aliases the shared config constant. */
 function createDefaultStructures(): StructuresState {
   return {
-    farmhouse: { ...STRUCTURE_DEFAULT_ANCHORS.farmhouse },
-    noticeBoard: { ...STRUCTURE_DEFAULT_ANCHORS.noticeBoard },
+    // Both born unmirrored (T4.8); the notice board stays that way forever.
+    farmhouse: { ...STRUCTURE_DEFAULT_ANCHORS.farmhouse, flipped: false },
+    noticeBoard: { ...STRUCTURE_DEFAULT_ANCHORS.noticeBoard, flipped: false },
   };
 }
 
@@ -1040,6 +1058,41 @@ const v25ToV26: Migration = (raw) => {
   };
 };
 
+/**
+ * v26 -> v27: flippable buildings and structures (T4.8), mirroring v13 -> v14's
+ * decoration flip: everything already out there was drawn unmirrored, so every
+ * building placement and BOTH structure anchors gain `flipped: false` - the
+ * exact value a fresh save and a freshly bought building are born with, so a
+ * migrated save renders pixel-identical.
+ *
+ * The notice board gains the field too even though it is never toggled (it is a
+ * sign - see StructureAnchor.flipped): the validator requires the field on both
+ * anchors, so leaving it off one of them would fail the load.
+ *
+ * Defensive like the other migrations - an unexpected shape passes through for
+ * the validator to judge rather than throwing here.
+ */
+const v26ToV27: Migration = (raw) => {
+  const structures = isRecord(raw.structures)
+    ? {
+        ...raw.structures,
+        farmhouse: isRecord(raw.structures.farmhouse)
+          ? { ...raw.structures.farmhouse, flipped: false }
+          : raw.structures.farmhouse,
+        noticeBoard: isRecord(raw.structures.noticeBoard)
+          ? { ...raw.structures.noticeBoard, flipped: false }
+          : raw.structures.noticeBoard,
+      }
+    : raw.structures;
+  return {
+    ...raw,
+    structures,
+    buildings: Array.isArray(raw.buildings)
+      ? raw.buildings.map((b) => (isRecord(b) ? { ...b, flipped: false } : b))
+      : raw.buildings,
+  };
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1067,6 +1120,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v23ToV24,
   v24ToV25,
   v25ToV26,
+  v26ToV27,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1411,8 +1465,14 @@ function isUnderStructure(
   return false;
 }
 
-/** Structure `id`'s absolute footprint tiles at `anchor` (T3.3s). */
-export function structureFootprintTiles(id: StructureId, anchor: StructureAnchor): PlotTileCoord[] {
+/** Structure `id`'s absolute footprint tiles at `anchor` (T3.3s). Takes the
+ *  bare tile rather than a whole `StructureAnchor` (as its building twin
+ *  already did): geometry reads col/row only, so T4.8's purely-visual `flipped`
+ *  is none of its business and a bare tile stays a legal argument. */
+export function structureFootprintTiles(
+  id: StructureId,
+  anchor: { col: number; row: number },
+): PlotTileCoord[] {
   return footprintTilesAt(STRUCTURE_FOOTPRINT_OFFSETS[id], anchor);
 }
 
@@ -1450,7 +1510,7 @@ export function buildingRenderPosition(
  */
 export function structureRenderPosition(
   id: StructureId,
-  anchor: StructureAnchor,
+  anchor: { col: number; row: number },
 ): { x: number; y: number } {
   const center = gridToIso(anchor.col, anchor.row);
   const offset = STRUCTURE_RENDER_OFFSETS[id];
@@ -2034,9 +2094,14 @@ function isQuestsState(value: unknown): value is QuestsState {
 }
 
 /** A structure anchor: integer col/row within the static validator bounds,
- * like a plot's tile (T3.3s). */
+ * like a plot's tile (T3.3s), plus a boolean `flipped` (T4.8). */
 function isStructureAnchor(value: unknown): value is StructureAnchor {
-  return isRecord(value) && isPlotGridCoord(value.col) && isPlotGridCoord(value.row);
+  return (
+    isRecord(value) &&
+    isPlotGridCoord(value.col) &&
+    isPlotGridCoord(value.row) &&
+    typeof value.flipped === 'boolean'
+  );
 }
 
 function isStructuresState(value: unknown): value is StructuresState {
@@ -2058,7 +2123,9 @@ function isBuildingPlacement(value: unknown): value is BuildingPlacement {
     !isRecord(value) ||
     typeof value.type !== 'string' ||
     !isPlotGridCoord(value.col) ||
-    !isPlotGridCoord(value.row)
+    !isPlotGridCoord(value.row) ||
+    // The visual mirror (T4.8) - a plain boolean, like a decoration's `flip`.
+    typeof value.flipped !== 'boolean'
   ) {
     return false;
   }
@@ -2811,6 +2878,8 @@ export class GameStateStore {
       batches: [],
       // One usable slot to start (T4.2b-r1); the rest are bought.
       unlockedSlots: 1,
+      // Unmirrored until the player flips it in arrange mode (T4.8).
+      flipped: false,
     });
   }
 
@@ -2953,6 +3022,43 @@ export class GameStateStore {
     if (!isBuildingAnchorFree(this.state, placement.type, col, row, index)) return false;
     placement.col = col;
     placement.row = row;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Mirror the placed building at `index` (T4.8) - the arrange-mode Flip
+   * button's building action, and the building twin of `flipStructure`.
+   * Toggles, saves, returns true; an out-of-range index returns false having
+   * mutated nothing, exactly like `moveBuilding`.
+   *
+   * There is no legality check to make: the flag is VISUAL ONLY (`setFlipX`
+   * mirrors the sprite around its own origin), so the anchor, the footprint
+   * and the cast shadow are all untouched and no collision rule can be
+   * violated by toggling it.
+   */
+  flipBuilding(index: number): boolean {
+    const placement = this.state.buildings[index];
+    if (placement === undefined) return false;
+    placement.flipped = !placement.flipped;
+    this.save();
+    return true;
+  }
+
+  /**
+   * Mirror a movable structure (T4.8) - the structure twin of `flipBuilding`,
+   * visual only for the same reason. Returns false without mutating anything
+   * for an unknown id.
+   *
+   * The store deliberately does NOT exclude the notice board: this is the
+   * generic anchor-flip setter, and the "a sign must not be mirrored" rule is
+   * a UI rule (the arrange-mode Flip button never enables for it), kept where
+   * the other per-selection button rules live.
+   */
+  flipStructure(id: StructureId): boolean {
+    const anchor = this.state.structures[id];
+    if (anchor === undefined) return false;
+    anchor.flipped = !anchor.flipped;
     this.save();
     return true;
   }

@@ -359,6 +359,16 @@ type MovableAnchorRef =
 const FARMHOUSE_REF: MovableAnchorRef = { kind: 'structure', id: 'farmhouse' };
 const NOTICE_BOARD_REF: MovableAnchorRef = { kind: 'structure', id: 'noticeBoard' };
 
+/**
+ * Whether a movable may be mirrored by the arrange-mode Flip button (T4.8):
+ * every BUILDING, plus the farmhouse. The notice board is the sole exclusion -
+ * it is a sign, so mirroring it would mirror its text (owner's call). Shadows
+ * do not flip either way, an accepted imperfection.
+ */
+function isFlippableMovable(ref: MovableAnchorRef): boolean {
+  return ref.kind === 'building' || ref.id === 'farmhouse';
+}
+
 /** Whether two movable refs point at the same object. */
 function sameMovableRef(a: MovableAnchorRef | null, b: MovableAnchorRef | null): boolean {
   if (a === null || b === null) return a === b;
@@ -3680,7 +3690,12 @@ export class FarmScene extends Phaser.Scene {
     );
     // Non-null: the farmhouse frame always has a packed shadow companion
     // (T3.art-3). Named explicitly (T3.25) - see createGroundShadow.
-    this.farmhouseShadow = this.createGroundShadow(this.farmhouseImage, FARMHOUSE_SHADOW_FRAME)!;
+    // `false`: the farmhouse can be mirrored (T4.8) but its authored cast never is.
+    this.farmhouseShadow = this.createGroundShadow(
+      this.farmhouseImage,
+      FARMHOUSE_SHADOW_FRAME,
+      false,
+    )!;
     // The shadow exists only now, so the look pass above could not place it.
     this.applyStructureStatePosition(FARMHOUSE_REF);
   }
@@ -3712,6 +3727,10 @@ export class FarmScene extends Phaser.Scene {
     this.farmhouseImage.setFrame(restored ? FARMHOUSE_RESTORED_FRAME : FARMHOUSE_FRAME);
     // After the frame swap, so the taller restored frame's base row is used.
     this.farmhouseImage.setOrigin(0.5, this.structureBaseOriginY(this.farmhouseImage, 'farmhouse'));
+    // The saved mirror (T4.8), applied here so BOTH looks flip and a frame swap
+    // never drops it. Visual only - the origin it mirrors around is the base
+    // point, so position, footprint and shadow are untouched.
+    this.farmhouseImage.setFlipX(gameState.getState().structures.farmhouse.flipped);
     const pad = FARMHOUSE_HIT_PAD_DISPLAY_PX / FARMHOUSE_SCALE;
     const overhang = this.farmhouseImage.frame.realHeight - STRUCTURE_FRAME_SIZE;
     // Unchanged by T3.27's origin move: hitArea rectangles are FRAME-relative
@@ -3981,6 +4000,14 @@ export class FarmScene extends Phaser.Scene {
   private createGroundShadow(
     object: Phaser.GameObjects.Image,
     shadowFrameOverride?: string,
+    // T4.8: whether the shadow mirrors when its object does. True for
+    // decorations (generated silhouettes - see applyGroundShadowGeometry);
+    // FALSE for every movable, whose authored cast never flips. A movable that
+    // is already mirrored at creation time (a flipped building restored from a
+    // save) would otherwise trip `placeAuthoredShadow`'s guard right here, and
+    // the throw would abort `createBuildings` mid-list - leaving the sprite
+    // unpositioned at the top-left with a stray unplaced shadow.
+    mirrorsObjectFlip = true,
   ): Phaser.GameObjects.Image | null {
     // T3.25: the farmhouse passes an override because its restored look has
     // no `_shadow` companion of its own - same building base, so both looks
@@ -3989,7 +4016,15 @@ export class FarmScene extends Phaser.Scene {
     const shadowFrame = shadowFrameOverride ?? `${object.frame.name}_shadow`;
     if (!this.textures.get(ATLAS_KEY).has(shadowFrame)) return null;
     const shadow = this.add.image(0, 0, ATLAS_KEY, shadowFrame);
-    this.applyGroundShadowGeometry(shadow, object);
+    this.placeCastShadow(shadow, {
+      x: object.x,
+      baseY: object.y + object.displayHeight * (1 - object.originY),
+      sourceFrameWidth: object.frame.realWidth,
+      scaleX: object.scaleX,
+      scaleY: object.scaleY,
+      flipX: mirrorsObjectFlip && object.flipX,
+      depth: object.depth - 1,
+    });
     return shadow;
   }
 
@@ -4001,7 +4036,11 @@ export class FarmScene extends Phaser.Scene {
    * commits, and snap-backs. Delegates to `placeCastShadow` with the
    * object's live values; a flipped decoration flips its shadow (the
    * mirrored shear direction is accepted - imperceptible at the baked
-   * alpha and blur; structures never flip).
+   * alpha and blur).
+   *
+   * DECORATIONS ONLY. Movables flip too since T4.8, but their shadows must
+   * not follow - they go through `applyStructureShadowGeometry`, which pins
+   * flipX to false. See that method for why.
    */
   private applyGroundShadowGeometry(
     shadow: Phaser.GameObjects.Image,
@@ -4040,7 +4079,12 @@ export class FarmScene extends Phaser.Scene {
       sourceFrameWidth: object.frame.realWidth,
       scaleX: object.scaleX,
       scaleY: object.scaleY,
-      flipX: object.flipX,
+      // NEVER `object.flipX` (T4.8): a movable's cast is an AUTHORED shadow
+      // with one baked light direction, so it does not mirror when the
+      // building does (owner's call, an accepted imperfection). Reading the
+      // sprite's flip here would also hit `placeAuthoredShadow`'s hard guard
+      // and throw on every re-derive of a flipped building.
+      flipX: false,
       depth: object.depth - 1,
     });
   }
@@ -4462,6 +4506,37 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
+   * Flip button, movable half (T4.8): mirrors the selected building or the
+   * farmhouse, persisted through `flipBuilding`/`flipStructure`. A no-op with
+   * nothing selected, or with a movable the Flip button never enables for (the
+   * notice board) - re-checked here so the action cannot outlive a stale
+   * enabled state.
+   *
+   * The new flipX goes straight onto the LIVE sprite rather than through
+   * `refreshBuildings`: that pass rebuilds only when the saved POSITIONS change
+   * (its key excludes `flipped` by design), and a rebuild would throw away the
+   * selection and the tint mid-arrange for a purely visual change.
+   *
+   * The shadow is deliberately left alone (owner's call, an accepted
+   * imperfection): unlike a decoration's mirrored silhouette, these are
+   * AUTHORED ground casts, so mirroring one would light the building from the
+   * wrong side rather than track it.
+   */
+  private toggleSelectedMovableFlip(): void {
+    const ref = this.selectedStructureId;
+    if (ref === null || !isFlippableMovable(ref)) return;
+    const flipped =
+      ref.kind === 'building' ? gameState.flipBuilding(ref.index) : gameState.flipStructure(ref.id);
+    if (!flipped) return;
+    const state = gameState.getState();
+    const sprite = this.structureImage(ref);
+    const placement =
+      ref.kind === 'building' ? state.buildings[ref.index] : state.structures[ref.id];
+    if (sprite === null || placement === undefined) return;
+    sprite.setFlipX(placement.flipped);
+  }
+
+  /**
    * Highlights the tapped decoration with a tint; clears the previous
    * selection's tint first - mirrors `setDressingSelection`. Selecting a
    * decoration also deselects any selected plot (T3.3a - one selection at a
@@ -4623,7 +4698,14 @@ export class FarmScene extends Phaser.Scene {
       .setVisible(false);
     this.arrangeFlipButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
-      this.toggleSelectedDecorationFlip();
+      // One selection at a time across the kinds, so this is a true either/or:
+      // a decoration flips through its transform setter (T3.15), a movable
+      // through its own flag (T4.8). With nothing selected both are no-ops.
+      if (this.selectedDecorationIndex !== null) {
+        this.toggleSelectedDecorationFlip();
+      } else {
+        this.toggleSelectedMovableFlip();
+      }
     });
 
     this.arrangeWarehouseButton = this.add
@@ -4775,9 +4857,11 @@ export class FarmScene extends Phaser.Scene {
    * one-way - no put-away for plots), dim and inert otherwise - same
    * enabled/dim convention as DecorShop's Buy button. Scale +/- and Flip
    * disable while a PLOT is selected (plots snap to the grid - they never
-   * scale or flip) and while a STRUCTURE is selected (T3.3s - structures
-   * move only, never scale or flip; Put Away dims too since
-   * `selectedDecorationIndex` is null then - structures cannot be stored);
+   * scale or flip). Scale +/- also disable while any MOVABLE is selected
+   * (T3.3s - structures and buildings move only, never scale; Put Away dims
+   * too since `selectedDecorationIndex` is null then - they cannot be stored),
+   * but Flip now STAYS LIVE for a flippable movable (T4.8 - any building, plus
+   * the farmhouse; the notice board is excluded, it is a sign).
    * Scale +/- ALSO disable while a FENCE is selected
    * (T3.3a2 - fences are pinned to FENCE_FIXED_SCALE; Flip stays live,
    * fence flip is directional). With any other decoration or nothing
@@ -4800,8 +4884,15 @@ export class FarmScene extends Phaser.Scene {
         ? undefined
         : gameState.getState().decorations[this.selectedDecorationIndex];
     const fenceSelected = selectedDecoration?.frame === FENCE_FRAME;
-    const flipEnabled = this.selectedPlotIndex === null && this.selectedStructureId === null;
-    const scaleEnabled = flipEnabled && !fenceSelected;
+    // Scale is unchanged (T3.3s): decorations only, never a plot or a movable.
+    const scaleEnabled =
+      this.selectedPlotIndex === null && this.selectedStructureId === null && !fenceSelected;
+    // Flip widened in T4.8: still off for a plot, but now ON for a FLIPPABLE
+    // movable (any building, plus the farmhouse) as well as for a decoration.
+    // The notice board is the one movable left out - it is a sign.
+    const flipEnabled =
+      this.selectedPlotIndex === null &&
+      (this.selectedStructureId === null || isFlippableMovable(this.selectedStructureId));
     for (const [button, enabled] of [
       [this.arrangeScaleDownButton, scaleEnabled],
       [this.arrangeScaleUpButton, scaleEnabled],
@@ -5508,7 +5599,12 @@ export class FarmScene extends Phaser.Scene {
       const image = this.add
         .image(0, 0, ATLAS_KEY, def.frame)
         .setScale(BUILDING_SCALE)
-        .setOrigin(0.5, this.buildingBaseOriginY(this.textures.get(ATLAS_KEY).get(def.frame)));
+        .setOrigin(0.5, this.buildingBaseOriginY(this.textures.get(ATLAS_KEY).get(def.frame)))
+        // The saved mirror (T4.8). Purely visual: setFlipX mirrors around the
+        // sprite's own (0.5, baseOriginY) origin, so the ground point, the
+        // footprint and the cast shadow are all unchanged - which is why the
+        // shadow deliberately does NOT flip with it (owner's call).
+        .setFlipX(placement.flipped);
       // FRAME-relative hit rect + pad, the notice board's convention (see its
       // comment on why an origin-centered rect silently misses part of the
       // sprite). The packer trim-fits building art into its 256 square, so the
@@ -5533,7 +5629,9 @@ export class FarmScene extends Phaser.Scene {
       this.buildingImages.push(image);
       // Non-null: every building frame is packed with a generated shadow
       // companion (tools/pack-atlas.mjs SHADOWED_FRAME_NAMES, T4.1).
-      this.buildingShadows.push(this.createGroundShadow(image)!);
+      // `false`: a building can be mirrored (T4.8) but its authored cast never
+      // is - and this runs while the sprite is ALREADY flipped from the save.
+      this.buildingShadows.push(this.createGroundShadow(image, undefined, false)!);
       this.buildingIndicators.push(this.buildBuildingIndicators(def));
       this.applyStructureStatePosition({ kind: 'building', index });
     }
@@ -6452,7 +6550,11 @@ export class FarmScene extends Phaser.Scene {
     this.noticeBoardImage = this.add
       .image(position.x, position.y, ATLAS_KEY, 'notice_board')
       .setScale(NOTICE_BOARD_SCALE)
-      .setDepth(this.structureDepthFor(NOTICE_BOARD_REF, position.y));
+      .setDepth(this.structureDepthFor(NOTICE_BOARD_REF, position.y))
+      // Applied uniformly with the farmhouse and the buildings (T4.8), but the
+      // board is a SIGN: mirroring would mirror its text, so the arrange-mode
+      // Flip button never enables for it and this stays false forever.
+      .setFlipX(gameState.getState().structures.noticeBoard.flipped);
     // T3.27: base-anchored, so `position` (the ground point) puts the posts'
     // feet on the footprint. The hit rect below is unaffected - it is
     // FRAME-relative, and the art did not move within its frame.
@@ -6476,7 +6578,8 @@ export class FarmScene extends Phaser.Scene {
       },
     );
     // Non-null: the notice board frame always has a packed shadow companion (T3.art-3).
-    this.noticeBoardShadow = this.createGroundShadow(this.noticeBoardImage)!;
+    // `false` for consistency with the other movables; the board never flips.
+    this.noticeBoardShadow = this.createGroundShadow(this.noticeBoardImage, undefined, false)!;
 
     this.noticeBoardBadge = this.add
       .text(0, 0, '!', BADGE_TEXT_STYLE)

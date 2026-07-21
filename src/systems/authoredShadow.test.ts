@@ -4,6 +4,7 @@ import overrideJsonRaw from '../../tools/shadow-overrides/farmhouse_shadow.json?
 import atlasJsonRaw from '../../assets/atlas.json?raw';
 import { SHADOW_PLACEMENT_OVERRIDES, SHADOW_TUCK_RATIO } from '../config';
 import { SHADOW_LAB_ENTRIES } from '../generated/shadowLab';
+import { placeAuthoredShadow } from './authoredShadowPlacement';
 import {
   FARMHOUSE_FRAME,
   FARMHOUSE_RESTORED_FRAME,
@@ -179,5 +180,91 @@ describe('authored building-shadow workflow (T3.29)', () => {
         expect(SHADOW_PLACEMENT_OVERRIDES[name]).toBeUndefined();
       }
     }
+  });
+});
+
+/**
+ * T4.8 flip REGRESSION. Buildings and the farmhouse became mirrorable, and all
+ * three of them are served by AUTHORED shadows, which cannot be mirrored. The
+ * first cut of T4.8 let the sprite's `flipX` reach the shadow tracker, so
+ * `placeAuthoredShadow` threw on every re-derive of a flipped building - which
+ * aborted `createBuildings` mid-list and left the mill unpositioned at the
+ * top-left with a stray, generic-looking shadow.
+ *
+ * FarmScene now pins `flipX: false` on every movable shadow derive. These tests
+ * pin the two halves of that contract: the flippable movables really are all
+ * authored (so the rule is load-bearing), and the helper really does refuse a
+ * mirror (so a regression is loud rather than silent).
+ */
+describe('authored shadows never mirror (T4.8)', () => {
+  /** The shadow frames of the movables the Flip button can reach. */
+  const FLIPPABLE_MOVABLE_SHADOWS = ['farmhouse_shadow', 'flour_mill_shadow', 'bakery_shadow'];
+
+  /** Minimal Phaser.GameObjects.Image stand-in - placeAuthoredShadow reads the
+   *  frame and calls chainable setters, nothing else. */
+  function fakeShadow(name: string, width: number, height: number) {
+    const calls: Record<string, unknown[]> = {};
+    const self = {
+      frame: { name, realWidth: width, realHeight: height },
+      setOrigin: (...a: unknown[]) => ((calls.setOrigin = a), self),
+      setPosition: (...a: unknown[]) => ((calls.setPosition = a), self),
+      setScale: (...a: unknown[]) => ((calls.setScale = a), self),
+      setFlipX: (...a: unknown[]) => ((calls.setFlipX = a), self),
+      setDepth: (...a: unknown[]) => ((calls.setDepth = a), self),
+      calls,
+    };
+    return self;
+  }
+
+  it('every FLIPPABLE movable is served by an authored shadow', () => {
+    // If a future building ships a GENERATED shadow this fails, which is the
+    // signal to revisit whether its shadow should mirror with it after all.
+    for (const frame of FLIPPABLE_MOVABLE_SHADOWS) {
+      expect(SHADOW_PLACEMENT_OVERRIDES[frame]).toBeDefined();
+    }
+  });
+
+  it('placeAuthoredShadow REFUSES a mirror - the guard FarmScene must never trip', () => {
+    for (const frame of FLIPPABLE_MOVABLE_SHADOWS) {
+      const placement = SHADOW_PLACEMENT_OVERRIDES[frame]!;
+      const shadow = fakeShadow(frame, placement.logicalWidth, placement.logicalHeight);
+      expect(() =>
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- structural stand-in for a Phaser Image; the helper touches only frame + setters
+        placeAuthoredShadow(shadow as any, placement, {
+          x: 100,
+          baseY: 200,
+          scaleX: 1,
+          scaleY: 1,
+          flipX: true,
+          depth: 5,
+        }),
+      ).toThrow(/does not support horizontal flipping/);
+    }
+  });
+
+  it('the same call with flipX false places normally and leaves the shadow unmirrored', () => {
+    const frame = 'flour_mill_shadow';
+    const placement = SHADOW_PLACEMENT_OVERRIDES[frame]!;
+    const shadow = fakeShadow(frame, placement.logicalWidth, placement.logicalHeight);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- see above
+    placeAuthoredShadow(shadow as any, placement, {
+      x: 100,
+      baseY: 200,
+      scaleX: 1,
+      scaleY: 1,
+      flipX: false,
+      depth: 5,
+    });
+    expect(shadow.calls.setFlipX).toEqual([false]);
+    // Anchor lands on the ground point: origin = anchor / logical canvas.
+    expect(shadow.calls.setOrigin).toEqual([
+      placement.anchorX / placement.logicalWidth,
+      placement.anchorY / placement.logicalHeight,
+    ]);
+    // tuckRatio is 0 for every authored shadow, so the ground point is exact.
+    expect(shadow.calls.setPosition).toEqual([
+      100,
+      200 - placement.logicalHeight * placement.tuckRatio,
+    ]);
   });
 });
