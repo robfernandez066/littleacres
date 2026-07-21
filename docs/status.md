@@ -1,64 +1,34 @@
 # Little Acres - Status
 
-**Updated:** 2026-07-20
-**Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, the farmhouse authored cast-shadow, and the authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md), and the Goals hub (long-term goals menu) all SHIPPED. Phase 4 (production buildings) underway: the goods economy foundation and the placeable flour mill building (dev-only) SHIPPED.
+**Updated:** 2026-07-21
+**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Applying the economy balance pass v2 (T4.11).
 **Schema:** v27 · **Tests:** 720 · **Live:** robfernandez066.github.io/littleacres/
 
-## Active
+## In flight
 
-- **Default buildable area grown 2 columns WEST SHIPPED 2026-07-21 (T4.10 commit 077d6ce, tests 720, no schema change):** the starter farm now places 2 columns further west (PLOT_PLACEABLE_MIN_X 20 -> -236; base set 136 -> 170 tiles). The world grew west to keep the new plots on-world (WORLD_MIN_X -180 -> -256, WORLD_WIDTH 1952 -> 2028; EAST edge unchanged at 1772, so East Meadow is byte-identical; camera zoom-out floor derived 0.553 -> 0.5325). The comment-only "mere reserve" west strip is absorbed (owner-chosen; no art/code existed) - and this does NOT foreclose more west growth or a relocated pond later. Union bounds col [-10,13] / row [-11,11] still fit the [-12,14] validator, so PLOT_GRID_COORD_MIN/MAX and all save code were untouched. NEXT: the Phase 4 balance pass + a CSV documentation set (crops / goods / buildings / prices / rates) generated from data/*.ts as the single source of truth.
-- **Building flip SHIPPED 2026-07-21 (T4.8 commit 0bdfdc1, schema v27, tests 720):** mill / bakery / farmhouse can be mirrored in arrange via the Flip button (`flipped` flag on the placement + both movable anchors, migration v26->v27 default false, setFlipX); the notice board is excluded (it is a sign). Authored cast shadows NEVER mirror - all three movable shadow sites pin flipX:false, which also fixed a scene-rebuild crash where a flipped building hit placeAuthoredShadow's flip guard. NEXT: the Phase 4 balance + CSV documentation pass.
+- **T4.11 - economy balance pass v2 APPLY (not yet committed).** Full crop/good/order/level/moondust/decor/quest retune from a simulation-expert agent, PM-verified (11.45d L1->L8, 21/21 invariants, sim re-run in-sandbox). Fixes the flat-coins/hr dead-tier via session-gap-matched crops + sublinear payoff. Owner calls: growth re-spacing accepted (Q1), Sagesprig 9h->7h (Q5), farmhouse 50k->100k (Q4). Coder task written = data-only across ~11 src/data files + broad test re-pins; XP thresholds jump hard (config not schema; stored level only increases; SAVE BACKUP first). After it commits, PM re-exports docs/balance/*.csv from src/data.
 
-- **Mill UI + unlockable slots SHIPPED 2026-07-21 (T4.2b commit 7122767, tests 631; then T4.2b-r1 commit cce75b5, schema v25, tests 647):** the flour mill now has a face and a slot economy. Tap opens a SLOTS-ONLY panel (the dev recipe/on-hand header was cut): each slot shows the recipe as icons + Mill, milling shows an exact mm:ss countdown + bar, ready shows Collect. Mill starts with 1 usable slot; slots 2 and 3 are bought with coins (2,500 / 10,000) via a two-tap pay-to-unlock (sequential, coin-gated; `unlockMillSlot`, schema v24->v25 `unlockedSlots`; `startMilling` caps on it; batches behind a locked slot survive and return when it is bought). One top-middle field indicator - good icon + green radial ring (fills over the soonest batch) + ready-count badge - replaces the old puff/badge. Camera home default pulled back to 0.75x owned-fit (rode with 7122767). Mill build price 1500->500. Still dev-placed (`dev.buildMill()`). T4.2c bag row + T4.2d mill acquisition SHIPPED (748987b bag, 105d1d4 placeholder Shop button, d2462a9 Building Shop + buy + level-6 card). The flour mill is now FULLY PLAYER-EARNABLE and Phase 4's first production building is COMPLETE end to end: buy from the Shop (500 coins, level 6, via buyBuilding) -> mill Sunwheat into Sunflour -> unlock slots (2,500 / 10,000) -> collect -> sell. T4.3 Sunflour orders SHIPPED (08446e6 - villagers now request Sunflour, gated on owning a mill; OrderItem crop|good union, schema v25->v26). The mill has a full demand loop now: sell OR fulfill orders. T4.4 bakery SHIPPED (6b7f719 - Sunflour -> Bread, Phase 4 building #2; the milling recipe input is now crop-OR-good, registry-only so NO schema change; bread sells + is orderable via the shared systems; generic shadow for now). T4.5 authored bakery shadow SHIPPED (8b34ec4) - building #2 (bakery) is now COMPLETE end to end. Also de-flaked the milling/orders/onboarding timer tests (frozen-clock, kills the collectMilling CI flake). NEXT: the building FLIP feature (mill + bakery + farmhouse flippable in arrange - a `flipped` flag + schema bump; shadow left as-is per owner), then a Phase 4 balance pass on the provisional numbers. Parked feel-tweaks: the 3s unlock-arm window, slot-3 bright-but-inert Unlock, ring green vs grass at 0.75 zoom.
+## Queued next
 
-- **T4.2a milling MODEL SHIPPED 2026-07-20 (commit 8557a33, schema v24, tests 627):** the flour mill's production loop underneath - load 5 Sunwheat -> a real-clock ~20min batch -> collect 2 Sunflour, up to 3 concurrent batches, progressing offline. `MillingRecipe` co-located on the flour_mill def (numbers provisional); `batches: MillBatch[]` on the placement with readiness DERIVED (startedAt + batchMs, never stored) like crops; `startMilling`/`collectMilling` reducers + pure `millBatchReadyAt`/`isMillBatchReady`; v23->v24 migration; dev `grantGood`/`startMilling`/`finishMilling`. No UI yet. NEXT: T4.2b milling UI (mill panel, tap-to-open, field producing/ready indicators, Sunflour bag row wired to sellGood; exclude `batches` from FarmScene's building change-detection key so batch churn doesn't thrash sprites), then T4.2c acquisition (shop entry + level-6 unlock card), then T4.3 Sunflour orders.
+- **Q2 - ORDER_REFRESH_COOLDOWN** (new per-slot lever; small feature task; fixes the day-1 order spike). Runs after T4.11.
+- **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred.
+- Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
-- **Phase 4 flour mill - foundation + building SHIPPED 2026-07-20:** goods economy foundation (T4.0, commit d569c3d, schema v22): Sunflour good, a separate `goods` inventory map, `sellGood`. Placeable flour mill building (T4.1, commit a133b98, schema v23): building placement system parallel to structures (`buildings[]`, `buyBuilding`/`moveBuilding`, shared footprint core both delegate to), `flour_mill` def (2x2 footprint, static windmill cottage art), and an authored ground shadow via SHADOW_WORKFLOW (previewScale matched to game scale, pixels shifted (0,-32) to tuck under the base; verified on real Phaser + field). Dev-only (`dev.buildMill()`) - no shop entry, inert until the milling loop. Tests 605. NEXT: T4.2 milling loop (load Sunwheat -> timed batches -> collect Sunflour; mill panel; shop purchase + level-6 unlock card), then T4.3 Sunflour orders. Follow-ups: gitignore `*_shadow.registration.png`; eyeball the 2x2 footprint / display size against the cottage art.
+## Completed (newest first)
 
-- **Goals hub SHIPPED 2026-07-20 (T3.30 + r1 + r2, commit fb7788b; tests 558):** new "Goals" HUD menu (star icon) surfacing the long-horizon save-toward objectives - homestead restoration + region unlock - as a tracker/launcher over the existing flows (buys nothing). Actionable rows carry a CTA: "Restore" opens the RestorePanel, "Go There" glides to the region sign; locked/completed rows inert (completed sink to bottom, faded + green wash). One-time "!" discovery nudge via schema v21 goalsSeen (shown after onboarding). REGIONS-derived level-up card announces a region at its gate. Two-line progress copy. Data-driven off restoration.ts + REGIONS. Design doc: docs/design/goals-hub.md.
-- **Recent ships (2026-07-18/19):** restoration v1 farmhouse (art-swap, schema v20, commit 1353688); base-anchor structures + dev farmhouse transform knobs (commit 189ffa3, msg T3.26+T3.27); farmhouse authored ground-footprint cast-shadow (committed by owner). Authored-shadow workflow (T3.29) SHIPPED - written to disk via bridge, owner ran shadow:gen/pack:atlas/tsc/test (526) and committed. Sweep-vs-pan checkpoint CLOSED. Farmhouse flip parked. NOTE: entries below this line are older (pre-2026-07-18) and not fully reconciled. grass_1 dressing decal wired + committed (dev palette + packer, 96px decal, commit d8b85e8; docs log 4db9217). Live placement + Copy-layout bake PARKED (owner 2026-07-19: not re-dressing this pass; DRESSING array stays empty by choice) - fold into a future new-art-era re-dress.
-- **T3.17 + T3.19 COMMITTED + PUSHED 2026-07-14 - the trophy save-wipe P0 is CLOSED.** User test passed; the button-only-dismiss notice fix (PM-direct) is verified, committed + pushed. Weekly numbers owner-approved: Specialist + Dewmelon 5 / Sagesprig 3; Growing Strong level-scaled snapshot L1-L8 = 240/240/400/600/900/1300/1900/2800.
-- **Integrity cut SHIPPED 2026-07-14: T3.17, T3.19, T3.18+a+b all committed + pushed.** Trophy save-wipe P0 closed; weeklies fixed and recalibrated; trophies placeable. Tests 328.
-- **T3.20+T3.20a and T3.21 SHIPPED 2026-07-14** (foreground WYWA; staged audio - farm paints before the ~15.8MB of music). **P2 BATCH CLOSED 2026-07-15:** T3.20+a, T3.21, T3.22+a, T3.23+a all SHIPPED; CI gate green on GitHub (Test + Lint before Build); decor_well atlas regen committed. **T3.24 SHIPPED 2026-07-15** (Owned/Value headers, bold counts, value column number-then-coin). **T3.25 SHIPPED 2026-07-15** ('Edit Layout' toggle button - wave 3 rider done). **Restoration boundary APPROVED 2026-07-15** (v1 = farmhouse + mere dock; light per-building perks, PM menu later; structure movability = queued future conversation). **Phone validations PASSED** (seed-bar scroll + staged audio). **T3.26 SHIPPED pending push** (format.ts module + tests; dead sell-sunwheat pulse target removed; Tests 355). **Land+camera design FINAL v3** - all decisions locked (plots spawn in shed, movable-when-empty, 5C popup, snap rules incl. fence chain snap = new T3.3a2). **T3.4a SHIPPED 2026-07-15.** **T3.21a audio race fix SHIPPED pending push** (crossfade/destroy teardown ordering; friend-tester console error closed). **CAMERA PACKAGE SHIPPED 2026-07-15 (T3.4a+b+c):** pan/pinch/bounds/recenter live with deferred structure+crop taps; Tests 379. Real-phone LAN testing (npm run dev -- --host) is the standing pre-commit path for touch work. Decisions log archived (80 pre-wave-3 entries -> docs/archive/).
-- Gate context: brief answers IN (2026-07-14) - voluntary return CONFIRMED, level 8 reached, no stuck points, no perceived defects. Demand signals: bigger farm + pinch zoom (T3.3/T3.4), decorative buildings / farmhouse upgrade (restoration chapter), direct arrange-mode entry (new small-task candidate). One tester = directional evidence, not broad validation.
-
-## Queue
-
-1. T3.3a-r3 + r3b SHIPPED 2026-07-16 (one commit): long-press pickup + 1.5s post-drop grace; arrange mode pan-safe; combined phone pass green. Watch item: iso-depth can put a plot tile atop just-dropped decor on the field, muting grace there (spec-conformant; follow-up only if owner feels it).
-2. T3.3a2 + r3c + r1 SHIPPED 2026-07-17 (3054160; tests 455). T3.art-1 + T3.art-2 reviews PASS - awaiting owner: save sanity-check (SAVE INCIDENT: row-3 crops lost, coins estimated 1500), one owner pack:atlas re-run, then TWO commits (code: art-1+2; art: atlas incl. notice board + crop soil). T3.3s movable structures PROMPT ISSUED (fresh session, schema v18). T3.3s+r1+r1b SHIPPED 2026-07-17 (schema v18, tests 474): movable farmhouse/board with full mutual exclusion. THE ERA BUNDLE (r2+r2b+r2c+r2d) code-complete, ALL reviews PASS, awaiting FINAL owner phone pass then ONE commit: free-follow structure drag (nearest-legal 192px), symmetric 3x3 farmhouse footprint, green/red preview above crops, faint placement grid (grid-snapped lifts only), dev.footprints(), meadow ground world-wide (texture_a default), pack-time directional cast shadows (sun top-right, 18 <frame>_shadow companions, atlas +3.1%), farmhouse 420, board 240, linter ignores for private areas. Owner deferrals: fence-snap redesign awaits owner's Art Studio mockup; grid-line alpha re-judge on meadow. Watch: farmhouse/board tap-feel, stale .git\index.lock. T3.3a2 detail: fences fixed 1.20 + post-overlap chain snap (pitch 85,41 + 4 corner junctions, pixel-proven flush), sizing table, budgets 50/60, schema v17 (tests 451 pending commit). NEW FOLLOW-UP FLAGGED: decor/fence clamp bounds still legacy (y 380..1520) while plots reach the r2 apron - apron plot blocks cannot be fence-outlined; grow decor bounds (fold into T3.3b prompt or small T3.3a2x) -> T3.3b regions (R1 + owner checkpoint) -> T3.3c mere composite
-3. Owner (parallel, anytime): land-era art batch in priority order - overgrowth tiles (T3.3b needs first; tint-dim fallback OK) -> composite mere per docs/design/mere-art-direction.md (v2 nature-made brief; owner decision open: day-one sliver vs Shore-era arrival) -> dock stage-0; region sign optional; giant ground texture SKIPPED
-4. After land/camera ships: full-farm rearrangement design conversation (owner direction 2026-07-15), then restoration design (incl. PM perk menu)
-5. R1 checkpoint agenda item: sweep-vs-pan at scale - full protocol + decision rule PARKED at docs/design/sweep-vs-pan-checkpoint.md (two-finger-pan hint adopted into T3.3b scope)
-6. Partial-sell scheduling: DEFERRED by owner 2026-07-15 - raise again when inventory-economy work comes up
-7. Wave 3 (owner cut 2026-07-15, picks 1A-5A): LEAD T3.3+T3.4 land + camera (one package, owner guardrails); SECOND restoration chapter v1 (contingent on PM boundary doc); RIDER direct arrange-mode entry. Wave 4: crop mastery, storage caps + partial sell. Reward-only Mine v1 DROPPED (owner, 2026-07-14).
-
-## Open validations (real-player / device evidence still required, not findings that passed)
-
-- WYWA foreground-summary threshold feel (after T3.20)
-- Camera feel pass on the LIVE site from a real phone (post T3.4 deploy; LAN dev testing covered mechanics)
-
-## Waiting on user (whenever convenient)
-
-- Cleanup on your machine (PM cannot delete files there): the original review copy under your local .codex visualizations folder (dated 2026-07-14), and the repo's _to_delete\ folder (stale git-lock artifact + accumulated review diffs; now gitignored)
-
-## Staged future assets (tools/art-staging, NOT packed - owner picks 2026-07-13)
-
-- MERE SPRITE REJECTED (owner 2026-07-15: too small, doesn't fit; already off-screen long ago - packed but unused) - regenerate AFTER the T3.3 design fixes world dimensions, batched with overgrowth/region art + the restoration dock's ruined stage-0.
-
-- Phase 4A: coop.png (magical-bird roost, open-rail run), moonhen.png (first creature; lays Moon Eggs)
-- Phase 4: windmill_body.png (hub axle in roof dormer) + windmill_blades.png (face-on symmetric cross, rotates in code around its center; slow always, faster while producing) + windmill_static_backup.png (fallback if the split composite disappoints)
-- Naming/frame ids get locked when the features are wired; art generated ahead of design on purpose.
-
-## Backlog nits (fold into convenient tasks)
-
-- T3.9c Decorations polish pass (user-requested placeholder, 2026-07-12): scope TBD from play; candidate list - place/pickup sounds, arrange-mode juice (drop bounce, selection pulse), warehouse panel visual upgrade, sell-back/refund design, smarter Place spawn (avoid stacking at center; 2026-07-14 review adds a ghost-drag-confirm option), shop scroll once items exceed 10, decor-over-plot visual rules. Runs after wave 2's feature tasks.
-- Partial crop selling: sell X of a crop instead of all-or-nothing (TESTER demand - attribution corrected 2026-07-15); scheduling decision with owner (wave 3 rider vs wave 4 with caps)
-- Comment re-attachment: registerDressingEditorHooks's doc comment floats above registerDecorSizingToggle (T3.27 nit, dev.ts) - fix when a task touches dev.ts. (The FarmScene half CLEARED 2026-07-16: T3.3a-r3 coder verified the float healed during the placement-saga rewrites.)
-- DevOverlay 'Edit dressing' toggle renders full-width (block vs inline styling slip; dev-only cosmetic, owner 2026-07-15) - ride the next task touching dev files
-- Decor per-item sizing table DELIVERED (owner, 2026-07-15, via dev.decorSizing): per-item default = max scale, full table in decisions.md - ships as decor.ts config in T3.3a2 (with clamp-down migration for over-max placements)
-- Seed-bar badge dead zone for drag-start: badge pointer-down stopPropagation means a strip drag cannot start on a badge's 96px hit square (T3.23 review nit, 2026-07-14); fold into a later polish task if players notice
-- MAX-level polish: order cards still advertise xp at the cap - de-emphasize or annotate (review nit, 2026-07-14)
-- Reduced-motion toggle: explicit earlier candidate (owner, 2026-07-14) - ride a convenient settings task; the T7.5 full accessibility pass must not absorb present-day usability defects (readability/touch targets land with T3.23)
+- T4.10 starter area +2 columns west - 077d6ce (no schema change)
+- T4.8 building flip (mill/bakery/farmhouse) - 0bdfdc1, schema v27
+- T4.9 unlock levels mill L3 / bakery L4 - 35a4f43
+- Balance mirror + contract (docs/balance/*.csv + README) - 5e1816a (+ README expand)
+- T4.5 authored bakery shadow / T4.6 milling timer de-flake - 8b34ec4
+- T4.4 bakery (Sunflour -> Bread) - 6b7f719
+- T4.3 Sunflour orders - 08446e6, schema v26
+- T4.2b/c/d mill UI + slots + bag + acquisition - 7122767 / cce75b5 (v25) / 748987b / 105d1d4 / d2462a9
+- T4.2a milling model - 8557a33, schema v24
+- T4.1 flour mill building + authored shadow - a133b98, schema v23
+- T4.0 goods economy foundation (Sunflour, sellGood) - d569c3d, schema v22
+- T3.30 Goals hub - fb7788b, schema v21
+- Earlier (restoration v1, base-anchor structures, authored-shadow workflow, land+camera, waves 1-3): see docs/decisions.md and docs/archive/.
 
 ## Blockers
 
@@ -66,21 +36,21 @@
 
 ## Watch items
 
-- Broader save durability stays open after T3.17 (T3.17 is corruption recovery only): browser eviction + cross-device loss wait for later save work (T7.4 era).
-- PM environment (two stale-read incidents 2026-07-14): never run git through the device VM; never trust VM-mount reads or same-path restages of fresh writes. Standing review channel for fresh coder work: owner runs `git diff > _to_delete\tNNN-review.diff`, PM stages the new path.
+- Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
+- Applying T4.11's XP-threshold jump: confirm no existing save is demoted (stored level only increases, T1.7).
 
-## Standing notes
+## Backlog nits (fold into convenient tasks)
 
-- PM owns docs/; coder never reads docs/. PM maintains this file + decisions.md after every report/decision.
-- docs/private/ is gitignored: off-repo material lives there (currently the owner's monetization report, unread by decision - the starting point when that conversation opens).
-- Every task prompt carries a model recommendation (Fable5/Opus vs Sonnet) and a session marking; /clear is the default.
-- Commit flow: PM states testing needed, then supplies git commands in run order; user runs all git; each green task commits alone (2026-07-14; combined commits only when an intermediate tree would be broken).
-- Every USER TEST verdict ships with explicit numbered test steps - exact console pastes, what to tap, what to expect (owner rule, 2026-07-14).
-- Test scripts that mutate the save start with backup = dev.exportSave() and end with dev.importSave(backup) (2026-07-14).
-- Owner reports any manual art-file edit even if the filename is unchanged - gitignored masters feed the next pack:atlas silently (2026-07-14).
-- PM reviews fresh coder work via the owner-generated diff file (see Watch items); direct Reads only for files not freshly written.
-- Coder sessions may leave dev servers on 5177 - kill before starting your own.
-- Close stray game tabs during coder sessions (two-tab autosave overwrite).
-- Atlas regen script: `npm run pack:atlas`.
-- Authored building shadows (T3.29): a NEW building/structure that needs a shadow follows the assembly line in `docs/SHADOW_WORKFLOW.md` - `shadow:new` (scaffold from the packed source frame) -> draw -> `shadow:validate` -> `pack:atlas` -> `shadow:capture` and eyeball. Do not hand-craft; farmhouse is the reference; small decor keeps the generic generated shadow. The JSON manifest is the source of truth (anchor DERIVED, runtime table GENERATED). Real Phaser image required for approval, never anchorDelta alone.
-- Sprixen workflow: one style-reference image per project - emberpepper_2 while generating crops, swap to the farmhouse for structures/decor batches.
+- Decorations polish pass (sounds, arrange-mode juice, shop scroll >10 items, decor-over-plot rules).
+- Partial crop selling (sell X, not all) - scheduling with owner.
+- MAX-level order cards still advertise xp at the cap - de-emphasize.
+- Reduced-motion toggle - ride a settings task.
+- Dev-only cosmetics: 'Edit dressing' toggle full-width; dev.ts comment re-attachment.
+
+## Open validations (real-device evidence still needed)
+
+- Camera feel on the LIVE site from a real phone (post-deploy).
+
+## Waiting on user
+
+- Local cleanup only the owner can do (PM cannot delete on device): stale review copies + the gitignored _to_delete/ folder.
