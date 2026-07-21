@@ -14,24 +14,33 @@
  * All gameplay numbers live here, never in scene/system logic.
  */
 
-import type { CropId } from './crops';
-import type { GoodId } from './goods';
+import { CROPS, type CropId } from './crops';
+import { GOODS, type GoodId } from './goods';
 
 /** Every building. A union so it extends one entry at a time. */
-export type BuildingId = 'flour_mill';
+export type BuildingId = 'flour_mill' | 'bakery';
 
 /**
- * A building's production recipe (T4.2a): the crop it eats, the good it makes,
- * how long one batch takes, and how many batches may run at once. Optional -
- * a building without one produces nothing, and `startMilling` refuses on it.
+ * What a batch EATS (T4.4): a crop out of `inventory`, or a processed good out
+ * of `goods`. A union rather than a bare CropId because production chains: the
+ * mill turns a crop into a good, and the bakery turns that good into another
+ * one. Same discriminated shape as `OrderItem` and `SellableRef`, so every
+ * reader is forced to say which map it means.
+ */
+export type RecipeInput = { kind: 'crop'; cropId: CropId } | { kind: 'good'; goodId: GoodId };
+
+/**
+ * A building's production recipe (T4.2a): what it eats, the good it makes, how
+ * long one batch takes, and how many batches may run at once. Optional - a
+ * building without one produces nothing, and `startMilling` refuses on it.
  *
  * Co-located here rather than in gameState/scene logic, like every other
  * building number: adding a second producer means adding one object, and no
  * milling constant ever appears in the store.
  */
 export interface MillingRecipe {
-  /** Crop consumed at batch START (deducted when the batch begins). */
-  inputCropId: CropId;
+  /** Consumed at batch START (deducted when the batch begins). */
+  input: RecipeInput;
   inputCount: number;
   /** Good granted on manual collect, once the batch is ready. */
   outputGoodId: GoodId;
@@ -126,7 +135,7 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
     currency: 'coins',
     unlockLevel: 6,
     milling: {
-      inputCropId: 'sunwheat',
+      input: { kind: 'crop', cropId: 'sunwheat' },
       inputCount: 5,
       outputGoodId: 'sunflour',
       outputCount: 2,
@@ -139,10 +148,104 @@ export const BUILDINGS: Record<BuildingId, BuildingDef> = {
       slotUnlockCosts: [2500, 10_000],
     },
   },
+  /**
+   * The bakery (T4.4) - the second production building, and the first one that
+   * EATS A GOOD: Sunwheat -> (mill) -> Sunflour -> (bakery) -> Bread. That is
+   * the whole reason `MillingRecipe.input` is a union.
+   *
+   * FLAGGED FOR AN OWNER EYEBALL, same as the mill's was:
+   * - footprintOffsets: the mill's (and farmhouse's) Art-Studio-tuned 2x2 as
+   *   the honest baseline. The bakery art reads WIDER than the mill, so this
+   *   is the likeliest thing to want a nudge once it is judged live - it may
+   *   deserve a 3-wide footprint.
+   * - renderOffset: DERIVED from that footprint exactly as the mill's is - the
+   *   FRONT tile's anchor-relative center, i.e. footprint tile (2,1) at
+   *   ((2-1)*128, (2+1)*64) = (128, 192). Identical to the mill's only because
+   *   the footprint is identical; if the footprint changes this must be
+   *   re-derived, and the pinning test enforces that.
+   * - defaultAnchor: clear of everything a fresh farm already occupies - the
+   *   mill's 2x2 at (-2,0)..(-1,1), the farmhouse at (0,-3)..(1,-2), the
+   *   notice board at cols 5..7, the plot block at cols 0..3, and the expand
+   *   sign. Its own tiles are (-4,-4), (-3,-4), (-4,-3) and (-3,-3), every one
+   *   inside the base placeable rect (pinned by test, like the mill's).
+   *
+   *   Chosen for VISUAL separation too, not just a legal footprint: in the
+   *   frozen iso frame a tile's screen x depends only on (col - row) and its y
+   *   only on (col + row), so two buildings on the same (col - row) diagonal
+   *   stack in the same screen column however far apart their tiles are. The
+   *   first anchor tried here, (-5,-2), was footprint-legal but rendered at
+   *   x 284 - the mill's exact column, 256px above it - so the two 256px
+   *   sprites overlapped into one blob on a farm that owned both. This anchor
+   *   renders at (540, 384) against the mill's (284, 768): a different
+   *   diagonal AND a different row. Pinned by test.
+   *
+   * `price`, `unlockLevel` and every milling number are PROVISIONAL.
+   */
+  bakery: {
+    id: 'bakery',
+    name: 'Bakery',
+    frame: 'bakery',
+    footprintOffsets: [
+      { col: 1, row: 0 },
+      { col: 2, row: 0 },
+      { col: 1, row: 1 },
+      { col: 2, row: 1 },
+    ],
+    renderOffset: { x: 128, y: 192 },
+    defaultAnchor: { col: -5, row: -4 },
+    price: 2000,
+    currency: 'coins',
+    unlockLevel: 9,
+    milling: {
+      input: { kind: 'good', goodId: 'sunflour' },
+      inputCount: 3,
+      outputGoodId: 'bread',
+      outputCount: 1,
+      // 30 minutes: longer than the mill's 20, since it consumes the mill's
+      // own output and sits a step further up the chain.
+      batchMs: 1_800_000,
+      slots: 3,
+      slotUnlockCosts: [5000, 20_000],
+    },
+  },
 };
 
 /** Every building id, in registry order. */
 export const BUILDING_IDS = Object.keys(BUILDINGS) as BuildingId[];
+
+/**
+ * The atlas frame for a recipe's input (T4.4) - a crop's ready stage, or a
+ * good's icon. Kept here beside the recipe rather than in the panel, so the
+ * two readers (MillPanel's strip, and any future one) cannot disagree.
+ */
+export function recipeInputFrame(recipe: MillingRecipe): string {
+  return recipe.input.kind === 'crop'
+    ? CROPS[recipe.input.cropId].stageFrames[2]
+    : GOODS[recipe.input.goodId].frame;
+}
+
+/** Display name for a recipe's input, from whichever registry owns it. */
+export function recipeInputName(recipe: MillingRecipe): string {
+  return recipe.input.kind === 'crop'
+    ? CROPS[recipe.input.cropId].name
+    : GOODS[recipe.input.goodId].name;
+}
+
+/**
+ * How many of a recipe's input the player holds, read from the map that owns
+ * that kind. THE one place the per-kind stock lookup lives, so the panel's
+ * "can I mill?" check and `startMilling`'s own gate can never disagree about
+ * which map to read - the same role `orderItemHeld` plays for orders.
+ */
+export function recipeInputHeld(
+  recipe: MillingRecipe,
+  inventory: Partial<Record<CropId, number>>,
+  goods: Partial<Record<GoodId, number>>,
+): number {
+  return recipe.input.kind === 'crop'
+    ? (inventory[recipe.input.cropId] ?? 0)
+    : (goods[recipe.input.goodId] ?? 0);
+}
 
 /**
  * One level-up celebration card, shaped like `GoalUnlockCard` (data/goals.ts)

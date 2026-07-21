@@ -7,7 +7,13 @@ import {
   type StructureId,
 } from '../config';
 import { DEFAULT_MUSIC_VOLUME, DEFAULT_SFX_VOLUME } from '../data/audio';
-import { BUILDINGS, type BuildingId, findBuilding, type MillingRecipe } from '../data/buildings';
+import {
+  BUILDINGS,
+  type BuildingId,
+  findBuilding,
+  type MillingRecipe,
+  recipeInputHeld,
+} from '../data/buildings';
 import {
   CHEST_COINS_MAX,
   CHEST_COINS_MIN,
@@ -2854,12 +2860,13 @@ export class GameStateStore {
 
   /**
    * Start one production batch on the building at `buildingIndex` (T4.2a).
-   * The recipe's input crop is consumed AT START, so a batch in flight is
-   * already paid for and cannot be refunded by walking away.
+   * The recipe's input is consumed AT START, so a batch in flight is already
+   * paid for and cannot be refunded by walking away.
    *
    * Returns false without mutating anything when the index is out of range,
-   * the building has no milling recipe, every slot is already busy, or the bag
-   * holds fewer than `inputCount` of the input crop. One save on success.
+   * the building has no milling recipe, every slot is already busy, or the
+   * player holds fewer than `inputCount` of the input - a crop counted out of
+   * `inventory`, a good out of `goods` (T4.4). One save on success.
    */
   startMilling(buildingIndex: number): boolean {
     const placement = this.state.buildings[buildingIndex];
@@ -2869,9 +2876,17 @@ export class GameStateStore {
     // Capacity is what the player has PAID FOR (T4.2b-r1), not what the def
     // declares - a locked slot is not a slot you can load.
     if (placement.batches.length >= placement.unlockedSlots) return false;
-    const held = this.state.inventory[recipe.inputCropId] ?? 0;
+    // Per kind (T4.4): a crop input is paid out of `inventory`, a good input
+    // out of `goods` - the bakery eats the flour the mill made. Held is read
+    // through the shared accessor so this gate and the panel's Mill button can
+    // never disagree about which map to look at.
+    const held = recipeInputHeld(recipe, this.state.inventory, this.state.goods);
     if (held < recipe.inputCount) return false;
-    this.state.inventory[recipe.inputCropId] = held - recipe.inputCount;
+    if (recipe.input.kind === 'crop') {
+      this.state.inventory[recipe.input.cropId] = held - recipe.inputCount;
+    } else {
+      this.state.goods[recipe.input.goodId] = held - recipe.inputCount;
+    }
     placement.batches.push({ startedAt: now() });
     this.save();
     return true;

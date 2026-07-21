@@ -194,7 +194,18 @@ const CROP_NAMES = [
   'sagesprig_1',
   'sagesprig_2',
 ];
-const ICON_NAMES = ['coin', 'moondust', 'bag', 'scroll', 'note', 'pouch', 'goals', 'sunflour'];
+const ICON_NAMES = [
+  'coin',
+  'moondust',
+  'bag',
+  'scroll',
+  'note',
+  'pouch',
+  'goals',
+  'sunflour',
+  // T4.4: bread is a GOOD, packed as a 96px icon exactly like sunflour.
+  'bread',
+];
 const SIGN_NAMES = ['sign'];
 /** Single static objects that sit on a tile like a crop, but have no growth stages. */
 const CHEST_NAMES = ['chest_closed', 'chest_open'];
@@ -223,6 +234,9 @@ const SQUARE_DOWNSCALE_SIZES = {
   // like the farmhouse (same 512x512 staged source, same 256 square), never
   // a 96x96 icon.
   flour_mill: 256,
+  // T4.4: the bakery is a BUILDING, packed on the same structure-class path
+  // as the mill and farmhouse - a 256 square, never a 96 icon.
+  bakery: 256,
   dirt_path: 288,
   decor_bench: 128,
   decor_flowerbed: 128,
@@ -828,6 +842,9 @@ const SHADOWED_FRAME_NAMES = [
   'sign',
   // T4.1: buildings cast shadows like the structures they render alongside.
   'flour_mill',
+  // T4.4: the bakery takes the GENERIC generated shadow for now - its authored
+  // override (tools/shadow-overrides/) is a separate follow-up task.
+  'bakery',
 ];
 
 /**

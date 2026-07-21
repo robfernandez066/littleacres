@@ -4,8 +4,10 @@ import { CROPS } from './crops';
 import { GOOD_IDS, GOODS } from './goods';
 
 describe('GOODS registry (T4.0)', () => {
-  it('defines one good, keyed by its own id', () => {
-    expect(Object.keys(GOODS)).toEqual(['sunflour']);
+  it('defines every good, keyed by its own id', () => {
+    // RE-PIN (T4.4): 'bread' joined the registry as the bakery's output, the
+    // second link in the Sunwheat -> Sunflour -> Bread chain.
+    expect(Object.keys(GOODS)).toEqual(['sunflour', 'bread']);
     for (const [key, good] of Object.entries(GOODS)) {
       expect(good.id).toBe(key);
     }

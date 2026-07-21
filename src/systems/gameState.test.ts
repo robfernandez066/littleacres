@@ -6853,6 +6853,14 @@ describe('buildings (T4.1, schema v23)', () => {
 
 /** The flour mill's recipe - every milling test reads its numbers from the def. */
 const RECIPE = BUILDINGS.flour_mill.milling!;
+/**
+ * The mill's input crop id. T4.4 widened `MillingRecipe.input` to a crop-or-
+ * good union; the MILL's input is still a crop, and these tests are the
+ * regression proof of exactly that - so they assert the kind once here and
+ * read the crop id from the narrowed union, rather than assuming it.
+ */
+if (RECIPE.input.kind !== 'crop') throw new Error('the flour mill must eat a crop');
+const MILL_INPUT_CROP = RECIPE.input.cropId;
 
 /**
  * A post-tutorial store with a placed mill and `wheat` Sunwheat in the bag.
@@ -6862,7 +6870,7 @@ function millStore(wheat: number, storage: SaveStorage | null = null): GameState
   const store = new GameStateStore({ storage });
   completeOnboarding(store);
   expect(store.devBuildBuilding('flour_mill')).toBe(true);
-  store.getState().inventory[RECIPE.inputCropId] = wheat;
+  store.getState().inventory[MILL_INPUT_CROP] = wheat;
   return store;
 }
 
@@ -6887,7 +6895,7 @@ describe('milling (T4.2a)', () => {
       expect(store.startMilling(0)).toBe(true);
       const after = now();
       const state = store.getState();
-      expect(state.inventory[RECIPE.inputCropId]).toBe(3);
+      expect(state.inventory[MILL_INPUT_CROP]).toBe(3);
       expect(state.buildings[0]!.batches).toHaveLength(1);
       const { startedAt } = state.buildings[0]!.batches[0]!;
       expect(startedAt).toBeGreaterThanOrEqual(before);
@@ -6899,7 +6907,7 @@ describe('milling (T4.2a)', () => {
     it('refuses (unmutated) when the bag holds fewer than inputCount', () => {
       const store = millStore(RECIPE.inputCount - 1);
       expect(store.startMilling(0)).toBe(false);
-      expect(store.getState().inventory[RECIPE.inputCropId]).toBe(RECIPE.inputCount - 1);
+      expect(store.getState().inventory[MILL_INPUT_CROP]).toBe(RECIPE.inputCount - 1);
       expect(store.getState().buildings[0]!.batches).toEqual([]);
     });
 
@@ -6909,10 +6917,10 @@ describe('milling (T4.2a)', () => {
       const store = fullMillStore(RECIPE.inputCount * (RECIPE.slots + 1));
       for (let i = 0; i < RECIPE.slots; i++) expect(store.startMilling(0)).toBe(true);
       expect(store.getState().buildings[0]!.batches).toHaveLength(RECIPE.slots);
-      const wheatLeft = store.getState().inventory[RECIPE.inputCropId];
+      const wheatLeft = store.getState().inventory[MILL_INPUT_CROP];
       expect(store.startMilling(0)).toBe(false);
       expect(store.getState().buildings[0]!.batches).toHaveLength(RECIPE.slots);
-      expect(store.getState().inventory[RECIPE.inputCropId]).toBe(wheatLeft);
+      expect(store.getState().inventory[MILL_INPUT_CROP]).toBe(wheatLeft);
     });
 
     it('refuses (unmutated) on an out-of-range index and a building with no recipe', () => {
@@ -6920,7 +6928,7 @@ describe('milling (T4.2a)', () => {
       expect(store.startMilling(1)).toBe(false);
       expect(store.startMilling(-1)).toBe(false);
       expect(store.getState().buildings[0]!.batches).toEqual([]);
-      expect(store.getState().inventory[RECIPE.inputCropId]).toBe(RECIPE.inputCount * 2);
+      expect(store.getState().inventory[MILL_INPUT_CROP]).toBe(RECIPE.inputCount * 2);
 
       // A recipe-less building refuses too. The registry has only the mill
       // today, so the no-recipe branch is exercised by stripping the recipe -
@@ -6932,7 +6940,7 @@ describe('milling (T4.2a)', () => {
       });
       expect(recipeless.startMilling(0)).toBe(false);
       expect(recipeless.getState().buildings[0]!.batches).toEqual([]);
-      expect(recipeless.getState().inventory[RECIPE.inputCropId]).toBe(RECIPE.inputCount * 2);
+      expect(recipeless.getState().inventory[MILL_INPUT_CROP]).toBe(RECIPE.inputCount * 2);
       spy.mockRestore();
     });
   });
@@ -7069,7 +7077,7 @@ describe('milling (T4.2a)', () => {
       expect(store.getState().buildings[0]!.batches).toEqual([]);
       expect(store.getState().goods[RECIPE.outputGoodId]).toBe(RECIPE.outputCount);
       // The slot really is free: a fresh batch fits.
-      store.getState().inventory[RECIPE.inputCropId] = RECIPE.inputCount;
+      store.getState().inventory[MILL_INPUT_CROP] = RECIPE.inputCount;
       expect(store.startMilling(0)).toBe(true);
     });
 
@@ -7598,6 +7606,188 @@ describe('orders for processed goods (T4.3)', () => {
           for (const item of slot.order.items) expect(item.kind).toBe('crop');
         }
       }
+    });
+  });
+});
+
+describe('the bakery: a building that EATS A GOOD (T4.4)', () => {
+  const BAKERY = BUILDINGS.bakery;
+  const BAKERY_RECIPE = BAKERY.milling!;
+  /**
+   * The bakery's input good id. The whole point of T4.4's union: unlike the
+   * mill, this building's input comes out of `goods`, not `inventory`.
+   */
+  if (BAKERY_RECIPE.input.kind !== 'good') throw new Error('the bakery must eat a good');
+  const BAKERY_INPUT_GOOD = BAKERY_RECIPE.input.goodId;
+
+  /** A post-tutorial store with a placed bakery and `flour` Sunflour in the goods map. */
+  function bakeryStore(flour: number, storage: SaveStorage | null = null): GameStateStore {
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    expect(store.devBuildBuilding('bakery')).toBe(true);
+    store.devGrantGood(BAKERY_INPUT_GOOD, flour);
+    return store;
+  }
+
+  describe('startMilling on a good input', () => {
+    it('deducts the input from state.goods, never from the crop inventory', () => {
+      const store = bakeryStore(BAKERY_RECIPE.inputCount + 2);
+      store.getState().inventory.sunwheat = 50;
+
+      expect(store.startMilling(0)).toBe(true);
+      const state = store.getState();
+      expect(state.goods[BAKERY_INPUT_GOOD]).toBe(2);
+      // The bag is untouched: a bakery batch is paid for in flour.
+      expect(state.inventory.sunwheat).toBe(50);
+      expect(state.buildings[0]!.batches).toHaveLength(1);
+    });
+
+    it('refuses without mutation when the goods stack is short', () => {
+      const store = bakeryStore(BAKERY_RECIPE.inputCount - 1);
+      const before = JSON.stringify(store.getState());
+
+      expect(store.startMilling(0)).toBe(false);
+      expect(JSON.stringify(store.getState())).toBe(before);
+    });
+
+    it('a silo of the mill INPUT crop does not pay for a bake', () => {
+      // Sunwheat is not Sunflour - the maps never cross.
+      const store = bakeryStore(0);
+      store.getState().inventory.sunwheat = 999;
+
+      expect(store.startMilling(0)).toBe(false);
+      expect(store.getState().buildings[0]!.batches).toHaveLength(0);
+    });
+
+    it('collects into the output good after the bake time', () => {
+      const store = bakeryStore(BAKERY_RECIPE.inputCount);
+      expect(store.startMilling(0)).toBe(true);
+      advanceTime(BAKERY_RECIPE.batchMs);
+
+      expect(store.collectMilling(0, 0)).toBe(BAKERY_RECIPE.outputCount);
+      expect(store.getState().goods[BAKERY_RECIPE.outputGoodId]).toBe(BAKERY_RECIPE.outputCount);
+      expect(store.getState().buildings[0]!.batches).toHaveLength(0);
+    });
+  });
+
+  describe('the mill is unchanged by the generalization (regression)', () => {
+    it('still consumes its crop out of the bag, leaving the goods map alone', () => {
+      const store = millStore(RECIPE.inputCount + 3);
+      store.devGrantGood('sunflour', 7);
+
+      expect(store.startMilling(0)).toBe(true);
+      expect(store.getState().inventory[MILL_INPUT_CROP]).toBe(3);
+      // The mill's input is a crop, so the goods map is untouched.
+      expect(store.getState().goods.sunflour).toBe(7);
+    });
+
+    it('still refuses when the bag is short, however much flour is held', () => {
+      const store = millStore(RECIPE.inputCount - 1);
+      store.devGrantGood('sunflour', 999);
+      expect(store.startMilling(0)).toBe(false);
+    });
+  });
+
+  describe('the bakery is a full building through the existing machinery', () => {
+    it('is bought through buyBuilding at its own level and price', () => {
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      store.setLevel(BAKERY.unlockLevel);
+      store.addCoins(BAKERY.price);
+      const before = store.getState().coins;
+
+      expect(store.buyBuilding('bakery')).toBe(true);
+      expect(store.getState().coins).toBe(before - BAKERY.price);
+      expect(store.getState().buildings).toEqual([
+        {
+          type: 'bakery',
+          col: BAKERY.defaultAnchor.col,
+          row: BAKERY.defaultAnchor.row,
+          batches: [],
+          unlockedSlots: 1,
+        },
+      ]);
+    });
+
+    it('refuses below its unlock level, even with the coins', () => {
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      store.setLevel(BAKERY.unlockLevel - 1);
+      store.addCoins(BAKERY.price);
+      expect(store.buyBuilding('bakery')).toBe(false);
+      expect(store.getState().buildings).toEqual([]);
+    });
+
+    it('its default anchor is legal on a fresh farm', () => {
+      // Same guarantee the mill's anchor gets: a bought bakery must not land
+      // on blocked ground with no way to notice.
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      store.setLevel(BAKERY.unlockLevel);
+      store.addCoins(BAKERY.price);
+      expect(
+        isBuildingAnchorFree(
+          store.getState(),
+          'bakery',
+          BAKERY.defaultAnchor.col,
+          BAKERY.defaultAnchor.row,
+        ),
+      ).toBe(true);
+    });
+
+    it('does not collide with a mill sitting at ITS default anchor', () => {
+      // Both buildings are bought on the same farm, so their default spots
+      // must not overlap - otherwise the second one lands on blocked ground.
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      expect(store.devBuildBuilding('flour_mill')).toBe(true);
+      expect(
+        isBuildingAnchorFree(
+          store.getState(),
+          'bakery',
+          BAKERY.defaultAnchor.col,
+          BAKERY.defaultAnchor.row,
+        ),
+      ).toBe(true);
+      expect(store.devBuildBuilding('bakery')).toBe(true);
+      expect(store.getState().buildings).toHaveLength(2);
+    });
+
+    it('makes bread orderable through availableOrderGoods, and only then', () => {
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      expect(store.availableOrderGoods()).toEqual([]);
+      store.devBuildBuilding('bakery');
+      expect(store.availableOrderGoods()).toEqual(['bread']);
+      store.devBuildBuilding('flour_mill');
+      expect([...store.availableOrderGoods()].sort()).toEqual(['bread', 'sunflour']);
+    });
+
+    it('a save holding a bakery placement and a bread stack loads valid - no migration', () => {
+      const storage = makeStorage();
+      const store = new GameStateStore({ storage });
+      completeOnboarding(store);
+      store.devBuildBuilding('bakery');
+      store.devGrantGood('bread', 4);
+      const saved = JSON.parse(JSON.stringify(store.getState()));
+
+      const reloaded = new GameStateStore({ storage });
+      reloaded.load();
+      // Registry membership is what makes these valid; the schema did not move.
+      expect(reloaded.getState().version).toBe(saved.version);
+      expect(reloaded.getState().buildings).toEqual(saved.buildings);
+      expect(reloaded.getState().goods.bread).toBe(4);
+    });
+
+    it('sells bread through the existing sellGood path', () => {
+      const store = new GameStateStore({ storage: null });
+      completeOnboarding(store);
+      store.devGrantGood('bread', 3);
+      const before = store.getState().coins;
+
+      expect(store.sellGood('bread')).toBe(3 * GOODS.bread.sellValue);
+      expect(store.getState().coins).toBe(before + 3 * GOODS.bread.sellValue);
+      expect(store.getState().goods.bread).toBe(0);
     });
   });
 });

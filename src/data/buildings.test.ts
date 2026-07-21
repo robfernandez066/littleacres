@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   BUILDINGS,
   BUILDING_CARD_ICON_SCALE,
+  type BuildingDef,
   BUILDING_IDS,
   buildingUnlockCardsForLevel,
   findBuilding,
@@ -14,7 +15,8 @@ import { gridToIso } from '../systems/iso';
 
 describe('BUILDINGS registry (T4.1)', () => {
   it('BUILDING_IDS matches the registry keys, and every def is self-consistent', () => {
-    expect(BUILDING_IDS).toEqual(['flour_mill']);
+    // RE-PIN (T4.4): the bakery joined the roster as production building #2.
+    expect(BUILDING_IDS).toEqual(['flour_mill', 'bakery']);
     for (const id of BUILDING_IDS) {
       const def = BUILDINGS[id];
       expect(def.id).toBe(id);
@@ -80,7 +82,9 @@ describe('BUILDINGS registry (T4.1)', () => {
 
   it("the mill's milling recipe carries its provisional numbers (T4.2a)", () => {
     expect(BUILDINGS.flour_mill.milling).toEqual({
-      inputCropId: 'sunwheat',
+      // RE-PIN (T4.4): `inputCropId: 'sunwheat'` became the crop arm of the
+      // new crop-or-good `input` union. Same crop, same behavior.
+      input: { kind: 'crop', cropId: 'sunwheat' },
       inputCount: 5,
       outputGoodId: 'sunflour',
       outputCount: 2,
@@ -110,11 +114,16 @@ describe('BUILDINGS registry (T4.1)', () => {
     }
   });
 
-  it('every milling recipe names a real crop and a real good, with sane counts', () => {
+  it('every milling recipe names a real input and a real good, with sane counts', () => {
     for (const id of BUILDING_IDS) {
       const recipe = BUILDINGS[id].milling;
       if (recipe === undefined) continue;
-      expect(CROPS[recipe.inputCropId]).toBeDefined();
+      // T4.4: the input is a crop OR a good, resolved out of its own registry.
+      if (recipe.input.kind === 'crop') {
+        expect(CROPS[recipe.input.cropId]).toBeDefined();
+      } else {
+        expect(GOODS[recipe.input.goodId]).toBeDefined();
+      }
       expect(GOODS[recipe.outputGoodId]).toBeDefined();
       expect(recipe.inputCount).toBeGreaterThan(0);
       expect(recipe.outputCount).toBeGreaterThan(0);
@@ -126,13 +135,22 @@ describe('BUILDINGS registry (T4.1)', () => {
     }
   });
 
-  it('milling the mill is profitable: the output beats the input at sell value', () => {
-    // THE reason the mill is worth building - if this ever inverts, the
-    // processing premium is gone and the balance numbers need another look.
-    const recipe = BUILDINGS.flour_mill.milling!;
-    const inputValue = CROPS[recipe.inputCropId].sellValue * recipe.inputCount;
-    const outputValue = GOODS[recipe.outputGoodId].sellValue * recipe.outputCount;
-    expect(outputValue).toBeGreaterThan(inputValue);
+  it('EVERY production building is profitable: its output beats its input at sell value', () => {
+    // THE reason a production building is worth putting up - if this ever
+    // inverts, the processing premium is gone and the balance numbers need
+    // another look. Now swept across the whole roster (T4.4), so a new
+    // building cannot be added at a loss without this failing.
+    for (const id of BUILDING_IDS) {
+      const recipe = BUILDINGS[id].milling;
+      if (recipe === undefined) continue;
+      const inputUnitValue =
+        recipe.input.kind === 'crop'
+          ? CROPS[recipe.input.cropId].sellValue
+          : GOODS[recipe.input.goodId].sellValue;
+      const inputValue = inputUnitValue * recipe.inputCount;
+      const outputValue = GOODS[recipe.outputGoodId].sellValue * recipe.outputCount;
+      expect(outputValue).toBeGreaterThan(inputValue);
+    }
   });
 
   it('no user-facing string uses an em dash (project rule)', () => {
@@ -177,5 +195,118 @@ describe('buildingUnlockCardsForLevel (T4.2d)', () => {
   // frame at CARD_ICON_SCALE 1.3: 256 * 0.65 == 128 * 1.3 == 166.4px.
   it('scales a 256 building frame to the same card size as a 128 crop frame', () => {
     expect(256 * BUILDING_CARD_ICON_SCALE).toBe(128 * 1.3);
+  });
+});
+
+describe('the bakery def (T4.4)', () => {
+  const BAKERY = BUILDINGS.bakery;
+
+  it('carries its provisional balance numbers', () => {
+    expect(BAKERY.name).toBe('Bakery');
+    expect(BAKERY.frame).toBe('bakery');
+    expect(BAKERY.price).toBe(2000);
+    expect(BAKERY.unlockLevel).toBe(9);
+  });
+
+  it('eats a GOOD - the reason MillingRecipe.input is a union', () => {
+    expect(BAKERY.milling).toEqual({
+      input: { kind: 'good', goodId: 'sunflour' },
+      inputCount: 3,
+      outputGoodId: 'bread',
+      outputCount: 1,
+      batchMs: 1_800_000, // 30 minutes
+      slots: 3,
+      slotUnlockCosts: [5000, 20_000],
+    });
+  });
+
+  it('takes the 2x2 baseline footprint, flagged for an owner eyeball', () => {
+    // Same honest baseline the mill started from; the bakery art reads wider,
+    // so this is the likeliest thing to want a nudge once judged live.
+    expect(BAKERY.footprintOffsets).toEqual(BUILDINGS.flour_mill.footprintOffsets);
+  });
+
+  it("its render offset lands on the FRONT footprint tile's center, derived not guessed", () => {
+    const origin = gridToIso(0, 0);
+    const centers = BAKERY.footprintOffsets.map((offset) => {
+      const center = gridToIso(offset.col, offset.row);
+      return { x: center.x - origin.x, y: center.y - origin.y };
+    });
+    expect(centers).toContainEqual(BAKERY.renderOffset);
+    const frontY = Math.max(...centers.map((center) => center.y));
+    expect(BAKERY.renderOffset.y).toBe(frontY);
+  });
+
+  it('its default anchor does not overlap the mill footprint, the farmhouse or the notice board', () => {
+    /** The tiles a building at `anchor` blocks. */
+    const tilesOf = (def: typeof BAKERY) =>
+      def.footprintOffsets.map(
+        (o) => `${def.defaultAnchor.col + o.col},${def.defaultAnchor.row + o.row}`,
+      );
+    const bakeryTiles = new Set(tilesOf(BAKERY));
+    for (const tile of tilesOf(BUILDINGS.flour_mill)) {
+      expect(bakeryTiles.has(tile)).toBe(false);
+    }
+    // The farmhouse's own 2x2, from its anchor in config.
+    const farmhouseTiles = STRUCTURE_FOOTPRINT_OFFSETS.farmhouse.map(
+      (o) => `${-1 + o.col},${-3 + o.row}`,
+    );
+    for (const tile of farmhouseTiles) {
+      expect(bakeryTiles.has(tile)).toBe(false);
+    }
+  });
+
+  it('renders clear of the mill, not just footprint-legal', () => {
+    // A legal footprint is NOT enough. Screen x depends only on (col - row)
+    // and y only on (col + row), so two buildings sharing a (col - row)
+    // diagonal stack in one screen column. The first anchor tried for the
+    // bakery was footprint-legal yet rendered in the mill's exact column,
+    // 256px above it, and the two 256px sprites merged into one blob.
+    const renderPointOf = (def: BuildingDef) => {
+      const front = { col: def.defaultAnchor.col + 2, row: def.defaultAnchor.row + 1 };
+      return gridToIso(front.col, front.row);
+    };
+    const bakery = renderPointOf(BAKERY);
+    const mill = renderPointOf(BUILDINGS.flour_mill);
+    // Different screen column AND far enough apart vertically that a 256px
+    // sprite cannot cover the other.
+    expect(bakery.x).not.toBe(mill.x);
+    expect(Math.abs(bakery.y - mill.y)).toBeGreaterThanOrEqual(256);
+  });
+
+  it('the production chain links up: the bakery eats what the mill makes', () => {
+    // The whole point of the second building - if these ever stop matching,
+    // the chain is broken and the bakery has no supply.
+    const mill = BUILDINGS.flour_mill.milling!;
+    const bakery = BAKERY.milling!;
+    expect(bakery.input).toEqual({ kind: 'good', goodId: mill.outputGoodId });
+  });
+});
+
+describe('buildingUnlockCardsForLevel with two buildings (T4.4)', () => {
+  it('yields the bakery card at level 9', () => {
+    expect(buildingUnlockCardsForLevel(9)).toEqual([
+      {
+        iconFrame: 'bakery',
+        label: 'Bakery available in the Shop!',
+        iconScale: BUILDING_CARD_ICON_SCALE,
+      },
+    ]);
+  });
+
+  it('still yields only the mill card at level 6', () => {
+    expect(buildingUnlockCardsForLevel(6)).toEqual([
+      {
+        iconFrame: 'flour_mill',
+        label: 'Flour Mill available in the Shop!',
+        iconScale: BUILDING_CARD_ICON_SCALE,
+      },
+    ]);
+  });
+
+  it('yields nothing at a level that gates neither', () => {
+    for (const level of [1, 5, 7, 8, 10, 12]) {
+      expect(buildingUnlockCardsForLevel(level)).toEqual([]);
+    }
   });
 });

@@ -87,6 +87,10 @@ export const ORDER_UNIT_CAPS: Partial<Record<CropId, number>> = {
  */
 export const ORDER_GOOD_UNIT_CAPS: Partial<Record<GoodId, number>> = {
   sunflour: 2,
+  // Bread (T4.4) is capped at ONE: a loaf is 3 Sunflour plus a 30-minute bake,
+  // so it is the slowest thing on the farm to produce and even two would make
+  // an order a multi-hour commitment.
+  bread: 1,
 };
 
 /**

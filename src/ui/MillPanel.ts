@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
-import { BUILDINGS, type MillingRecipe } from '../data/buildings';
-import { CROPS } from '../data/crops';
+import {
+  BUILDINGS,
+  type MillingRecipe,
+  recipeInputFrame,
+  recipeInputHeld,
+} from '../data/buildings';
 import { GOODS } from '../data/goods';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData, millSlots, type MillSlotView } from '../systems/gameState';
@@ -122,7 +126,12 @@ const BAR_FILL_COLOR = 0x7fb069;
 
 const MILL_BUTTON_LABEL = 'Mill';
 const COLLECT_BUTTON_LABEL = 'Collect';
-const PANEL_TITLE = 'Flour Mill';
+/**
+ * Placeholder only - the live title is the BUILDING's own name, set every
+ * `refresh` (T4.4). This panel serves every production building, so a
+ * hardcoded "Flour Mill" would have titled the bakery wrong.
+ */
+const PANEL_TITLE_FALLBACK = 'Flour Mill';
 const MILLING_LABEL = 'Milling...';
 const READY_LABEL = 'Ready';
 const FOOTER_TEXT = "Batches keep milling while you're away.";
@@ -248,6 +257,8 @@ export class MillPanel {
   private readonly container: Phaser.GameObjects.Container;
   private readonly backdrop: ModalBackdrop;
   private readonly background: Phaser.GameObjects.NineSlice;
+  /** Retitled per building on every refresh (T4.4) - see PANEL_TITLE_FALLBACK. */
+  private readonly title: Phaser.GameObjects.Text;
   private readonly footer: Phaser.GameObjects.Text;
   private readonly rows: SlotRow[] = [];
   private visible = false;
@@ -302,7 +313,7 @@ export class MillPanel {
       ) => event.stopPropagation(),
     );
 
-    const title = scene.add.text(0, TITLE_Y, PANEL_TITLE, TITLE_STYLE).setOrigin(0.5);
+    this.title = scene.add.text(0, TITLE_Y, PANEL_TITLE_FALLBACK, TITLE_STYLE).setOrigin(0.5);
     const closeButton = scene.add
       .text(CLOSE_OFFSET_X, CLOSE_OFFSET_Y, 'X', CLOSE_STYLE)
       .setOrigin(0.5)
@@ -315,7 +326,7 @@ export class MillPanel {
 
     this.footer = scene.add.text(0, 0, FOOTER_TEXT, FOOTER_STYLE).setOrigin(0.5);
 
-    this.container.add([bg, title, closeButton, this.footer]);
+    this.container.add([bg, this.title, closeButton, this.footer]);
   }
 
   /**
@@ -463,7 +474,13 @@ export class MillPanel {
       return;
     }
 
-    const held = state.inventory[recipe.inputCropId] ?? 0;
+    // This panel serves every production building, so it wears the name of
+    // whichever one it was opened on (T4.4) - "Flour Mill" or "Bakery".
+    this.title.setText(BUILDINGS[placement.type].name);
+
+    // Per kind (T4.4): the mill counts its Sunwheat out of the bag, the bakery
+    // counts its Sunflour out of the goods map.
+    const held = recipeInputHeld(recipe, state.inventory, state.goods);
     const views = millSlots(placement, recipe, now());
     this.autoDisarm(views, state.coins);
 
@@ -512,7 +529,6 @@ export class MillPanel {
     held: number,
     coins: number,
   ): void {
-    const crop = CROPS[recipe.inputCropId];
     const good = GOODS[recipe.outputGoodId];
     const idle = view.kind === 'empty';
     const milling = view.kind === 'milling';
@@ -549,7 +565,7 @@ export class MillPanel {
       // The recipe AS ICONS (T4.2b-r1): what a batch eats, what it yields.
       // Both frames come off the recipe, so this row never names a crop.
       row.stripInputIcon
-        .setFrame(crop.stageFrames[2])
+        .setFrame(recipeInputFrame(recipe))
         .setDisplaySize(STRIP_ICON_DISPLAY_SIZE, STRIP_ICON_DISPLAY_SIZE);
       row.stripInputCount.setText(`x${recipe.inputCount}`);
       row.stripOutputIcon
