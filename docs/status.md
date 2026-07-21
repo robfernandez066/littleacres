@@ -2,9 +2,11 @@
 
 **Updated:** 2026-07-20
 **Phase:** Restoration v1 (farmhouse), base-anchor structures + dev transform knobs, the farmhouse authored cast-shadow, and the authored building-shadow WORKFLOW (docs/SHADOW_WORKFLOW.md), and the Goals hub (long-term goals menu) all SHIPPED. Phase 4 (production buildings) underway: the goods economy foundation and the placeable flour mill building (dev-only) SHIPPED.
-**Schema:** v23 · **Tests:** 605 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v24 · **Tests:** 627 · **Live:** robfernandez066.github.io/littleacres/
 
 ## Active
+
+- **T4.2a milling MODEL SHIPPED 2026-07-20 (commit 8557a33, schema v24, tests 627):** the flour mill's production loop underneath - load 5 Sunwheat -> a real-clock ~20min batch -> collect 2 Sunflour, up to 3 concurrent batches, progressing offline. `MillingRecipe` co-located on the flour_mill def (numbers provisional); `batches: MillBatch[]` on the placement with readiness DERIVED (startedAt + batchMs, never stored) like crops; `startMilling`/`collectMilling` reducers + pure `millBatchReadyAt`/`isMillBatchReady`; v23->v24 migration; dev `grantGood`/`startMilling`/`finishMilling`. No UI yet. NEXT: T4.2b milling UI (mill panel, tap-to-open, field producing/ready indicators, Sunflour bag row wired to sellGood; exclude `batches` from FarmScene's building change-detection key so batch churn doesn't thrash sprites), then T4.2c acquisition (shop entry + level-6 unlock card), then T4.3 Sunflour orders.
 
 - **Phase 4 flour mill - foundation + building SHIPPED 2026-07-20:** goods economy foundation (T4.0, commit d569c3d, schema v22): Sunflour good, a separate `goods` inventory map, `sellGood`. Placeable flour mill building (T4.1, commit a133b98, schema v23): building placement system parallel to structures (`buildings[]`, `buyBuilding`/`moveBuilding`, shared footprint core both delegate to), `flour_mill` def (2x2 footprint, static windmill cottage art), and an authored ground shadow via SHADOW_WORKFLOW (previewScale matched to game scale, pixels shifted (0,-32) to tuck under the base; verified on real Phaser + field). Dev-only (`dev.buildMill()`) - no shop entry, inert until the milling loop. Tests 605. NEXT: T4.2 milling loop (load Sunwheat -> timed batches -> collect Sunflour; mill panel; shop purchase + level-6 unlock card), then T4.3 Sunflour orders. Follow-ups: gitignore `*_shadow.registration.png`; eyeball the 2x2 footprint / display size against the cottage art.
 

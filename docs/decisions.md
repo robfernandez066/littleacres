@@ -19,6 +19,12 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-20 - Milling model shipped (T4.2a)
+**Context:** Phase 4's flour mill needed a working production loop before any UI: turn Sunwheat into Sunflour on a real-clock timer that keeps running while the game is closed.
+**Decision:** Co-located a `MillingRecipe` on the flour_mill BuildingDef (5 Sunwheat -> 2 Sunflour, ~20 min, 3 slots; provisional). Milling state lives on the placement as `batches: MillBatch[]` storing only `startedAt` - readiness is DERIVED (`startedAt + batchMs`), never stored, exactly like a crop's `plantedAt + growMs`, so offline progress is free and cannot desync (no per-tick advancer). Added `startMilling`/`collectMilling` reducers (input consumed at start, manual collect), pure `millBatchReadyAt`/`isMillBatchReady` helpers, a v23->v24 migration (existing placements gain `batches: []`), a validator that caps batches at the recipe's slot count, `clampFuturePlantedAt` extended to batches, and dev `grantGood`/`startMilling`/`finishMilling`. Model-only, dev-inert - no UI or shop entry.
+**Verdict:** COMMIT 8557a33 (tests 627). Flagged for T4.2b: exclude `batches` from FarmScene's `lastBuildingsJson` change-detection so batch churn does not rebuild the mill sprite each tick.
+**Trigger:** T4.2 kickoff (owner: "yes milling loop").
+
 ## 2026-07-20 - Flour mill placeable building + authored shadow (T4.1)
 **Context:** Phase 4 production building #1: a placeable mill that will turn Sunwheat into Sunflour, using the static windmill cottage art.
 **Decision:** Added a building placement system parallel to structures - `buildings[]` (schema v22->v23, additive migration), `buyBuilding`/`moveBuilding`, and a shared footprint core (`permanentFootprints`/`isAnchorFree`) that structures and buildings both delegate to - plus the `flour_mill` def (2x2 footprint). Its ground shadow is authored via SHADOW_WORKFLOW (not the generic cast): previewScale matched to the game scale, pixels shifted (0,-32) so it tucks under the base and spills back-left, verified on real Phaser + field (not anchorDelta alone). Dev-only (`dev.buildMill()`), no shop entry, inert until the T4.2 milling loop; authoredShadow tests re-pinned to the two-building override set.
