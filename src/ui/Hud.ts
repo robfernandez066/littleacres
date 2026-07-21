@@ -24,6 +24,7 @@ import { CropArc } from './CropArc';
 import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
 import type { GoalsPanel } from './GoalsPanel';
+import type { MillPanel } from './MillPanel';
 import { InventoryPanel } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
@@ -342,6 +343,14 @@ export class Hud {
    * this constructor and that call; every use guards on it.
    */
   private goalsPanel: GoalsPanel | null = null;
+  /**
+   * The mill panel (T4.2b), handed in via `setMillPanel` exactly like
+   * `goalsPanel`. Nothing in the HUD OPENS it - the mill on the field does
+   * (`FarmScene.openMillPanel`) - but it joins the panel-exclusivity set here
+   * so opening any HUD panel closes it, and it refreshes on the tick while
+   * visible, which is what makes its countdowns live.
+   */
+  private millPanel: MillPanel | null = null;
   private readonly arrangeContainer: Phaser.GameObjects.Container;
   private readonly arrangeButton: Phaser.GameObjects.NineSlice;
   /** Cached rails gating, mirrors `bagEnabled`. */
@@ -509,6 +518,7 @@ export class Hud {
       this.orderBoard.hide();
       this.questBoard?.hide();
       this.goalsPanel?.hide();
+      this.millPanel?.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
@@ -573,6 +583,7 @@ export class Hud {
       this.settingsPanel.hide();
       this.questBoard?.hide();
       this.goalsPanel?.hide();
+      this.millPanel?.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -645,6 +656,7 @@ export class Hud {
       this.orderBoard.hide();
       this.settingsPanel.hide();
       this.questBoard?.hide();
+      this.millPanel?.hide();
       this.currencyInfoCard.hide();
       // Deliberately does NOT hide itself first (unlike the other panels this
       // closes): that would turn a second tap into a re-open instead of a
@@ -717,6 +729,7 @@ export class Hud {
     this.settingsPanel.hide();
     this.questBoard?.hide();
     this.goalsPanel?.hide();
+    this.millPanel?.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
@@ -734,6 +747,7 @@ export class Hud {
     this.settingsPanel.hide();
     this.questBoard?.hide();
     this.goalsPanel?.hide();
+    this.millPanel?.hide();
     this.currencyInfoCard.hide();
   }
 
@@ -756,6 +770,15 @@ export class Hud {
    */
   setGoalsPanel(panel: GoalsPanel): void {
     this.goalsPanel = panel;
+  }
+
+  /**
+   * Wire the Mill panel (T4.2b) - same handoff as `setGoalsPanel`. The panel is
+   * opened by the mill on the field, never by a HUD control; the HUD holds it
+   * only to keep panel exclusivity honest and to tick its countdowns.
+   */
+  setMillPanel(panel: MillPanel): void {
+    this.millPanel = panel;
   }
 
   /**
@@ -889,6 +912,9 @@ export class Hud {
     this.orderBoard.refresh(state);
     this.questBoard?.refresh(state);
     this.goalsPanel?.refresh(state);
+    // Only while visible: this is the tick that counts its batches down, and a
+    // hidden mill panel has no building bound to refresh from.
+    if (this.millPanel?.isVisible() === true) this.millPanel.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 

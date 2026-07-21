@@ -59,6 +59,7 @@ import {
   BACKUP_KEY,
   bestBatchStartTile,
   buildingFootprintTiles,
+  type BuildingPlacement,
   buildingRenderPosition,
   createDefaultState,
   type GameStateData,
@@ -69,6 +70,7 @@ import {
   isStructureAnchorFree,
   isValidState,
   millBatchReadyAt,
+  millSlots,
   MIGRATIONS,
   type Migration,
   nextChainPlotTile,
@@ -6849,6 +6851,74 @@ describe('milling (T4.2a)', () => {
       // Ready AT the boundary, not one tick after it.
       expect(isMillBatchReady(batch, RECIPE, 1_000_000 + RECIPE.batchMs)).toBe(true);
       expect(isMillBatchReady(batch, RECIPE, 1_000_000 + RECIPE.batchMs + 1)).toBe(true);
+    });
+  });
+
+  describe('millSlots (T4.2b)', () => {
+    /** A bare placement carrying exactly `batches` - millSlots reads nothing else. */
+    const placementWith = (batches: { startedAt: number }[]): BuildingPlacement => ({
+      type: 'flour_mill',
+      col: 0,
+      row: 0,
+      batches,
+    });
+
+    it('is always recipe.slots long, all empty when nothing is milling', () => {
+      const views = millSlots(placementWith([]), RECIPE, 1_000_000);
+      expect(views).toHaveLength(RECIPE.slots);
+      expect(views.every((view) => view.kind === 'empty')).toBe(true);
+    });
+
+    it('reads milling with the live remainder before the boundary, ready at and after it', () => {
+      const startedAt = 1_000_000;
+      const readyAt = startedAt + RECIPE.batchMs;
+      const placement = placementWith([{ startedAt }]);
+
+      // Mid-batch: remainingMs counts down to the derived readyAt.
+      expect(millSlots(placement, RECIPE, startedAt)[0]).toEqual({
+        kind: 'milling',
+        remainingMs: RECIPE.batchMs,
+      });
+      expect(millSlots(placement, RECIPE, readyAt - 1)[0]).toEqual({
+        kind: 'milling',
+        remainingMs: 1,
+      });
+      // Ready AT the boundary, not one tick after it - the same straddle
+      // isMillBatchReady is pinned on, so the panel and the store agree.
+      expect(millSlots(placement, RECIPE, readyAt)[0]).toEqual({ kind: 'ready', batchIndex: 0 });
+      expect(millSlots(placement, RECIPE, readyAt + 1)[0]).toEqual({
+        kind: 'ready',
+        batchIndex: 0,
+      });
+    });
+
+    it('fills slot i from batch i and leaves the rest empty', () => {
+      const nowMs = 5_000_000;
+      // Two batches: the first long finished, the second still running.
+      const placement = placementWith([
+        { startedAt: nowMs - RECIPE.batchMs * 2 },
+        { startedAt: nowMs - RECIPE.batchMs / 2 },
+      ]);
+      const views = millSlots(placement, RECIPE, nowMs);
+      expect(views).toHaveLength(RECIPE.slots);
+      expect(views[0]).toEqual({ kind: 'ready', batchIndex: 0 });
+      expect(views[1]).toEqual({ kind: 'milling', remainingMs: RECIPE.batchMs / 2 });
+      // Slot 2 (the mill has 3) has no batch behind it.
+      for (let index = 2; index < RECIPE.slots; index++) {
+        expect(views[index]).toEqual({ kind: 'empty' });
+      }
+    });
+
+    it('gives every full slot a ready view carrying its own collect index', () => {
+      const nowMs = 5_000_000;
+      const batches = Array.from({ length: RECIPE.slots }, () => ({
+        startedAt: nowMs - RECIPE.batchMs,
+      }));
+      const views = millSlots(placementWith(batches), RECIPE, nowMs);
+      // batchIndex is the index collectMilling takes, so it must be the slot's own.
+      expect(views).toEqual(
+        Array.from({ length: RECIPE.slots }, (_, index) => ({ kind: 'ready', batchIndex: index })),
+      );
     });
   });
 

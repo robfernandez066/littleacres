@@ -247,6 +247,46 @@ export function isMillBatchReady(batch: MillBatch, recipe: MillingRecipe, nowMs:
 }
 
 /**
+ * One production slot's display state (T4.2b) - what `millSlots` hands the UI.
+ * A slot is one of exactly three things, and each carries only what its
+ * renderer needs: a milling slot its live countdown, a ready slot the
+ * `batchIndex` to pass straight back to `collectMilling`.
+ */
+export type MillSlotView =
+  | { kind: 'empty' }
+  | { kind: 'milling'; remainingMs: number }
+  | { kind: 'ready'; batchIndex: number };
+
+/**
+ * Every slot on `placement`, in slot order (T4.2b) - the ONE derivation the
+ * mill panel and the field indicators both read, so neither restates a milling
+ * rule. Slot i holds batch i (batches are stored oldest-first and never
+ * sparse), and every index past the batch list is an empty slot.
+ *
+ * Pure: takes the clock as `nowMs` (callers pass the game clock's `now()`, the
+ * same clock the store's own readiness checks use) and mutates nothing, so the
+ * panel can call it per tick and the tests can call it at any instant.
+ */
+export function millSlots(
+  placement: BuildingPlacement,
+  recipe: MillingRecipe,
+  nowMs: number,
+): MillSlotView[] {
+  const views: MillSlotView[] = [];
+  for (let index = 0; index < recipe.slots; index++) {
+    const batch = placement.batches[index];
+    if (batch === undefined) {
+      views.push({ kind: 'empty' });
+    } else if (isMillBatchReady(batch, recipe, nowMs)) {
+      views.push({ kind: 'ready', batchIndex: index });
+    } else {
+      views.push({ kind: 'milling', remainingMs: millBatchReadyAt(batch, recipe) - nowMs });
+    }
+  }
+  return views;
+}
+
+/**
  * Permanent restoration upgrades (T3.25, schema v20): 0 = the current look,
  * 1 = restored. One-way - nothing in the game sets a flag back to 0 (the dev
  * toggle aside). Purely cosmetic + perk state: it never affects a structure's

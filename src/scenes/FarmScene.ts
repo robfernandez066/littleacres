@@ -29,8 +29,9 @@ import {
   WORLD_MIN_Y,
   WORLD_WIDTH,
 } from '../config';
-import { BUILDINGS } from '../data/buildings';
+import { BUILDINGS, type BuildingDef } from '../data/buildings';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
+import { GOODS } from '../data/goods';
 import {
   DECOR_ITEMS,
   decorClampBounds,
@@ -84,11 +85,13 @@ import {
   isBuildingAnchorFree,
   isPlotTileFree,
   isStructureAnchorFree,
+  millSlots,
   nextChainPlotTile,
   placeablePlotTiles,
   structureFootprintTiles,
   structureRenderPosition,
   type DecorationPlacement,
+  type GameStateData,
   type PlotState,
 } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
@@ -107,6 +110,7 @@ import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { GoalsPanel } from '../ui/GoalsPanel';
 import { RegionSign } from '../ui/RegionSign';
 import { Hud } from '../ui/Hud';
+import { MillPanel } from '../ui/MillPanel';
 import { LevelUpCelebration } from '../ui/LevelUpCelebration';
 import { MoondustArc } from '../ui/MoondustArc';
 import { OfflineSummaryPanel } from '../ui/OfflineSummaryPanel';
@@ -692,6 +696,73 @@ const BADGE_BOUNCE_OFFSET_Y = -8;
 const BADGE_BOUNCE_HALF_MS = 500;
 
 /**
+ * A producing building's on-field indicators (T4.2b) - the notice board's
+ * badge pattern applied to a building, and derived the same way its panel is:
+ * both read `millSlots`, so the field and the panel can never disagree about
+ * what is ready.
+ *
+ * The READY badge (output icon + how many batches are collectible) hangs above
+ * the building's art. Unlike the board's "!" it carries NO bounce tween: the
+ * board's tween has to be torn down and rebuilt on every move because its yoyo
+ * target is an absolute y, and this badge rides a building that the player can
+ * drag around, so it stays still and `placeBuildingIndicators` is a plain
+ * setPosition.
+ *
+ * The PRODUCING mark is a soft puff of flour dust at the building's base while
+ * any batch runs. Its breathe is an ALPHA tween for the same reason - alpha
+ * survives a reposition untouched, so dragging a working mill needs no tween
+ * bookkeeping at all. Deliberately minimal; the owner refines the look later.
+ */
+const BUILDING_BADGE_GAP = 26;
+const BUILDING_BADGE_ICON_DISPLAY_SIZE = 64;
+const BUILDING_BADGE_ICON_X = -26;
+const BUILDING_BADGE_COUNT_X = 14;
+const BUILDING_BADGE_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Georgia, serif',
+  fontSize: '48px',
+  fontStyle: 'bold',
+  color: '#fff3c4',
+  stroke: '#3a2a10',
+  strokeThickness: 6,
+};
+/**
+ * The puff sits on the GROUND BESIDE the building, not on it: the base of a
+ * 2x2 iso building is its own art (the mill's is a doorway), and a soft cream
+ * circle laid over that is invisible at gameplay zoom - verified live. Offset
+ * to the lower-left, which is open grass for a building whose footprint runs
+ * down-right from its anchor, so the puff reads against the field instead.
+ *
+ * The fill is opaque and the TWEEN owns the fade. Giving the circle a fill
+ * alpha as well would multiply the two (0.6 * 0.2 = 0.12 at the trough), which
+ * is what made the first cut invisible.
+ */
+const PRODUCING_MARK_RADIUS = 26;
+const PRODUCING_MARK_COLOR = 0xfff3c4;
+const PRODUCING_MARK_OFFSET_X = -96;
+const PRODUCING_MARK_OFFSET_Y = -28;
+const PRODUCING_MARK_ALPHA_LOW = 0.3;
+const PRODUCING_MARK_ALPHA_HIGH = 0.75;
+const PRODUCING_MARK_BREATHE_HALF_MS = 900;
+
+/**
+ * `refreshBuildings`'s change key (T4.2b): which buildings exist and where
+ * they stand, and NOTHING else - mirrors `refreshStructures`' positional key.
+ * See `lastBuildingsJson` for why the batches must stay out of it.
+ */
+function buildingPositionsKey(state: GameStateData): string {
+  return state.buildings.map((b) => `${b.type}:${b.col},${b.row}`).join(';');
+}
+
+/** One building's field indicators - see BUILDING_BADGE_GAP's comment. */
+interface BuildingIndicators {
+  /** The ready badge: the output good's icon plus how many batches wait. */
+  badge: Phaser.GameObjects.Container;
+  count: Phaser.GameObjects.Text;
+  /** The "something is milling" puff at the base. */
+  mark: Phaser.GameObjects.Arc;
+}
+
+/**
  * Dev-only hitbox visualizer (T2.24): the depth a container child's debug
  * outline is temporarily bumped to while the visualizer is on, so it renders
  * above everything instead of at its own unused default depth (0) - see
@@ -724,8 +795,8 @@ const CAMERA_MAX_ZOOM_IN = 1.6;
  *   so the floor DROPPED from 0.75 to the width fit ~0.553 (derived, pinned in
  *   cameraMath.test.ts) - never re-hardcoded here.
  * - OWNED: the legacy 1080x1920 design rect, still exactly where it was -
- *   the HOME view (default + Recenter target) is fitZoom(owned) = 1 at
- *   scroll (0, 0), so a player who never touches the camera sees no change.
+ *   the HOME view (default + Recenter target) is fitZoom(owned) pulled back by
+ *   CAMERA_HOME_ZOOM_OUT (see there), centered on the same rect.
  */
 const CAMERA_WORLD_BOUNDS: WorldBounds = {
   x: WORLD_MIN_X,
@@ -734,6 +805,19 @@ const CAMERA_WORLD_BOUNDS: WorldBounds = {
   height: WORLD_HEIGHT,
 };
 const CAMERA_OWNED_BOUNDS: WorldBounds = { x: 0, y: 0, width: DESIGN_WIDTH, height: DESIGN_HEIGHT };
+/**
+ * How far the HOME view sits back from the OWNED rect's fit zoom - the default
+ * camera the player lands on, and the Recenter target.
+ *
+ * Expressed as a FRACTION of that fit rather than an absolute zoom, so it
+ * stays meaningful if the owned rect or the design viewport ever changes.
+ * 0.7 shows the farm noticeably wider than the old fitZoom(owned) = 1 while
+ * staying clear of the gesture floor (fitZoom(world) ~= 0.553, the fully
+ * zoomed-out view): it spends about two thirds of the available zoom-out
+ * range, so the player can still pinch out further to see the whole world.
+ * `cameraHome` clamps against that floor anyway, so this can never push past it.
+ */
+const CAMERA_HOME_ZOOM_OUT = 0.7;
 /**
  * The one-finger PAN band, in screen y: between the HUD banner's bottom edge
  * and the seed bar band's top. Both values are module-local layout constants
@@ -1085,8 +1169,22 @@ export class FarmScene extends Phaser.Scene {
    */
   private buildingImages: Phaser.GameObjects.Image[] = [];
   private buildingShadows: Phaser.GameObjects.Image[] = [];
-  /** Last-rendered `state.buildings`, serialized - `refreshBuildings`
-   *  rebuilds only on change, so it never fights a live building drag. */
+  /**
+   * Each building's on-field production indicators (T4.2b), the same parallel
+   * indexing - built and destroyed with the sprite they ride.
+   */
+  private buildingIndicators: BuildingIndicators[] = [];
+  /**
+   * Last-rendered building POSITIONS, serialized (T4.2b) - `refreshBuildings`
+   * rebuilds only on change, so it never fights a live building drag.
+   *
+   * POSITIONS ONLY, deliberately: `state.buildings` now carries milling
+   * batches too (T4.2a), and keying on the whole list would tear the mill's
+   * sprite down and rebuild it on every start and collect - killing the
+   * selection, any in-flight drag, and the indicators mid-tick. Batches change
+   * what the indicators and the panel SAY, never which sprites exist, so only
+   * a building appearing, disappearing, or moving belongs in this key.
+   */
   private lastBuildingsJson = '';
   /** The anchor NEAREST the in-flight free-form drag position (T3.3s-r2) -
    *  legal or not; it drives the live green/red footprint preview, and the
@@ -1115,6 +1213,8 @@ export class FarmScene extends Phaser.Scene {
   private restorePanel!: RestorePanel;
   private questBoard!: QuestBoard;
   private goalsPanel!: GoalsPanel;
+  /** The mill's panel (T4.2b) - opened by tapping a producing building. */
+  private millPanel!: MillPanel;
   /** One sprite (+ one ground shadow) per `gameState` decoration, same index - see `refreshDecorations`. */
   private decorationSprites: Phaser.GameObjects.Image[] = [];
   /** Null entries are shadowless decorations (no `_shadow` companion frame, e.g. decor_fence) - stays index-aligned with `decorationSprites`. */
@@ -1494,12 +1594,17 @@ export class FarmScene extends Phaser.Scene {
         }),
     );
     this.hud.setGoalsPanel(this.goalsPanel);
+    // The mill panel (T4.2b): opened only by a field tap on the building, so
+    // it lives here rather than in Hud - the HUD just holds it for panel
+    // exclusivity and its per-tick refresh (see `setMillPanel`).
+    this.millPanel = this.inUiLayer(() => new MillPanel(this, this.audio));
+    this.hud.setMillPanel(this.millPanel);
     this.createFarmhouse();
     this.createNoticeBoard();
     // Placed buildings (T4.1) - none on a fresh save; `refreshBuildings` picks
     // up a later purchase on the refresh tick.
     this.createBuildings();
-    this.lastBuildingsJson = JSON.stringify(gameState.getState().buildings);
+    this.lastBuildingsJson = buildingPositionsKey(gameState.getState());
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     // Live board position (T3.3s - the board is movable), read at pulse time.
@@ -1517,6 +1622,7 @@ export class FarmScene extends Phaser.Scene {
     // tutorial's rails have had a chance to disable it.
     this.applyNoticeBoardRailsGating();
     this.refreshNoticeBoardBadge();
+    this.refreshBuildingIndicators(gameState.getState());
     // Same "no flash of interactive before the rails disable it" reasoning as the notice board above.
     this.applyFarmhouseRailsGating();
     this.onboardingGuide = this.inUiLayer(() => new OnboardingGuide(this));
@@ -1541,6 +1647,12 @@ export class FarmScene extends Phaser.Scene {
     this.createRegionPresentation();
     this.inUiLayer(() => this.createArrangeControls());
     this.inUiLayer(() => this.createRecenterButton());
+    // Seat the camera on HOME explicitly. Phaser starts every camera at zoom 1
+    // / scroll (0, 0), which used to BE home by coincidence - now that home is
+    // pulled back (CAMERA_HOME_ZOOM_OUT) the boot view has to be set, or the
+    // player lands off-home and `updateRecenterButton` shows Recenter on the
+    // very first frame of a fresh session.
+    this.snapCameraHome();
     this.setupFieldInput();
     this.refreshCrops();
     this.refreshDecorations();
@@ -1714,6 +1826,11 @@ export class FarmScene extends Phaser.Scene {
     this.refreshNoticeBoardBadge();
     this.applyFarmhouseRailsGating();
     this.refreshDecorations();
+    // Production indicators (T4.2b): re-derived every tick off millSlots, so a
+    // batch ripening (even one that finished while the game was closed) shows
+    // up here without anything being rebuilt. Runs BEFORE refreshBuildings so
+    // it never touches indicators a rebuild is about to destroy.
+    this.refreshBuildingIndicators(gameState.getState());
     // Movable structures (T3.3s): re-derive sprite/shadow/badge positions
     // when a saved anchor changed (dev import/reset) - a cheap string
     // compare otherwise, and inert during a live drag by construction.
@@ -2870,11 +2987,20 @@ export class FarmScene extends Phaser.Scene {
     return fitZoom(CAMERA_WORLD_BOUNDS, viewport);
   }
 
-  /** The default (home) view: the OWNED (legacy 1080x1920) rect's fit zoom,
-   *  centered on it - exactly zoom 1, scroll (0, 0), unchanged by the world
-   *  growth (T3.3a-r2). */
+  /**
+   * The default (home) view: the OWNED (legacy 1080x1920) rect's fit zoom
+   * pulled back by CAMERA_HOME_ZOOM_OUT, centered on the same rect.
+   *
+   * Floored at the gesture zoom-out limit so home can never sit outside the
+   * range a pinch is allowed to reach - if the factor is ever set past the
+   * floor, home simply becomes the fully-zoomed-out view instead of an
+   * unreachable one the Recenter button could never satisfy.
+   */
   private cameraHome(viewport: Viewport): { zoom: number; scrollX: number; scrollY: number } {
-    const zoom = fitZoom(CAMERA_OWNED_BOUNDS, viewport);
+    const zoom = Math.max(
+      fitZoom(CAMERA_OWNED_BOUNDS, viewport) * CAMERA_HOME_ZOOM_OUT,
+      this.cameraFitZoom(viewport),
+    );
     const scroll = clampScroll(0, 0, zoom, CAMERA_WORLD_BOUNDS, viewport);
     return { zoom, scrollX: scroll.scrollX, scrollY: scroll.scrollY };
   }
@@ -2966,6 +3092,12 @@ export class FarmScene extends Phaser.Scene {
       viewport,
     );
     this.glideCameraTo(zoom, clamped.scrollX, clamped.scrollY, RECENTER_GLIDE_MS);
+  }
+
+  /** Put the camera on HOME immediately, no glide - the boot seat (see create). */
+  private snapCameraHome(): void {
+    const home = this.cameraHome(this.cameraViewport());
+    this.cameras.main.setZoom(home.zoom).setScroll(home.scrollX, home.scrollY);
   }
 
   /** Glide the camera home over ~250ms (Sine.easeOut). */
@@ -4708,9 +4840,10 @@ export class FarmScene extends Phaser.Scene {
     this.selectedStructureId = null;
     this.seedBar.setVisible(false);
     for (const sprite of this.decorationSprites) sprite.setInteractive();
-    // Buildings become hit-testable only while arranging (T4.1) - they have no
-    // tap action of their own, so outside the mode they stay fully inert.
-    // No-arg setInteractive PRESERVES the custom hit area (CLAUDE.md).
+    // Buildings are already interactive outside the mode too (T4.2b - a tap
+    // opens the mill panel), so this is a no-op re-assert kept for symmetry
+    // with the decorations above and with the sweep's exempt list. No-arg
+    // setInteractive PRESERVES the custom hit area (CLAUDE.md).
     for (const image of this.buildingImages) image.setInteractive();
     this.setArrangeControlsVisible(true);
     this.updateArrangeItemButtonsState();
@@ -4777,7 +4910,10 @@ export class FarmScene extends Phaser.Scene {
       this.applyStructureStatePosition({ kind: 'building', index });
     }
     for (const sprite of this.decorationSprites) sprite.disableInteractive();
-    for (const image of this.buildingImages) image.disableInteractive();
+    // Buildings deliberately stay interactive here (T4.2b): outside arrange
+    // mode a tap opens the mill panel, so turning them off on exit would kill
+    // that. Nothing leaks - their deferred-tap handler was inert all through
+    // the mode (`handleStructureDown` self-gates on `arrangeModeActive`).
     // Plot tiles go inert again (T3.3a). They are exempt from the enter
     // sweep (see `arrangeExemptObjects`), so the restore pass below can
     // never re-enable them behind this - root-caused live: a once-arranged
@@ -4931,6 +5067,9 @@ export class FarmScene extends Phaser.Scene {
     image.setPosition(x, y).setDepth(this.structureDepthFor(ref, y));
     const shadow = this.structureShadow(ref);
     if (shadow !== null) this.applyStructureShadowGeometry(shadow, image);
+    // The indicators track a mill THROUGH the drag (T4.2b) - no tween to fight
+    // here, unlike the board's badge below (see BUILDING_BADGE_GAP).
+    if (ref.kind === 'building') this.placeBuildingIndicators(ref.index);
     if (ref.kind !== 'structure') return;
     // T3.26: keep the dev knobs applied through a drag - see placeStructureSprite.
     if (ref.id === 'farmhouse') this.applyFarmhouseDevTransform();
@@ -5303,6 +5442,9 @@ export class FarmScene extends Phaser.Scene {
     image.setPosition(pos.x, pos.y).setDepth(this.structureDepthFor(ref, pos.y));
     const shadow = this.structureShadow(ref);
     if (shadow !== null) this.applyStructureShadowGeometry(shadow, image);
+    // A building's indicators ride its sprite, so they follow every placement
+    // (T4.2b) - including the one that lands a moved mill on its new anchor.
+    if (ref.kind === 'building') this.placeBuildingIndicators(ref.index);
     if (ref.kind === 'structure') {
       if (ref.id === 'noticeBoard') this.placeNoticeBoardBadge();
       // T3.26: the dev knobs stack on top of the FINISHED baseline placement,
@@ -5334,15 +5476,25 @@ export class FarmScene extends Phaser.Scene {
    *
    * Buildings are base-anchored structure-class sprites: same 256 frame, same
    * `structureBaseOriginY` derivation, same generated `<frame>_shadow`
-   * companion. They start NON-interactive - arrange mode owns their
-   * hit-testing, exactly like `decorationSprites` (see `enterArrangeMode`) -
-   * because the mill is inert this task: it has no tap action at all.
+   * companion.
+   *
+   * They stay interactive PERMANENTLY (T4.2b), unlike `decorationSprites`: a
+   * building has a tap action of its own now (the mill panel), so it must be
+   * hit-testable outside arrange mode too. The two modes do not collide -
+   * `handleStructureDown` self-gates on `arrangeModeActive`, so a tap while
+   * arranging still selects and lifts and can never open the panel, exactly
+   * like the farmhouse and the notice board.
    */
   private createBuildings(): void {
     for (const image of this.buildingImages) image.destroy();
     for (const shadow of this.buildingShadows) shadow.destroy();
+    for (const indicators of this.buildingIndicators) {
+      indicators.badge.destroy();
+      indicators.mark.destroy();
+    }
     this.buildingImages = [];
     this.buildingShadows = [];
+    this.buildingIndicators = [];
     const state = gameState.getState();
     for (let index = 0; index < state.buildings.length; index++) {
       const placement = state.buildings[index]!;
@@ -5366,13 +5518,119 @@ export class FarmScene extends Phaser.Scene {
         hitAreaCallback: Phaser.Geom.Rectangle.Contains,
         useHandCursor: true,
       });
-      image.disableInteractive();
+      image.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, (pointer: Phaser.Input.Pointer) => {
+        // Deferred tap (T3.4c): opens on an in-slop release, never on down -
+        // the same classifier the farmhouse and notice board tap through, so a
+        // pan or pinch merely STARTING on the mill cannot open its panel.
+        this.handleStructureDown(pointer, () => this.openMillPanel(index));
+      });
       this.buildingImages.push(image);
       // Non-null: every building frame is packed with a generated shadow
       // companion (tools/pack-atlas.mjs SHADOWED_FRAME_NAMES, T4.1).
       this.buildingShadows.push(this.createGroundShadow(image)!);
+      this.buildingIndicators.push(this.buildBuildingIndicators(def));
       this.applyStructureStatePosition({ kind: 'building', index });
     }
+    this.refreshBuildingIndicators(state);
+  }
+
+  /**
+   * Build one building's ready badge and producing mark (T4.2b), both hidden -
+   * `refreshBuildingIndicators` decides what shows, `placeBuildingIndicators`
+   * decides where. The badge's icon is the building's OWN output good, so a
+   * future producer shows what it makes without touching this.
+   */
+  private buildBuildingIndicators(def: BuildingDef): BuildingIndicators {
+    const goodId = def.milling?.outputGoodId;
+    const icon = this.add
+      .image(
+        BUILDING_BADGE_ICON_X,
+        0,
+        ATLAS_KEY,
+        goodId === undefined ? 'coin' : GOODS[goodId].frame,
+      )
+      .setDisplaySize(BUILDING_BADGE_ICON_DISPLAY_SIZE, BUILDING_BADGE_ICON_DISPLAY_SIZE);
+    const count = this.add
+      .text(BUILDING_BADGE_COUNT_X, 0, '', BUILDING_BADGE_COUNT_STYLE)
+      .setOrigin(0, 0.5);
+    const badge = this.add.container(0, 0, [icon, count]).setVisible(false);
+    const mark = this.add
+      .circle(0, 0, PRODUCING_MARK_RADIUS, PRODUCING_MARK_COLOR)
+      .setAlpha(PRODUCING_MARK_ALPHA_HIGH)
+      .setVisible(false);
+    // An ALPHA breathe, not a positional one - see BUILDING_BADGE_GAP's
+    // comment on why this survives a drag with no tween bookkeeping. It runs
+    // perpetually, harmless while hidden (the notice-board badge convention).
+    this.tweens.add({
+      targets: mark,
+      alpha: PRODUCING_MARK_ALPHA_LOW,
+      duration: PRODUCING_MARK_BREATHE_HALF_MS,
+      yoyo: true,
+      repeat: -1,
+      ease: 'Sine.easeInOut',
+    });
+    return { badge, count, mark };
+  }
+
+  /**
+   * (Re-)anchor a building's indicators to its sprite's CURRENT position - the
+   * building twin of `placeNoticeBoardBadge`, called both from the settled
+   * placement (`placeStructureSprite`) and mid-drag (`moveStructureSpriteFree`).
+   *
+   * The badge hangs off the art's TOP edge, derived from the sprite rather than
+   * measured per building: the sprite is base-anchored (origin y at its base
+   * row), so its top edge is `y - displayHeight * originY` whatever the frame.
+   */
+  private placeBuildingIndicators(index: number): void {
+    const image = this.buildingImages[index];
+    const indicators = this.buildingIndicators[index];
+    if (image === undefined || indicators === undefined) return;
+    const top = image.y - image.displayHeight * image.originY;
+    indicators.badge.setPosition(image.x, top - BUILDING_BADGE_GAP).setDepth(image.depth + 1);
+    indicators.mark
+      .setPosition(image.x + PRODUCING_MARK_OFFSET_X, image.y + PRODUCING_MARK_OFFSET_Y)
+      .setDepth(image.depth + 1);
+  }
+
+  /**
+   * Re-derive every building's field indicators from state (T4.2b), on the
+   * same tick as the notice board's badge.
+   *
+   * Reads `millSlots` - the SAME derivation the mill panel renders from - so a
+   * batch that reads ready here is exactly the one the panel offers a Collect
+   * for. A building with no recipe simply shows neither indicator.
+   */
+  private refreshBuildingIndicators(state: GameStateData): void {
+    const nowMs = now();
+    for (let index = 0; index < this.buildingIndicators.length; index++) {
+      const indicators = this.buildingIndicators[index]!;
+      const placement = state.buildings[index];
+      const recipe = placement === undefined ? undefined : BUILDINGS[placement.type].milling;
+      if (placement === undefined || recipe === undefined) {
+        indicators.badge.setVisible(false);
+        indicators.mark.setVisible(false);
+        continue;
+      }
+      const views = millSlots(placement, recipe, nowMs);
+      const readyCount = views.filter((view) => view.kind === 'ready').length;
+      indicators.badge.setVisible(readyCount > 0);
+      if (readyCount > 0) indicators.count.setText(String(readyCount));
+      indicators.mark.setVisible(views.some((view) => view.kind === 'milling'));
+    }
+  }
+
+  /**
+   * Open the mill panel on the building at `index` (T4.2b) - the field tap's
+   * action, fired by `handleStructureDown` on an in-slop release. Closes the
+   * HUD's panels first, the Decor Shop's handoff exactly. A building with no
+   * recipe has nothing to show, so its tap does nothing.
+   */
+  private openMillPanel(index: number): void {
+    const placement = gameState.getState().buildings[index];
+    if (placement === undefined || BUILDINGS[placement.type].milling === undefined) return;
+    this.audio.sfx('tap');
+    this.hud.closePanels();
+    this.millPanel.show(gameState.getState(), index);
   }
 
   /**
@@ -5398,7 +5656,7 @@ export class FarmScene extends Phaser.Scene {
    * commit) is never fought.
    */
   private refreshBuildings(): void {
-    const json = JSON.stringify(gameState.getState().buildings);
+    const json = buildingPositionsKey(gameState.getState());
     if (json === this.lastBuildingsJson) return;
     this.lastBuildingsJson = json;
     // A rebuild invalidates every index-based ref, so drop any selection or
