@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-22 - U2a shipped: the warehouse retired into the Shed
+**Context:** Ends U1's mirror duplication; second U-wave task.
+**Decision/verdict:** USER TEST passed (owner migrated his real save live, all steps green) -> COMMIT 3987082 (schema v30, tests 795). Trophies joined the catalog as purchasable:false decor; v30 OVERWRITE-merges warehouse into shedInventory and deletes the field; buyDecoration/placeFromWarehouse/storeDecoration are thin delegates onto the shed reducers with the budget caps and DECOR_ITEMS gate kept in front (closes the price-0 free-trophy hole). Carry-forwards: buyToShed alone does NOT enforce decor budget caps - U2b moves cap enforcement into it (qty-aware); stale "warehouse" naming + QuestBoard's "In your Warehouse!" copy noted (copy fix rides U2b, naming sweep U3).
+**Trigger:** U2a report + owner test pass.
+
 ## 2026-07-22 - U1 Shed pipeline model shipped; wave re-sliced (U2 -> U2a/U2b, paths tab to U4)
 **Context:** U1 shipped the model layer through the new loop. Its review surfaced two structural facts: the warehouse now DUPLICATES into the shed (v29 mirrored it, warehouse stayed authoritative), and a shed count map cannot hold a building's paid slot unlocks.
 **Decision/verdict:** COMMIT c8d061e (schema v29, tests 788, +26; catalog derived, reducers via existing authorities, checksum-verified save backup). Rulings: (1) U2a is a dedicated cutover task - trophies join the catalog as purchasable:false items, v30 OVERWRITE-merges warehouse into the shed and DELETES warehouse; (2) U3 moves building slot unlocks to per-TYPE state so a shelved mill keeps paid capacity (put-away with batches in flight stays refused); (3) the shop's Paths tab moves to U4 so shop-bought tiles never coexist with T4.13's paint-time charging (no double-pay window). Test baseline 754-vs-762 pending an owner read.
