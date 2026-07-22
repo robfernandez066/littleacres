@@ -1,6 +1,6 @@
 # The Mere - Art Direction Brief (v2, "nature-made")
 
-**Status:** ACTIVE - v2 "nature-made" direction (2026-07-16); generate the T3.3c art batch against this, composite assembly per the land design. Supersedes the rejected round-1 small-pond sprite ("a backyard pond someone dug in an afternoon").
+**Status:** PARKED (2026-07-22) - the west mere reserve was absorbed by the T4.10 expansion (see decisions.md 2026-07-21); wake if a pond/mere lands in a future strip or region. The v2 "nature-made" direction stands when it wakes. Supersedes the rejected round-1 small-pond sprite. Archived 2026-07-22.
 
 ## The one-line direction
 

@@ -1,6 +1,6 @@
 # Goals Hub - Design
 
-Status: ACTIVE. Shipped 2026-07-20, commit fb7788b (T3.30 + r1 + r2), schema v21, tests 558.
+Status: SHIPPED (2026-07-20, commit fb7788b, T3.30 + r1 + r2, schema v21). Archived 2026-07-22; the code is the authority, this is the design record.
 
 ## Summary
 

@@ -1,6 +1,6 @@
 # Sweep-vs-Pan at Scale - R1 Checkpoint Protocol (PARKED until T3.3b ships R1)
 
-**Status:** PARKED (2026-07-15) - wake when T3.3b ships R1 East Meadow; this file IS that checkpoint's agenda item. Do not act before then except the one adopted scope item below (the two-finger-pan hint, folded into T3.3b). Owner + PM + external input merged.
+**Status:** CLOSED (2026-07-18) - owner tested at scale and kept the current model ("it was fine as is"); see decisions.md 2026-07-18. Archived 2026-07-22.
 
 ## The issue (3 sentences)
 

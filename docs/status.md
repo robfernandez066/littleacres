@@ -6,6 +6,7 @@
 
 ## In flight
 
+- **Process rework + docs consolidation SHIPPED docs-side (2026-07-22):** file-based PM<->Coder loop under docs/tasks/ (currenttask.md + progress.md, coder self-exports review diffs), ALL md docs under docs/, PM notes in docs/private/ (see decisions.md). PENDING owner: the cleanup/commit action block. **T-DOCS1 (ASSETS.md pointer comments, TRIVIAL) is loaded in docs/tasks/currenttask.md - run the coder loop AFTER the cleanup commit.**
 - **UI rework (incoming, scope TBD from owner)** - a large UI pass is the next task; the paths reclaim work waits behind it.
 - **T4.14 paths reclaim (Remove All + per-tier storage bank) - DECIDED, prompt-ready, ON HOLD.** Held behind the UI rework because it reshapes the same panels (PathsPanel, paint-mode bar). See docs/design/paths.md and the T4.13/T4.14 decision entry.
 
@@ -44,7 +45,6 @@
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
-- **Balance mirror:** the paths coin sink (gravel 15 / stone 70 / moonstone 350) is NOT yet in docs/balance/currencies.csv - add a "Paths (tiles)" coin-sink row on the next mirror re-export. T4.13 committed code-only; the mirror row was deferred because a device-workspace outage during the doc pass blocked a clean read of the current CSV.
 - T4.14 reclaim will bump schema v28 -> v29 (additive pathBank); no demotion risk.
 
 ## Backlog nits (fold into convenient tasks)
@@ -68,5 +68,5 @@
 
 ## Waiting on user
 
-- Local cleanup only the owner can do (PM cannot delete on device): stale review copies + the gitignored _to_delete/ folder.
-- Device Cowork workspace (local Linux VM) failed to boot mid-session, blocking on-disk checksum verification of these docs; a desktop-app restart did not revive it, and the file bridge is serving a stale cached snapshot. Docs delivered via the file bridge; a checksum verification pass is owed once the workspace is healthy.
+- Folder cleanup 2026-07-22 (PM cannot delete on device): owner runs the purge + git mv/rm block from the cleanup reply - to_delete purge, pm-process.md delete, four design docs -> docs/archive/, balance-v1.xlsx git rm, optional staging-raws backup.
+- Device Cowork workspace (local Linux VM) still down (failed to start again 2026-07-22); a checksum verification pass is owed once it is healthy, now covering the earlier bridged docs PLUS all 2026-07-22 PM writes: docs/balance/currencies.csv, docs/status.md, docs/decisions.md, .gitignore, docs/tasks/*, docs/private/pm-rules.md, the four re-headered design docs, and CLAUDE.md (after the owner copies it in). Bridge reads looked current today (post-T4.13 content).

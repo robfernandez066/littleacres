@@ -5,12 +5,12 @@ dist
 tools/audio-staging/
 tools/art-staging/
 
-# PM<->Coder loop files - task prompts + reports carry design context, never public (2026-07-22)
-tasks/
+# PM<->Coder loop channel + PM-private notes - carry design context, never public (2026-07-22)
+docs/tasks/
+docs/private/
 
-# Owner-private area - never public (2026-07-17 reorg):
+# Owner-private transfer area - never public (2026-07-17 reorg; 2026-07-22: keepers moved to docs/private/):
 #   private/to_delete/  disposable transfer files (review diffs, raw art)
-#   private/misc/       private keepers (reports, PM notes)
 private/
 
 # Owner-only art sandbox (never public, never shipped) - see private/misc/art-studio-workflow.md

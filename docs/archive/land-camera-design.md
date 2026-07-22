@@ -1,6 +1,6 @@
 # T3.3 + T3.4 - Land & Camera: Design FINAL (v3)
 
-**Status:** ACTIVE - FINAL v3 (2026-07-15); scope contract for the T3.3/T3.4 task series. All decision points owner-resolved (picks 1A, 2A-with-end-state, 3A-with-shed-spawn, 4 PM order, 5C); the two flagged PM rules stand un-vetoed.
+**Status:** SHIPPED (the T3.3/T3.4 land+camera series is live; the code is now the authority). Archived 2026-07-22; historical scope contract only. Was: FINAL v3 (2026-07-15), all decision points owner-resolved (picks 1A, 2A-with-end-state, 3A-with-shed-spawn, 4 PM order, 5C).
 
 ## Locked decisions
 
