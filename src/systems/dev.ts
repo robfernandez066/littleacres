@@ -1,7 +1,14 @@
 import type { GroundMode } from '../config';
+import { CATALOG } from '../data/catalog';
 import type { CropId } from '../data/crops';
 import type { GoodId } from '../data/goods';
-import type { GameStateData, GameStateStore } from './gameState';
+import type {
+  GameStateData,
+  GameStateStore,
+  PlacedItemRef,
+  PutAwayResult,
+  ShedPlaceOptions,
+} from './gameState';
 import { advanceTime, getTimeOffsetMs } from './time';
 
 /** Console-callable debug hooks, e.g. `dev.addCoins(100)`. Debug only. */
@@ -66,6 +73,38 @@ export interface DevTools {
    * waiting out a real 20-minute batch.
    */
   finishMilling(): void;
+  /**
+   * The whole catalog (U1) as `id / category / price / currency / unlockLevel`
+   * rows - what to pass the other shed hooks, without opening the source.
+   */
+  catalog(): { id: string; category: string; price: number; currency: string; level: number }[];
+  /** The live shed contents (U1): catalog item id -> count. */
+  shed(): Record<string, number>;
+  /**
+   * Buy into the shed for REAL (U1) - the `buyToShed` path with its level and
+   * balance gates intact, so refusals are exercisable. Returns whether it took.
+   */
+  buyToShed(itemId: string, qty?: number): boolean;
+  /**
+   * Free shed grant (U1): `devGrantToShed` - `buyToShed` minus the level gate
+   * and the charge, so the pipeline works before the unified Shop exists.
+   */
+  grantToShed(itemId: string, qty?: number): boolean;
+  /**
+   * Place one shed item onto the farm (U1). `options` is per-category:
+   * `{col, row}` for a path (required) or a building (optional - it lands on
+   * its default anchor without one), `{x, y, scale, flip}` for a decoration.
+   * Returns the new instance's index, or false if the shed is empty of it or
+   * the category's placement rules refuse.
+   */
+  placeFromShed(itemId: string, options?: ShedPlaceOptions): number | false;
+  /**
+   * Put a placed instance back in the shed (U1). `ref` is
+   * `{category:'building'|'decor', index}` or `{category:'path', col, row}`.
+   * Returns the id and transform to feed back to `placeFromShed` (the exact
+   * inverse), or null if it refused.
+   */
+  putAwayToShed(ref: PlacedItemRef): PutAwayResult | null;
   /**
    * Dev-only restoration toggle (T3.25): a straight pipe to
    * `gameState.devSetFarmhouseRestored` - flips the farmhouse between its
@@ -208,6 +247,19 @@ export function installDevTools(store: GameStateStore): void {
       return index >= 0 && store.devUnlockMillSlot(index);
     },
     finishMilling: () => store.devFinishMilling(),
+    catalog: () =>
+      CATALOG.map((item) => ({
+        id: item.id,
+        category: item.category,
+        price: item.price,
+        currency: item.currency,
+        level: item.unlockLevel,
+      })),
+    shed: () => ({ ...store.getState().shedInventory }),
+    buyToShed: (itemId, qty) => store.buyToShed(itemId, qty),
+    grantToShed: (itemId, qty) => store.devGrantToShed(itemId, qty),
+    placeFromShed: (itemId, options) => store.placeFromShed(itemId, options),
+    putAwayToShed: (ref) => store.putAwayToShed(ref),
     setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };

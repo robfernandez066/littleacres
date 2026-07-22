@@ -61,6 +61,7 @@ import {
   WEEK_MS,
 } from '../data/quests';
 import { DECOR_FRAMES, TROPHY_FRAMES, TROPHY_ITEMS } from '../data/decor';
+import { findCatalogItem } from '../data/catalog';
 import { BUILDINGS } from '../data/buildings';
 import {
   BACKUP_KEY,
@@ -495,10 +496,10 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
   const PENDING_SLOTS = Array.from({ length: ORDER_SLOTS }, () => ({ state: 'pending' }));
 
   it('migrates a v1 save through the whole chain to the current version', () => {
-    // DELIBERATE RE-PIN (T4.12): v27ToV28 (every save gains an empty `paths`
-    // list) appended, so the chain is one longer and the current version is
-    // migrations.length + 1 = 28.
-    expect(MIGRATIONS).toHaveLength(27);
+    // DELIBERATE RE-PIN (U1): v28ToV29 (every save gains `shedInventory`, the
+    // Shed's count map) appended, so the chain is one longer and the current
+    // version is migrations.length + 1 = 29.
+    expect(MIGRATIONS).toHaveLength(28);
     const { moondust, orders, onboarding, orderSkips, ...v1Save } = createDefaultState(1);
     void moondust;
     void orders;
@@ -509,7 +510,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.moondust).toBe(0);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // A level-3 veteran skips the tutorial permanently.
@@ -532,7 +533,7 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.orders).toEqual(PENDING_SLOTS);
     // The v1 -> v2 migration did not re-run: moondust kept its value.
     expect(state.moondust).toBe(5);
@@ -542,12 +543,12 @@ describe('real migrations (v1 moondust, v2 orders, v3 onboarding)', () => {
 
   it('a fresh save is created at the current version with moondust 0 and three pending slots', () => {
     const store = new GameStateStore({ storage: null });
-    // 28 = MIGRATIONS.length + 1; T4.12 appended v27ToV28 (every save gains an
-    // empty `paths` list - player-painted paths). This is the canonical pin
-    // for the schema version - every other `version: 28` in this file re-pins
-    // the same value for the same reason.
-    expect(store.currentVersion).toBe(28);
-    expect(store.getState().version).toBe(28);
+    // 29 = MIGRATIONS.length + 1; U1 appended v28ToV29 (every save gains
+    // `shedInventory`, the Shed's catalog-id -> count map). This is the
+    // canonical pin for the schema version - every other `version: 29` in this
+    // file re-pins the same value for the same reason.
+    expect(store.currentVersion).toBe(29);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().moondust).toBe(0);
     expect(store.getState().orders).toEqual(PENDING_SLOTS);
   });
@@ -583,7 +584,7 @@ describe('real migration v3 -> v4 (onboarding)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v3Save({}) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().onboarding).toEqual({
       completed: false,
       step: 0,
@@ -627,7 +628,7 @@ describe('real migration v4 -> v5 (onboarding progressB)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v4) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     // progressB arrives via v4 -> v5; the later v7 -> v8 rails migration then
     // marks this mid-chain save completed (its step indices are stale).
     expect(store.getState().onboarding).toEqual({
@@ -667,7 +668,7 @@ describe('real migration v5 -> v6 (channel volumes)', () => {
     const storage = makeStorage({ [SAVE_KEY]: v5Save({ musicOn: true, sfxOn: true }) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().settings).toEqual({
       musicOn: true,
       sfxOn: true,
@@ -755,7 +756,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.inventory).toEqual({ sunwheat: 3, starcorn: 4 });
     expect(state.seeds).toEqual({ starcorn: 2 });
     expect(state.plots[0]).toEqual({
@@ -795,7 +796,7 @@ describe('real migration v6 -> v7 (carrot -> starcorn rename)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().coins).toBe(100); // RE-PIN (Balance Pass v2): STARTING_COINS 50 -> 100.
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -829,7 +830,7 @@ describe('real migration v7 -> v8 (tutorial redesign skips mid-chain saves)', ()
 
   it('a mid-chain save (step > 0) skips the redesigned tutorial permanently', () => {
     const store = loadV7({ completed: false, step: 5, progress: 1, progressB: 0 });
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().onboarding).toEqual({
       completed: true,
       step: 5,
@@ -870,7 +871,7 @@ describe('real migration v8 -> v9 (skip-cooldown escalation streak)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().orderSkips).toEqual({ count: 0, lastAt: 0 });
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -885,7 +886,7 @@ describe('real migration v9 -> v10 (decorations + warehouse)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().decorations).toEqual([]);
     expect(store.getState().warehouse).toEqual({});
     expect(console.warn).not.toHaveBeenCalled();
@@ -3994,8 +3995,8 @@ describe('clampFuturePlantedAt (warped or skewed clock on load)', () => {
 
   it('a save with only past-stamped plots loads byte-identical - no clamping, no log', () => {
     // Stamped at the CURRENT schema version so the load performs no migration
-    // and the round-trip really is byte-identical (T4.12: 27 -> 28).
-    const saved = createDefaultState(28);
+    // and the round-trip really is byte-identical (U1: 28 -> 29).
+    const saved = createDefaultState(29);
     saved.xp = 1;
     saved.plots[0] = {
       state: 'growing',
@@ -4503,7 +4504,7 @@ describe('real migration v10 -> v11 (quest system)', () => {
     const store = new GameStateStore({ storage, rng: () => 0 });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.quests.lifetime).toEqual({
       harvestsByCrop: {},
       totalHarvests: 0,
@@ -4530,7 +4531,7 @@ describe('real migration v11 -> v12 (vibration toggle)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().settings.hapticsOn).toBe(true);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4559,7 +4560,7 @@ describe('real migration v12 -> v13 (quest board intro explainer)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().quests.introSeen).toBe(false);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4590,7 +4591,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().decorations).toEqual([
       { frame: 'decor_bench', x: 200, y: 1440, scale: 0.55, flip: false },
       { frame: 'trophy_ancientoak', x: 500, y: 900, scale: 0.8, flip: false },
@@ -4604,7 +4605,7 @@ describe('real migration v13 -> v14 (decoration flip)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().decorations).toEqual([]);
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4620,7 +4621,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(5));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4635,7 +4636,7 @@ describe('real migration v14 -> v15 (level-scaled weekly growth target, T3.19)',
     store.load();
     // v10ToV11 seeded the weekly state (level-agnostic); v14ToV15 then
     // stamped the target from the save's own level.
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().quests.weekly.growthTarget).toBe(growthTargetForLevel(3));
     expect(console.warn).not.toHaveBeenCalled();
   });
@@ -4667,7 +4668,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.plots).toHaveLength(12);
     for (let i = 0; i < 12; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4684,7 +4685,7 @@ describe('real migration v15 -> v16 (placeable plots, T3.3a)', () => {
     const store = new GameStateStore({ storage });
     store.load();
     const state = store.getState();
-    expect(state.version).toBe(28);
+    expect(state.version).toBe(29);
     expect(state.plots).toHaveLength(16);
     for (let i = 0; i < 16; i++) {
       expect(state.plots[i]).toMatchObject({ col: i % FARM_COLS, row: Math.floor(i / FARM_COLS) });
@@ -4734,9 +4735,16 @@ describe('real migration v16 -> v17 (fence normalization + per-item sizing, T3.3
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T4.8): v26ToV27 (buildings and structure anchors
-      // gained their `flipped` mirror) appended, so the chain now ends at v27.
-      version: 28,
+      // DELIBERATE RE-PIN (U1): v28ToV29 (every save gains `shedInventory`)
+      // appended, so the chain is one longer and the current version is
+      // MIGRATIONS.length + 1 = 29.
+      version: 29,
+      // DELIBERATE RE-PIN (U1): v28ToV29 MIRRORS the decoration `warehouse`
+      // into the shed 1:1, and this save warehouses 2 gnomes - so the shed
+      // lands at the same 2 rather than the empty default. `warehouse` itself
+      // is untouched (it is still the live decor store until U2 cuts over),
+      // which is why both maps read 2 here.
+      shedInventory: { decor_gnome: 2 },
       decorations: [
         // Fence normalized to exactly 1.2, position/flip untouched.
         placement('decor_fence', 1.2),
@@ -4800,9 +4808,10 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T4.8): v26ToV27 (buildings and structure anchors
-      // gained their `flipped` mirror) appended, so the chain now ends at v27.
-      version: 28,
+      // DELIBERATE RE-PIN (U1): v28ToV29 (every save gains `shedInventory`)
+      // appended, so the chain is one longer and the current version is
+      // MIGRATIONS.length + 1 = 29.
+      version: 29,
       structures: defaultStructures(),
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4911,7 +4920,7 @@ describe('real migration v17 -> v18 (movable structures, T3.3s)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().structures).toEqual(defaultStructures());
     expect(store.getState().regionsUnlocked).toEqual([]);
     expect(store.getState().twoFingerHintShown).toBe(false);
@@ -4930,9 +4939,10 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T4.8): v26ToV27 (buildings and structure anchors
-      // gained their `flipped` mirror) appended, so the chain now ends at v27.
-      version: 28,
+      // DELIBERATE RE-PIN (U1): v28ToV29 (every save gains `shedInventory`)
+      // appended, so the chain is one longer and the current version is
+      // MIGRATIONS.length + 1 = 29.
+      version: 29,
       restoration: { farmhouse: 0 },
     });
     expect(console.warn).not.toHaveBeenCalled();
@@ -4944,7 +4954,7 @@ describe('real migration v19 -> v20 (restoration chapter, T3.25)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().restoration).toEqual({ farmhouse: 0 });
   });
 
@@ -4978,7 +4988,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 28, goalsSeen: false });
+    expect(store.getState()).toEqual({ ...saved, version: 29, goalsSeen: false });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -4988,7 +4998,7 @@ describe('real migration v20 -> v21 (goals hub, T3.30)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().goalsSeen).toBe(false);
   });
 
@@ -5016,7 +5026,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState()).toEqual({ ...saved, version: 28, goods: {} });
+    expect(store.getState()).toEqual({ ...saved, version: 29, goods: {} });
     expect(console.warn).not.toHaveBeenCalled();
   });
 
@@ -5026,7 +5036,7 @@ describe('real migration v21 -> v22 (goods economy foundation, T4.0)', () => {
     const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
     const store = new GameStateStore({ storage });
     store.load();
-    expect(store.getState().version).toBe(28);
+    expect(store.getState().version).toBe(29);
     expect(store.getState().goods).toEqual({});
   });
 
@@ -5325,9 +5335,10 @@ describe('real migration v18 -> v19 (purchasable regions, T3.3b)', () => {
     store.load();
     expect(store.getState()).toEqual({
       ...saved,
-      // DELIBERATE RE-PIN (T4.8): v26ToV27 (buildings and structure anchors
-      // gained their `flipped` mirror) appended, so the chain now ends at v27.
-      version: 28,
+      // DELIBERATE RE-PIN (U1): v28ToV29 (every save gains `shedInventory`)
+      // appended, so the chain is one longer and the current version is
+      // MIGRATIONS.length + 1 = 29.
+      version: 29,
       regionsUnlocked: [],
       twoFingerHintShown: false,
     });
@@ -6806,7 +6817,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 28, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 29, buildings: [] });
       expect(console.warn).not.toHaveBeenCalled();
     });
 
@@ -6816,7 +6827,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       expect(store.getState().buildings).toEqual([]);
     });
 
@@ -6934,7 +6945,7 @@ describe('buildings (T4.1, schema v23)', () => {
       store.load();
       expect(store.getState()).toEqual({
         ...saved,
-        version: 28,
+        version: 29,
         // v24ToV25 runs straight after, so the whole-chain result carries the
         // one unlocked slot too - and v26ToV27 after that, so it carries the
         // unmirrored `flipped` as well.
@@ -6952,7 +6963,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 28, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 29, buildings: [] });
     });
 
     it('a full-chain v1 save lands at version 26 with no buildings', () => {
@@ -6961,7 +6972,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       expect(store.getState().buildings).toEqual([]);
     });
   });
@@ -6979,7 +6990,7 @@ describe('buildings (T4.1, schema v23)', () => {
       store.load();
       expect(store.getState()).toEqual({
         ...saved,
-        version: 28,
+        version: 29,
         // v26ToV27 runs straight after, so the result carries `flipped` too.
         buildings: [
           { type: 'flour_mill', col: -3, row: 0, batches: [], unlockedSlots: 1, flipped: false },
@@ -7023,7 +7034,7 @@ describe('buildings (T4.1, schema v23)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(saved) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState()).toEqual({ ...saved, version: 28, buildings: [] });
+      expect(store.getState()).toEqual({ ...saved, version: 29, buildings: [] });
     });
 
     it('the validator bounds unlockedSlots to [1, recipe.slots]', () => {
@@ -7748,7 +7759,7 @@ describe('orders for processed goods (T4.3)', () => {
       const store = new GameStateStore({ storage });
       store.load();
 
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       expect(store.getState().orders[0]).toEqual({
         state: 'open',
         order: {
@@ -7823,7 +7834,7 @@ describe('orders for processed goods (T4.3)', () => {
       const store = new GameStateStore({ storage });
       store.load();
 
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       for (const slot of store.getState().orders) {
         expect(slot.state).toBe('open');
         if (slot.state === 'open') {
@@ -8138,7 +8149,7 @@ describe('flippable buildings and structures (T4.8, schema v27)', () => {
 
       expect(store.getState()).toEqual({
         ...saved,
-        version: 28,
+        version: 29,
         structures: {
           farmhouse: { col: -1, row: -3, flipped: false },
           noticeBoard: { col: 5, row: 3, flipped: false },
@@ -8169,7 +8180,7 @@ describe('flippable buildings and structures (T4.8, schema v27)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(createDefaultState(1)) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       expect(store.getState().structures).toEqual(defaultStructures());
       expect(console.warn).not.toHaveBeenCalled();
     });
@@ -8243,7 +8254,7 @@ describe('paths (T4.12)', () => {
       store.load();
       // Whole-state re-pin: the migration is purely ADDITIVE, so the ONLY
       // differences from the v27 save are the version bump and `paths: []`.
-      expect(store.getState()).toEqual({ ...v27Save, version: 28, paths: [] });
+      expect(store.getState()).toEqual({ ...v27Save, version: 29, paths: [] });
       expect(console.warn).not.toHaveBeenCalled();
     });
 
@@ -8252,7 +8263,7 @@ describe('paths (T4.12)', () => {
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(raw) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.getState().version).toBe(28);
+      expect(store.getState().version).toBe(29);
       expect(store.getState().paths).toEqual([]);
       expect(console.warn).not.toHaveBeenCalled();
     });
@@ -8396,6 +8407,403 @@ describe('paths (T4.12)', () => {
       expect(store.paintPath(2, 2, 'gravel')).toBe(true);
       expect(store.erasePath(7, 7)).toBe(false);
       expect(store.getState().paths).toEqual([{ col: 2, row: 2, tier: 'gravel' }]);
+    });
+  });
+});
+
+/**
+ * The Shed pipeline (U1): Shop --buyToShed--> shed --placeFromShed--> farm, and
+ * farm --putAwayToShed--> shed back again.
+ *
+ * Two invariants run through every case here, and each is asserted rather than
+ * assumed: NOTHING IS DESTROYED (a count only ever moves between the shed and a
+ * placed collection), and NO CURRENCY MOVES outside `buyToShed`.
+ */
+describe('the Shed (U1, schema v29)', () => {
+  function makeShedStore(storage: SaveStorage | null = null): GameStateStore {
+    const store = new GameStateStore({ storage });
+    completeOnboarding(store);
+    return store;
+  }
+
+  /** Coins + moondust, for asserting a reducer moved neither. */
+  function purse(store: GameStateStore): { coins: number; moondust: number } {
+    const { coins, moondust } = store.getState();
+    return { coins, moondust };
+  }
+
+  describe('schema v29', () => {
+    it('a v28 save gains an empty shedInventory and nothing else changes', () => {
+      const { shedInventory, ...v28Save } = createDefaultState(28);
+      void shedInventory;
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v28Save) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      // Whole-state pin: the migration is purely ADDITIVE, so the only
+      // differences from the v28 save are the version bump and the new field.
+      expect(store.getState()).toEqual({ ...v28Save, version: 29, shedInventory: {} });
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('mirrors an existing decoration warehouse into the shed 1:1, losing nothing', () => {
+      const { shedInventory, ...v28Save } = createDefaultState(28);
+      void shedInventory;
+      // Trophies have no catalog id (they are quest grants, not purchases), so
+      // they stay in the warehouse alone rather than being mirrored.
+      v28Save.warehouse = { decor_gnome: 2, decor_bench: 1, trophy_moonwell: 1 };
+      const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(v28Save) });
+      const store = new GameStateStore({ storage });
+      store.load();
+      expect(store.getState().shedInventory).toEqual({ decor_gnome: 2, decor_bench: 1 });
+      // The warehouse itself is UNTOUCHED - it is still the live decor store
+      // until a later task cuts the decor shop over.
+      expect(store.getState().warehouse).toEqual({
+        decor_gnome: 2,
+        decor_bench: 1,
+        trophy_moonwell: 1,
+      });
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('round-trips shed counts through save and load', () => {
+      const storage = makeStorage();
+      const store = makeShedStore(storage);
+      store.devGrantToShed('decor_bench', 3);
+      store.devGrantToShed('gravel', 12);
+      const reloaded = new GameStateStore({ storage });
+      reloaded.load();
+      expect(reloaded.getState().shedInventory).toEqual({ decor_bench: 3, gravel: 12 });
+      expect(console.warn).not.toHaveBeenCalled();
+    });
+
+    it('validation rejects an unknown id, a negative count, and a zero count', () => {
+      const base = createDefaultState(29);
+      expect(isValidState({ ...base, shedInventory: {} }, 29)).toBe(true);
+      expect(isValidState({ ...base, shedInventory: { decor_bench: 2 } }, 29)).toBe(true);
+      // Unknown ids are rejected, not ignored - a shed count is spendable
+      // ownership, so an item this build cannot place makes the save unusable.
+      expect(isValidState({ ...base, shedInventory: { not_an_item: 1 } }, 29)).toBe(false);
+      // Trophies are not catalog items, so they are unknown ids here.
+      expect(isValidState({ ...base, shedInventory: { trophy_moonwell: 1 } }, 29)).toBe(false);
+      expect(isValidState({ ...base, shedInventory: { decor_bench: -1 } }, 29)).toBe(false);
+      expect(isValidState({ ...base, shedInventory: { decor_bench: 0 } }, 29)).toBe(false);
+      expect(isValidState({ ...base, shedInventory: { decor_bench: 1.5 } }, 29)).toBe(false);
+    });
+  });
+
+  describe('buyToShed', () => {
+    it('charges coins for a coin item and banks the count', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      const before = purse(store);
+      // Price read from the catalog (which reads the registry) - never a
+      // literal here, so a rebalance flows through silently.
+      const bench = findCatalogItem('decor_bench')!;
+      expect(store.buyToShed('decor_bench', 2)).toBe(true);
+      expect(store.getState().coins).toBe(before.coins - bench.price * 2);
+      expect(store.getState().moondust).toBe(before.moondust);
+      expect(store.shedCount('decor_bench')).toBe(2);
+    });
+
+    it('charges moondust for a moondust item, leaving coins alone', () => {
+      const store = makeShedStore();
+      store.addMoondust(500);
+      const before = purse(store);
+      const gnome = findCatalogItem('decor_gnome')!;
+      expect(gnome.currency).toBe('moondust');
+      expect(store.buyToShed('decor_gnome', 3)).toBe(true);
+      expect(store.getState().moondust).toBe(before.moondust - gnome.price * 3);
+      expect(store.getState().coins).toBe(before.coins);
+      expect(store.shedCount('decor_gnome')).toBe(3);
+    });
+
+    it('refuses below the item unlockLevel, mutating nothing', () => {
+      const store = makeShedStore();
+      store.addCoins(100_000);
+      const mill = findCatalogItem('flour_mill')!;
+      expect(mill.unlockLevel).toBeGreaterThan(1);
+      store.setLevel(mill.unlockLevel - 1);
+      const before = purse(store);
+      expect(store.buyToShed('flour_mill')).toBe(false);
+      expect(purse(store)).toEqual(before);
+      expect(store.getState().shedInventory).toEqual({});
+      // At the gate it goes through.
+      store.setLevel(mill.unlockLevel);
+      expect(store.buyToShed('flour_mill')).toBe(true);
+      expect(store.shedCount('flour_mill')).toBe(1);
+    });
+
+    it('refuses on insufficient funds for the FULL quantity - no partial buy', () => {
+      const store = makeShedStore();
+      const bench = findCatalogItem('decor_bench')!;
+      // Topped up to exactly enough for two, then asked for three.
+      store.addCoins(bench.price * 2 - store.getState().coins);
+      const before = purse(store);
+      expect(store.buyToShed('decor_bench', 3)).toBe(false);
+      expect(purse(store)).toEqual(before);
+      expect(store.getState().shedInventory).toEqual({});
+      expect(store.buyToShed('decor_bench', 2)).toBe(true);
+      expect(store.shedCount('decor_bench')).toBe(2);
+      expect(store.getState().coins).toBe(0);
+    });
+
+    it('refuses an unknown id and a non-positive or fractional quantity', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      const before = purse(store);
+      expect(store.buyToShed('not_an_item')).toBe(false);
+      expect(store.buyToShed('decor_bench', 0)).toBe(false);
+      expect(store.buyToShed('decor_bench', -1)).toBe(false);
+      expect(store.buyToShed('decor_bench', 1.5)).toBe(false);
+      expect(purse(store)).toEqual(before);
+      expect(store.getState().shedInventory).toEqual({});
+    });
+
+    it('buys a free path tier without charging, and a priced one at cost per tile', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      const before = purse(store);
+      // dirt is the free rung; gravel is priced per TILE.
+      expect(findCatalogItem('dirt')!.price).toBe(0);
+      expect(store.buyToShed('dirt', 5)).toBe(true);
+      expect(purse(store)).toEqual(before);
+      const gravel = findCatalogItem('gravel')!;
+      expect(store.buyToShed('gravel', 4)).toBe(true);
+      expect(store.getState().coins).toBe(before.coins - gravel.price * 4);
+      expect(store.getState().shedInventory).toEqual({ dirt: 5, gravel: 4 });
+    });
+  });
+
+  describe('placeFromShed / putAwayToShed round trips', () => {
+    it('refuses to place at count 0, mutating nothing', () => {
+      const store = makeShedStore();
+      const before = purse(store);
+      expect(store.placeFromShed('decor_bench')).toBe(false);
+      expect(store.placeFromShed('not_an_item')).toBe(false);
+      expect(store.getState().decorations).toEqual([]);
+      expect(purse(store)).toEqual(before);
+    });
+
+    it('a decoration placed from the shed is identical to one placed from the warehouse', () => {
+      const shedStore = makeShedStore();
+      shedStore.devGrantToShed('decor_bench', 1);
+      expect(shedStore.placeFromShed('decor_bench')).toBe(0);
+
+      // The SAME item through today's flow, for comparison - the two placements
+      // must be indistinguishable.
+      const legacyStore = makeShedStore();
+      legacyStore.addCoins(10_000);
+      expect(legacyStore.buyDecoration('decor_bench')).toBe(true);
+      expect(legacyStore.placeFromWarehouse('decor_bench')).toBe(0);
+
+      expect(shedStore.getState().decorations).toEqual(legacyStore.getState().decorations);
+      expect(shedStore.shedCount('decor_bench')).toBe(0);
+      // The key is deleted at 0, never left sitting at 0.
+      expect(shedStore.getState().shedInventory).toEqual({});
+    });
+
+    it('decor: put away restores the count and a re-place restores position, scale and flip', () => {
+      const store = makeShedStore();
+      const before = purse(store);
+      store.devGrantToShed('decor_bench', 1);
+      expect(store.placeFromShed('decor_bench')).toBe(0);
+      // Arrange it somewhere specific, through the existing clamp authority.
+      expect(store.setDecorationTransform(0, 400, 1000, 0.5, true)).toBe(true);
+      const placed = { ...store.getState().decorations[0]! };
+
+      const result = store.putAwayToShed({ category: 'decor', index: 0 });
+      expect(result).not.toBeNull();
+      expect(result!.itemId).toBe('decor_bench');
+      expect(store.getState().decorations).toEqual([]);
+      expect(store.shedCount('decor_bench')).toBe(1);
+
+      // Feeding the result straight back is the exact inverse.
+      expect(store.placeFromShed(result!.itemId, result!.options)).toBe(0);
+      expect(store.getState().decorations[0]).toEqual(placed);
+      expect(store.shedCount('decor_bench')).toBe(0);
+      // Zero currency movement across the whole round trip.
+      expect(purse(store)).toEqual(before);
+    });
+
+    it('a building placed from the shed matches one from buyBuilding, and round-trips', () => {
+      const shedStore = makeShedStore();
+      shedStore.devGrantToShed('flour_mill', 1);
+      expect(shedStore.placeFromShed('flour_mill')).toBe(0);
+
+      const legacyStore = makeShedStore();
+      legacyStore.addCoins(100_000);
+      legacyStore.setLevel(BUILDINGS.flour_mill.unlockLevel);
+      expect(legacyStore.buyBuilding('flour_mill')).toBe(true);
+
+      expect(shedStore.getState().buildings).toEqual(legacyStore.getState().buildings);
+
+      const before = purse(shedStore);
+      const result = shedStore.putAwayToShed({ category: 'building', index: 0 });
+      expect(result).not.toBeNull();
+      expect(result!.itemId).toBe('flour_mill');
+      expect(shedStore.getState().buildings).toEqual([]);
+      expect(shedStore.shedCount('flour_mill')).toBe(1);
+      expect(shedStore.placeFromShed(result!.itemId, result!.options)).toBe(0);
+      expect(shedStore.getState().buildings).toEqual(legacyStore.getState().buildings);
+      expect(purse(shedStore)).toEqual(before);
+    });
+
+    it('building: an explicit anchor is judged by isBuildingAnchorFree; flip survives', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('flour_mill', 1);
+      // (0, 0) puts the 2x2 footprint straight onto the starting plot block.
+      expect(isBuildingAnchorFree(store.getState(), 'flour_mill', 0, 0)).toBe(false);
+      expect(store.placeFromShed('flour_mill', { col: 0, row: 0 })).toBe(false);
+      // Refused without spending the count.
+      expect(store.shedCount('flour_mill')).toBe(1);
+      expect(store.getState().buildings).toEqual([]);
+
+      // The open south field, the same anchor the moveStructure matrix uses.
+      expect(isBuildingAnchorFree(store.getState(), 'flour_mill', 6, 7)).toBe(true);
+      expect(store.placeFromShed('flour_mill', { col: 6, row: 7, flip: true })).toBe(0);
+      const placed = store.getState().buildings[0]!;
+      expect(placed.col).toBe(6);
+      expect(placed.row).toBe(7);
+      expect(placed.flipped).toBe(true);
+    });
+
+    it('building: refuses a second placement of a non-allowMultiple item', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('flour_mill', 2);
+      expect(findCatalogItem('flour_mill')!.allowMultiple).toBe(false);
+      expect(store.placeFromShed('flour_mill')).toBe(0);
+      expect(store.placeFromShed('flour_mill')).toBe(false);
+      // The second count is still in the shed, not burned.
+      expect(store.shedCount('flour_mill')).toBe(1);
+      expect(store.getState().buildings).toHaveLength(1);
+    });
+
+    it('building: refuses to put away one with batches in flight, mutating nothing', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('flour_mill', 1);
+      expect(store.placeFromShed('flour_mill')).toBe(0);
+      const recipe = BUILDINGS.flour_mill.milling!;
+      store.getState().inventory[MILL_INPUT_CROP] = recipe.inputCount;
+      expect(store.startMilling(0)).toBe(true);
+      expect(store.putAwayToShed({ category: 'building', index: 0 })).toBeNull();
+      expect(store.getState().buildings).toHaveLength(1);
+      expect(store.shedCount('flour_mill')).toBe(0);
+    });
+
+    it('building: paid slot unlocks survive a put-away and re-place via the result', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('flour_mill', 1);
+      expect(store.placeFromShed('flour_mill')).toBe(0);
+      expect(store.devUnlockMillSlot(0)).toBe(true);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(2);
+      const result = store.putAwayToShed({ category: 'building', index: 0 })!;
+      expect(result.options.unlockedSlots).toBe(2);
+      expect(store.placeFromShed(result.itemId, result.options)).toBe(0);
+      expect(store.getState().buildings[0]!.unlockedSlots).toBe(2);
+    });
+
+    it('path: place and put away move a tile between farm and shed, free both ways', () => {
+      const store = makeShedStore();
+      const before = purse(store);
+      store.devGrantToShed('gravel', 2);
+      expect(store.placeFromShed('gravel', { col: 2, row: 2 })).toBe(0);
+      expect(store.getState().paths).toEqual([{ col: 2, row: 2, tier: 'gravel' }]);
+      expect(store.shedCount('gravel')).toBe(1);
+      // Placing a path costs nothing - unlike `paintPath`, which charges.
+      expect(purse(store)).toEqual(before);
+
+      const result = store.putAwayToShed({ category: 'path', col: 2, row: 2 })!;
+      expect(result.itemId).toBe('gravel');
+      expect(result.options).toEqual({ col: 2, row: 2 });
+      expect(store.getState().paths).toEqual([]);
+      expect(store.shedCount('gravel')).toBe(2);
+      expect(purse(store)).toEqual(before);
+    });
+
+    it('path: painting over another tier banks the displaced tier - nothing is destroyed', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('moonstone', 1);
+      store.devGrantToShed('dirt', 1);
+      expect(store.placeFromShed('moonstone', { col: 3, row: 3 })).toBe(0);
+      expect(store.shedCount('moonstone')).toBe(0);
+      // Dirt over moonstone: the moonstone goes back in the shed rather than
+      // evaporating.
+      expect(store.placeFromShed('dirt', { col: 3, row: 3 })).toBe(0);
+      expect(store.getState().paths).toEqual([{ col: 3, row: 3, tier: 'dirt' }]);
+      expect(store.shedCount('moonstone')).toBe(1);
+      expect(store.shedCount('dirt')).toBe(0);
+    });
+
+    it('path: refuses without coordinates, off the grid, or onto its own tier', () => {
+      const store = makeShedStore();
+      store.devGrantToShed('gravel', 3);
+      expect(store.placeFromShed('gravel')).toBe(false);
+      expect(store.placeFromShed('gravel', { col: 2 })).toBe(false);
+      expect(store.placeFromShed('gravel', { col: PLOT_GRID_COORD_MAX + 1, row: 0 })).toBe(false);
+      expect(store.shedCount('gravel')).toBe(3);
+      expect(store.placeFromShed('gravel', { col: 2, row: 2 })).toBe(0);
+      // Same tier on the same tile: nothing to do, and it must not burn a count.
+      expect(store.placeFromShed('gravel', { col: 2, row: 2 })).toBe(false);
+      expect(store.shedCount('gravel')).toBe(2);
+    });
+
+    it('putAwayToShed refuses a bad reference and a trophy, mutating nothing', () => {
+      const store = makeShedStore();
+      expect(store.putAwayToShed({ category: 'decor', index: 0 })).toBeNull();
+      expect(store.putAwayToShed({ category: 'building', index: 3 })).toBeNull();
+      expect(store.putAwayToShed({ category: 'path', col: 9, row: 9 })).toBeNull();
+      // A trophy has no catalog id, so it stays on the warehouse path.
+      store.getState().warehouse.trophy_moonwell = 1;
+      expect(store.placeFromWarehouse('trophy_moonwell')).toBe(0);
+      expect(store.putAwayToShed({ category: 'decor', index: 0 })).toBeNull();
+      expect(store.getState().decorations).toHaveLength(1);
+      expect(store.getState().shedInventory).toEqual({});
+    });
+  });
+
+  describe('existing flows are untouched', () => {
+    it('buyDecoration still buys into the warehouse and leaves the shed empty', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      expect(store.buyDecoration('decor_bench')).toBe(true);
+      expect(store.getState().warehouse).toEqual({ decor_bench: 1 });
+      expect(store.getState().shedInventory).toEqual({});
+    });
+
+    it('paintPath still charges coins per tile and ignores the shed', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      const before = purse(store);
+      const gravel = PATH_TIERS.gravel;
+      expect(store.paintPath(4, 4, 'gravel')).toBe(true);
+      expect(store.getState().coins).toBe(before.coins - gravel.costCoins);
+      expect(store.getState().paths).toEqual([{ col: 4, row: 4, tier: 'gravel' }]);
+      expect(store.getState().shedInventory).toEqual({});
+      // A repaint of the same tier is still a no-op, not a second charge.
+      expect(store.paintPath(4, 4, 'gravel')).toBe(false);
+      expect(store.getState().coins).toBe(before.coins - gravel.costCoins);
+    });
+
+    it('paintPath still REPLACES a different tier in place rather than stacking', () => {
+      const store = makeShedStore();
+      store.addCoins(10_000);
+      expect(store.paintPath(4, 4, 'gravel')).toBe(true);
+      expect(store.paintPath(4, 4, 'stone')).toBe(true);
+      expect(store.getState().paths).toEqual([{ col: 4, row: 4, tier: 'stone' }]);
+      // `paintPath` is a SPEND, not an inventory: the covered gravel does not
+      // come back (only the shed path banks a displaced tier).
+      expect(store.getState().shedInventory).toEqual({});
+    });
+
+    it('buyBuilding still charges coins and places at the default anchor', () => {
+      const store = makeShedStore();
+      store.addCoins(100_000);
+      store.setLevel(BUILDINGS.flour_mill.unlockLevel);
+      const before = purse(store);
+      expect(store.buyBuilding('flour_mill')).toBe(true);
+      expect(store.getState().coins).toBe(before.coins - BUILDINGS.flour_mill.price);
+      expect(store.getState().buildings[0]!.col).toBe(BUILDINGS.flour_mill.defaultAnchor.col);
+      expect(store.getState().shedInventory).toEqual({});
     });
   });
 });

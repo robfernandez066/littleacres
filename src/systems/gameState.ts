@@ -14,6 +14,7 @@ import {
   type MillingRecipe,
   recipeInputHeld,
 } from '../data/buildings';
+import { CATALOG_IDS, type CatalogItem, findCatalogItem } from '../data/catalog';
 import {
   CHEST_COINS_MAX,
   CHEST_COINS_MIN,
@@ -198,6 +199,64 @@ export interface PathTile {
   col: number;
   row: number;
   tier: PathTierId;
+}
+
+/**
+ * A reference to ONE placed instance, for `putAwayToShed` (U1) - the
+ * category-specific way each placed collection is addressed: an index into
+ * `buildings`/`decorations` (the same index `moveBuilding` and
+ * `setDecorationTransform` take), or a path tile's own (col, row), since
+ * `paths` is keyed by tile rather than by position in the array.
+ */
+export type PlacedItemRef =
+  | { category: 'building'; index: number }
+  | { category: 'decor'; index: number }
+  | { category: 'path'; col: number; row: number };
+
+/**
+ * Where and how `placeFromShed` should put an item (U1). Every field is
+ * OPTIONAL and per-category; the defaults are exactly what today's flows use,
+ * so `placeFromShed(id)` with no options reproduces a normal purchase-placement
+ * for its category.
+ *
+ * This is also what makes the shed reducers INVERTIBLE (a later task's edit-mode
+ * Undo stack builds on that): `shedInventory` is a bare count map and cannot
+ * carry a position, so `putAwayToShed` hands the removed instance's transform
+ * BACK to the caller as one of these, and feeding it straight to
+ * `placeFromShed` restores the instance exactly where it was.
+ */
+export interface ShedPlaceOptions {
+  /**
+   * Grid anchor - buildings and paths. REQUIRED for a path (a tile has to go
+   * somewhere); a building without one lands on its `defaultAnchor`, exactly
+   * like `buyBuilding`.
+   */
+  col?: number;
+  row?: number;
+  /** Screen position - decor only. Defaults to the WAREHOUSE_PLACE_X/Y spawn point. */
+  x?: number;
+  y?: number;
+  /** Display scale - decor only. Defaults to the item's own `decorSpawnScale`. */
+  scale?: number;
+  /** Mirror - a decoration's `flip` or a building's `flipped`. Defaults false. */
+  flip?: boolean;
+  /**
+   * Paid-for production slots to restore on a building (U1). Defaults to the 1
+   * a freshly bought building is born with; clamped to the recipe's own slot
+   * count by the same rule the validator applies. Only an undo/re-place of a
+   * building that HAD slots unlocked should pass this - see `putAwayToShed`.
+   */
+  unlockedSlots?: number;
+}
+
+/**
+ * What `putAwayToShed` hands back (U1): the catalog id whose shed count just
+ * went up, plus the transform the removed instance was carrying. Passing both
+ * straight into `placeFromShed` is the exact inverse of the put-away.
+ */
+export interface PutAwayResult {
+  itemId: string;
+  options: ShedPlaceOptions;
 }
 
 /**
@@ -574,6 +633,24 @@ export interface GameStateData {
    * count reaches 0, never left at 0 (see `placeFromWarehouse`).
    */
   warehouse: Record<string, number>;
+  /**
+   * The SHED (U1, schema v29): catalog item id -> count of that item owned but
+   * NOT on the farm. The one inventory the unified Shop buys into and the edit
+   * mode places out of - `Shop --buy--> shed --place--> farm`, and
+   * `farm --put away--> shed` back again. Items round-trip forever: a count
+   * only ever moves between here and a placed collection, never out of the
+   * save, and no movement in either direction touches currency.
+   *
+   * Keys are catalog ids (`CATALOG_IDS`) and values are POSITIVE integers - a
+   * key is deleted the moment its count reaches 0 rather than left at 0,
+   * exactly the `warehouse` convention this generalizes.
+   *
+   * Model-only for now: `warehouse`, `buyBuilding` and `paintPath` are still
+   * the live purchase paths (a later task cuts them over), so a decoration
+   * mirrored in here from the v29 migration is deliberately also still counted
+   * in `warehouse`.
+   */
+  shedInventory: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
   structures: StructuresState;
   /**
@@ -1125,6 +1202,38 @@ const v26ToV27: Migration = (raw) => {
  */
 const v27ToV28: Migration = (raw) => ({ ...raw, paths: [] });
 
+/**
+ * v28 -> v29: the Shed (U1). ADDITIVE - no existing field changes shape or
+ * value, so every placed array (plots, decorations, buildings, paths,
+ * structures) and every balance survives untouched and nobody loses an item or
+ * a coin.
+ *
+ * The save ALREADY had one "owned but not placed" concept - the decoration
+ * `warehouse` (T3.9b) - so its counts are MIRRORED into the shed 1:1 rather
+ * than the shed starting empty: those decorations are exactly what the shed
+ * means, and copying them now is what makes the later cutover a deletion of
+ * `warehouse` instead of a data move. Both maps stay live meanwhile (the decor
+ * shop still buys into `warehouse`), which is the deliberate duplication
+ * `GameStateData.shedInventory` documents.
+ *
+ * TROPHY frames are the one carve-out: they are quest grants with no price, so
+ * they are not catalog items and have no id to mirror under. They keep living
+ * in `warehouse` alone and lose nothing.
+ */
+const v28ToV29: Migration = (raw) => {
+  const shedInventory: Record<string, number> = {};
+  if (isRecord(raw.warehouse)) {
+    for (const [frame, count] of Object.entries(raw.warehouse)) {
+      // Defensive like every other migration: a non-count value passes through
+      // as "nothing to mirror" and the validator judges the save.
+      if (!CATALOG_IDS.has(frame)) continue;
+      if (!isFiniteNumber(count) || !Number.isInteger(count) || count <= 0) continue;
+      shedInventory[frame] = count;
+    }
+  }
+  return { ...raw, shedInventory };
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1154,6 +1263,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v25ToV26,
   v26ToV27,
   v27ToV28,
+  v28ToV29,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1178,6 +1288,7 @@ export function createDefaultState(version: number): GameStateData {
     orderSkips: { count: 0, lastAt: 0 },
     decorations: [],
     warehouse: {},
+    shedInventory: {},
     structures: createDefaultStructures(),
     buildings: [],
     paths: [],
@@ -2110,6 +2221,27 @@ function isWarehouseRecord(value: unknown): value is Record<string, number> {
   );
 }
 
+/**
+ * The shed record (U1): every key a KNOWN catalog id, every value a positive
+ * integer count - the `isWarehouseRecord` rule with the catalog as its registry
+ * instead of the decor frames. An empty record is valid (nothing in the shed).
+ *
+ * An unknown id is REJECTED rather than ignored, matching how a building type
+ * is treated (and unlike an inert `regionsUnlocked` entry): a shed count is
+ * spendable ownership, so a save claiming an item this build cannot place is
+ * not a save this build can honour. Zero and negative counts are rejected by
+ * the same `count > 0` rule that keeps `warehouse` free of 0 entries.
+ */
+function isShedInventoryRecord(value: unknown): value is Record<string, number> {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([id, count]) =>
+        CATALOG_IDS.has(id) && isFiniteNumber(count) && Number.isInteger(count) && count > 0,
+    )
+  );
+}
+
 const LONG_QUEST_IDS: ReadonlySet<string> = new Set(LONG_QUESTS.map((quest) => quest.id));
 const WEEKLY_QUEST_IDS: ReadonlySet<string> = new Set(WEEKLY_QUESTS.map((quest) => quest.id));
 
@@ -2283,6 +2415,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     raw.orders.every(isOrderSlot) &&
     isOrderSkipsState(raw.orderSkips) &&
     isWarehouseRecord(raw.warehouse) &&
+    isShedInventoryRecord(raw.shedInventory) &&
     Array.isArray(raw.decorations) &&
     raw.decorations.every(isDecorationPlacement) &&
     // Entries are shape-proven above, so their frames are safe to read here.
@@ -3210,10 +3343,31 @@ export class GameStateStore {
     // re-enters a tile it already laid must never bill twice.
     if (existing?.tier === def.id) return false;
     this.state.coins -= def.costCoins;
-    if (existing !== undefined) existing.tier = def.id;
-    else this.state.paths.push({ col, row, tier: def.id });
+    this.writePathTile(col, row, def.id);
     this.save();
     return true;
+  }
+
+  /**
+   * Lay `tier` on (col, row), REPLACING whatever tier was there, and return the
+   * tier that was displaced (null if the tile was bare). No cost, no legality,
+   * no save - purely the tile write, factored out so `paintPath` (which
+   * charges) and `placeFromShed` (which spends a shed count instead) put a tile
+   * down through one piece of code rather than two that can drift.
+   *
+   * The displaced tier is returned rather than dropped because the shed path
+   * has to bank it: repainting over a Moonstone tile must not destroy the
+   * Moonstone.
+   */
+  private writePathTile(col: number, row: number, tier: PathTierId): PathTierId | null {
+    const existing = this.state.paths.find((path) => path.col === col && path.row === row);
+    if (existing === undefined) {
+      this.state.paths.push({ col, row, tier });
+      return null;
+    }
+    const displaced = existing.tier;
+    existing.tier = tier;
+    return displaced === tier ? null : displaced;
   }
 
   /**
@@ -3239,6 +3393,276 @@ export class GameStateStore {
     if (decoration === undefined) return false;
     this.state.decorations.splice(index, 1);
     this.state.warehouse[decoration.frame] = (this.state.warehouse[decoration.frame] ?? 0) + 1;
+    this.save();
+    return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // The Shed (U1). Shop --buyToShed--> shed --placeFromShed--> farm, and
+  // farm --putAwayToShed--> shed back again. Model only this task: nothing in
+  // the game calls these yet (the dev hooks aside), and the existing Building
+  // Shop / decor shop / path painting flows are untouched and still live.
+  //
+  // Two invariants hold across all three, and the tests pin both:
+  //   - NOTHING IS DESTROYED. A count only ever moves between `shedInventory`
+  //     and a placed collection. Even a path tile painted over by another gets
+  //     banked back into the shed rather than vanishing.
+  //   - NO CURRENCY MOVES except in `buyToShed`. Placing and putting away are
+  //     free in both directions; there is no refund anywhere, ever.
+  // ---------------------------------------------------------------------------
+
+  /** How many of `itemId` are sitting in the shed. */
+  shedCount(itemId: string): number {
+    return this.state.shedInventory[itemId] ?? 0;
+  }
+
+  /** Add `qty` to the shed. Callers have already validated the id. */
+  private addToShed(itemId: string, qty: number): void {
+    this.state.shedInventory[itemId] = this.shedCount(itemId) + qty;
+  }
+
+  /** Remove ONE from the shed, deleting the key at 0 so no 0 entry is ever
+   *  left behind (the `placeFromWarehouse` convention the validator enforces). */
+  private takeOneFromShed(itemId: string): void {
+    const owned = this.shedCount(itemId);
+    if (owned <= 1) delete this.state.shedInventory[itemId];
+    else this.state.shedInventory[itemId] = owned - 1;
+  }
+
+  /**
+   * Buy `qty` of a catalog item into the shed (U1) - the unified Shop's one
+   * purchase path, replacing per-system buys (`buyBuilding`, `buyDecoration`,
+   * `paintPath`'s per-tile charge) once a later task cuts them over.
+   *
+   * Refuses - mutating NOTHING, so there is no partial state to unwind - on an
+   * unknown id, a non-positive or non-integer `qty`, a level below the item's
+   * `unlockLevel`, or a balance short of the FULL `qty * price`. A partial buy
+   * is deliberately not a thing: the player asked for `qty`, and silently
+   * delivering fewer is worse than refusing.
+   *
+   * The charge is in the item's OWN currency (coins or moondust, from the
+   * catalog, which reads it from the source registry), and it is the only
+   * currency movement in the whole shed pipeline.
+   *
+   * Note this does NOT consult `allowMultiple`: owning several of a
+   * one-per-farm item in the shed is harmless, and it is `placeFromShed` that
+   * enforces how many may stand on the farm at once.
+   */
+  buyToShed(itemId: string, qty = 1): boolean {
+    const item = findCatalogItem(itemId);
+    if (item === undefined) return false;
+    if (!Number.isInteger(qty) || qty <= 0) return false;
+    if (this.state.level < item.unlockLevel) return false;
+    const cost = item.price * qty;
+    const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
+    if (balance < cost) return false;
+    if (item.currency === 'coins') this.state.coins -= cost;
+    else this.state.moondust -= cost;
+    this.addToShed(itemId, qty);
+    this.save();
+    return true;
+  }
+
+  /**
+   * Move ONE of `itemId` out of the shed and onto the farm (U1), through the
+   * placement rules its category already has - `isBuildingAnchorFree` stays THE
+   * building authority, a decoration still lands through
+   * `setDecorationTransform`'s clamp, and a path tile still goes down through
+   * the same tile write `paintPath` uses. No rule is restated here.
+   *
+   * Returns the new instance's index (into `buildings`, `decorations`, or
+   * `paths`), or false having mutated NOTHING when the id is unknown, the shed
+   * count is 0, or the category's own placement rules refuse. Costs nothing in
+   * either currency.
+   *
+   * Per category, with `options` defaulting to exactly what today's flows do:
+   * - BUILDING: refused if one is already standing and the item is not
+   *   `allowMultiple` (today's one-per-type rule). With an explicit col/row the
+   *   anchor must pass `isBuildingAnchorFree`; with none it lands on the
+   *   building's `defaultAnchor` UNCHECKED, which is `buyBuilding`'s own
+   *   deliberate "place, then arrange" contract rather than an omission here.
+   * - DECOR: spawns at the warehouse spawn point and the item's spawn scale,
+   *   like `placeFromWarehouse`, then applies any x/y/scale/flip through
+   *   `setDecorationTransform`. If that clamp REFUSES the requested spot (it
+   *   lands on a permanent footprint), the decoration still places - it just
+   *   stays at the spawn point, exactly where an ordinary warehouse placement
+   *   would have left it for the player to drag.
+   * - PATH: needs col/row. Refused if that tile already holds this very tier
+   *   (nothing to do, and it would burn a count). A tile holding a DIFFERENT
+   *   tier is replaced and the displaced tier is banked back into the shed, so
+   *   painting over never destroys anything.
+   */
+  placeFromShed(itemId: string, options: ShedPlaceOptions = {}): number | false {
+    const item = findCatalogItem(itemId);
+    if (item === undefined) return false;
+    if (this.shedCount(itemId) <= 0) return false;
+    switch (item.category) {
+      case 'building':
+        return this.placeBuildingFromShed(item, options);
+      case 'decor':
+        return this.placeDecorFromShed(item, options);
+      case 'path':
+        return this.placePathFromShed(item, options);
+    }
+  }
+
+  private placeBuildingFromShed(item: CatalogItem, options: ShedPlaceOptions): number | false {
+    const building = findBuilding(item.id);
+    if (building === undefined) return false;
+    if (!item.allowMultiple && this.state.buildings.some((placed) => placed.type === building.id)) {
+      return false;
+    }
+    // An explicit anchor is judged by THE building authority; the default one
+    // is not, matching `buyBuilding` (see this method's doc).
+    const explicit = options.col !== undefined && options.row !== undefined;
+    const col = options.col ?? building.defaultAnchor.col;
+    const row = options.row ?? building.defaultAnchor.row;
+    if (explicit && !isBuildingAnchorFree(this.state, building.id, col, row)) return false;
+    const maxSlots = building.milling?.slots ?? 1;
+    const requested = options.unlockedSlots ?? 1;
+    if (!Number.isInteger(requested)) return false;
+    this.takeOneFromShed(item.id);
+    this.state.buildings.push({
+      type: building.id,
+      col,
+      row,
+      batches: [],
+      unlockedSlots: Math.min(maxSlots, Math.max(1, requested)),
+      flipped: options.flip ?? false,
+    });
+    this.save();
+    return this.state.buildings.length - 1;
+  }
+
+  private placeDecorFromShed(item: CatalogItem, options: ShedPlaceOptions): number | false {
+    this.takeOneFromShed(item.id);
+    this.state.decorations.push({
+      frame: item.frame,
+      x: WAREHOUSE_PLACE_X,
+      y: WAREHOUSE_PLACE_Y,
+      scale: decorSpawnScale(item.frame),
+      flip: false,
+    });
+    const index = this.state.decorations.length - 1;
+    const wantsTransform =
+      options.x !== undefined ||
+      options.y !== undefined ||
+      options.scale !== undefined ||
+      options.flip !== undefined;
+    if (wantsTransform) {
+      const placed = this.state.decorations[index]!;
+      // Through the clamp authority, never around it. A refusal leaves the
+      // decoration at its spawn point (see this method's doc).
+      this.setDecorationTransform(
+        index,
+        options.x ?? placed.x,
+        options.y ?? placed.y,
+        options.scale ?? placed.scale,
+        options.flip ?? placed.flip,
+      );
+    }
+    this.save();
+    return index;
+  }
+
+  private placePathFromShed(item: CatalogItem, options: ShedPlaceOptions): number | false {
+    const { col, row } = options;
+    if (col === undefined || row === undefined) return false;
+    if (!isPlotGridCoord(col) || !isPlotGridCoord(row)) return false;
+    const tier = findPathTier(item.id);
+    if (tier === undefined) return false;
+    const existing = this.state.paths.find((path) => path.col === col && path.row === row);
+    if (existing?.tier === tier.id) return false;
+    this.takeOneFromShed(item.id);
+    const displaced = this.writePathTile(col, row, tier.id);
+    // Painting over never destroys: the covered tier goes back in the shed.
+    if (displaced !== null) this.addToShed(displaced, 1);
+    this.save();
+    return this.state.paths.findIndex((path) => path.col === col && path.row === row);
+  }
+
+  /**
+   * Take a placed instance off the farm and back into the shed (U1) - the
+   * inverse of `placeFromShed`, and the edit mode's "put away". Removes the
+   * instance from its collection, increments its catalog id's shed count, and
+   * returns the id together with the transform it was carrying, so a caller
+   * (the later Undo stack) can hand both straight back to `placeFromShed` and
+   * land it exactly where it was.
+   *
+   * Returns null having mutated NOTHING when the reference points at nothing,
+   * the instance's item is not in the catalog (a quest TROPHY - it has no
+   * catalog id, so it keeps using `storeDecoration`/`warehouse`), or the
+   * instance is a building with batches in flight.
+   *
+   * That last refusal is the honest handling of a shape limit: `shedInventory`
+   * counts items and cannot hold per-instance production state, so putting away
+   * a milling building would silently destroy paid-for, in-flight batches. It
+   * refuses instead. Paid slot unlocks survive only via the returned
+   * `unlockedSlots` - see BLOCKERS in this task's report.
+   *
+   * NO REFUND, in either direction: nothing here touches coins or moondust.
+   */
+  putAwayToShed(ref: PlacedItemRef): PutAwayResult | null {
+    switch (ref.category) {
+      case 'building': {
+        const placement = this.state.buildings[ref.index];
+        if (placement === undefined) return null;
+        if (findCatalogItem(placement.type) === undefined) return null;
+        if (placement.batches.length > 0) return null;
+        const options: ShedPlaceOptions = {
+          col: placement.col,
+          row: placement.row,
+          flip: placement.flipped,
+          unlockedSlots: placement.unlockedSlots,
+        };
+        this.state.buildings.splice(ref.index, 1);
+        this.addToShed(placement.type, 1);
+        this.save();
+        return { itemId: placement.type, options };
+      }
+      case 'decor': {
+        const decoration = this.state.decorations[ref.index];
+        if (decoration === undefined) return null;
+        if (findCatalogItem(decoration.frame) === undefined) return null;
+        const options: ShedPlaceOptions = {
+          x: decoration.x,
+          y: decoration.y,
+          scale: decoration.scale,
+          flip: decoration.flip,
+        };
+        this.state.decorations.splice(ref.index, 1);
+        this.addToShed(decoration.frame, 1);
+        this.save();
+        return { itemId: decoration.frame, options };
+      }
+      case 'path': {
+        const index = this.state.paths.findIndex(
+          (path) => path.col === ref.col && path.row === ref.row,
+        );
+        const tile = this.state.paths[index];
+        if (tile === undefined) return null;
+        if (findCatalogItem(tile.tier) === undefined) return null;
+        const options: ShedPlaceOptions = { col: tile.col, row: tile.row };
+        const itemId: string = tile.tier;
+        this.state.paths.splice(index, 1);
+        this.addToShed(itemId, 1);
+        this.save();
+        return { itemId, options };
+      }
+    }
+  }
+
+  /**
+   * Dev-only shed grant (U1): drop `qty` of a catalog item straight into the
+   * shed with no level gate and no charge - the `buyToShed` path minus its two
+   * refusals, so the pipeline is exercisable before the unified Shop exists.
+   * Returns false for an unknown id or a non-positive/non-integer qty. Wired to
+   * `dev.grantToShed`.
+   */
+  devGrantToShed(itemId: string, qty = 1): boolean {
+    if (findCatalogItem(itemId) === undefined) return false;
+    if (!Number.isInteger(qty) || qty <= 0) return false;
+    this.addToShed(itemId, qty);
     this.save();
     return true;
   }
