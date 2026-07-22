@@ -85,7 +85,7 @@ export class PreloadScene extends Phaser.Scene {
 
     this.load.atlas(ATLAS_KEY, atlasPngUrl, atlasJsonUrl);
     // Ground textures (T2.28 experiment): standalone images, not atlas frames
-    // - see ASSETS.md "Ground textures (standalone, not atlas frames)".
+    // - see docs/ASSETS.md "Ground textures (standalone, not atlas frames)".
     this.load.image(GROUND_TEXTURE_A_KEY, grassTextureAUrl);
     this.load.image(GROUND_TEXTURE_B_KEY, grassTextureBUrl);
     for (const [key, url] of Object.entries(SFX_URLS)) {

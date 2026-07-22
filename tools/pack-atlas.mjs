@@ -11,7 +11,7 @@
  *
  * The packed files are committed to the repo; this script is a dev-time
  * convenience (`npm run pack:atlas`), never a build step. It replaces the
- * retired placeholder generator (tools/gen-assets.mjs). See ASSETS.md.
+ * retired placeholder generator (tools/gen-assets.mjs). See docs/ASSETS.md.
  *
  * Frame conventions enforced here (keep in sync with src/config.ts and
  * src/data/crops.ts):
@@ -182,7 +182,7 @@ const PATH_TILE_NAMES = ['dirt_path', 'gravel_path', 'stone_path', 'moonstone_pa
  * against edge cleanliness (0.25 read as an overly repetitive small motif,
  * 0.55 started reintroducing fringe artifacts at the sample's own corners) -
  * same search-and-visually-compare method as DIRT_PATH_POSITION/tileScale in
- * ASSETS.md.
+ * docs/ASSETS.md.
  */
 const TILE_FLAT_SAMPLE_FRACTION = 0.35;
 /** How many consecutive px of alpha>=254 counts as "past the fringe" in measureFringeDepth. */

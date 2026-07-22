@@ -18,7 +18,7 @@
  *
  * The generated files are committed to the repo; this script is a dev-time
  * convenience (`npm run gen:assets`), never a build step. Regenerate after
- * editing, then commit the results. See ASSETS.md for the frame-name
+ * editing, then commit the results. See docs/ASSETS.md for the frame-name
  * convention and how to swap in real art.
  *
  * All drawing is deterministic (seeded PRNG) so reruns are reproducible.
@@ -31,7 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 
 // ---------------------------------------------------------------------------
-// Sizes (keep in sync with ASSETS.md and src/systems/iso.ts)
+// Sizes (keep in sync with docs/ASSETS.md and src/systems/iso.ts)
 // ---------------------------------------------------------------------------
 
 const TILE_W = 256; // iso tile canvas, 2:1 diamond fills it edge to edge

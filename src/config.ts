@@ -38,7 +38,7 @@ export const ATLAS_KEY = 'atlas';
 
 /**
  * Loader/texture keys for the standalone ground textures (not atlas frames)
- * - see ASSETS.md "Ground textures (standalone, not atlas frames)".
+ * - see docs/ASSETS.md "Ground textures (standalone, not atlas frames)".
  * `grass_texture_a` is the LIVE meadow ground since T3.3s-r2b (a 512x512
  * seamless full-bleed master in the new art style; the pack pipeline
  * verified it passes through untrimmed). `grass_texture_b` retired from the
@@ -70,7 +70,7 @@ export const GROUND_MODE: GroundMode = 'texture_a';
 export const GROUND_TEXTURE_A_TILE_SCALE = 1.0;
 
 /**
- * Tile frame geometry (see ASSETS.md and tools/pack-atlas.mjs). The tile art
+ * Tile frame geometry (see docs/ASSETS.md and tools/pack-atlas.mjs). The tile art
  * has raised lips/fringes, so the frame is taller than the 2:1 diamond: the
  * diamond's top face spans TILE_WIDTH x TILE_HEIGHT (256x128, iso.ts) with
  * its center at (TILE_FRAME_WIDTH / 2, TILE_DIAMOND_CENTER_Y) and the lip

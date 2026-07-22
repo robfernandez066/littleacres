@@ -12,7 +12,7 @@ export const CROP_STAGES = 3;
  * row is at CROP_BASELINE_Y + CROP_SINK - sunk a little below the anchored
  * baseline so the mound's visual middle sits on the diamond center, hugging
  * the tile. CROP_SINK is enforced by tools/pack-atlas.mjs (keep them in
- * sync). See ASSETS.md.
+ * sync). See docs/ASSETS.md.
  */
 export const CROP_FRAME_SIZE = 128;
 export const CROP_BASELINE_Y = 104;

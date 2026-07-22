@@ -44,16 +44,16 @@ appended to `docs/tasks/progress.md`.
 
 ## Ownership map
 
-| Files | You (Coder) | PM |
-|---|---|---|
-| `docs/tasks/currenttask.md` | read only - never edit | writes |
-| `docs/tasks/progress.md` | append reports only | reads, archives |
-| `src/`, tests, `tools/`, `assets/`, `index.html`, build config | edit only as the active task authorizes | reviews via diff, never edits |
-| `docs/` (all EXCEPT the two carve-outs below) | NEVER read (standing rule 1) | owns |
-| `docs/ASSETS.md` (shared asset-pipeline doc) | may read | owns |
-| `docs/balance/*.csv` | never touch | owns (economy mirror) |
-| `private/to_delete/` | write ONLY the review diff | discards, review copies |
-| git history | read-only (`status`/`diff`/`log`) plus loop step 4's intent-to-add; NEVER commit, push, or tag | never runs git; the owner runs it |
+| Files                                                          | You (Coder)                                                                                    | PM                                |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------- |
+| `docs/tasks/currenttask.md`                                    | read only - never edit                                                                         | writes                            |
+| `docs/tasks/progress.md`                                       | append reports only                                                                            | reads, archives                   |
+| `src/`, tests, `tools/`, `assets/`, `index.html`, build config | edit only as the active task authorizes                                                        | reviews via diff, never edits     |
+| `docs/` (all EXCEPT the two carve-outs below)                  | NEVER read (standing rule 1)                                                                   | owns                              |
+| `docs/ASSETS.md` (shared asset-pipeline doc)                   | may read                                                                                       | owns                              |
+| `docs/balance/*.csv`                                           | never touch                                                                                    | owns (economy mirror)             |
+| `private/to_delete/`                                           | write ONLY the review diff                                                                     | discards, review copies           |
+| git history                                                    | read-only (`status`/`diff`/`log`) plus loop step 4's intent-to-add; NEVER commit, push, or tag | never runs git; the owner runs it |
 
 ## Standing rules
 
