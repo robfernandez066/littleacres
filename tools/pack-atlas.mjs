@@ -28,7 +28,7 @@
  *   scalloped/torn-edge fringe and lip removed (mirrored top-face + deep-
  *   interior sample + a synthetic diamond alpha mask), for the 'tiles_flat'
  *   ground mode. See processTileFlat.
- * - gravel_path (T4.12): a player-painted path tile - trimmed and resized
+ * - Path tiles (4, T4.12/T4.13): player-painted path tiles - trimmed and resized
  *   non-uniformly onto the exact 256x128 tile diamond (no lip band), so
  *   painted tiles butt flush on the iso grid. See PATH_TILE_NAMES.
  * - Crops (21): trimmed, scaled to a per-stage height target (stage 2 = 100%
@@ -47,8 +47,8 @@
  * - sign: trimmed, fit into 192x192, centered.
  * - hud_crest, gear_icon, button_push, button_slot, button_close (staged as
  *   xbutton), mere (staged as mere_strip), notice_board, farmhouse,
- *   flour_mill, dirt_path: trimmed, fit into a square frame
- *   (192/128/256/256/96/384/256/256/256/288), centered - same treatment as the
+ *   flour_mill: trimmed, fit into a square frame
+ *   (192/128/256/256/96/384/256/256/256), centered - same treatment as the
  *   icons above. `flour_mill` is the first BUILDING (T4.1) - structure-class
  *   art, sized and shadowed exactly like `farmhouse`.
  * - farmhouse_restored (T3.25): the restoration-upgrade farmhouse. It gets its
@@ -168,10 +168,10 @@ const DERIVED_TILE_NAMES = ['grass_flat'];
  * 160px lip band, no centering slack - and the runtime draws it at origin
  * (0.5, 0.5) straight on `gridToIso`'s tile center. Trimming and then
  * resizing NON-uniformly onto the diamond's exact size is what guarantees
- * adjacent painted tiles butt flush. Only `gravel_path` ships in v1; the
- * staged stone/moonstone masters stay unpacked until their tiers land.
+ * adjacent painted tiles butt flush. All four tiers of the T4.13 coin ladder
+ * ship packed - one frame per entry in `src/data/paths.ts`'s PATH_TIERS.
  */
-const PATH_TILE_NAMES = ['gravel_path'];
+const PATH_TILE_NAMES = ['dirt_path', 'gravel_path', 'stone_path', 'moonstone_path'];
 /**
  * processTileFlat's deep-interior sample size, as a fraction of the trimmed
  * source's width/height, centered - stays comfortably clear of the measured
@@ -253,7 +253,11 @@ const SQUARE_DOWNSCALE_SIZES = {
   // T4.4: the bakery is a BUILDING, packed on the same structure-class path
   // as the mill and farmhouse - a 256 square, never a 96 icon.
   bakery: 256,
-  dirt_path: 288,
+  // NOTE (T4.13): `dirt_path` used to be listed here as a 288 square. It is
+  // now a PATH TIER, packed as a 256x128 tile diamond by PATH_TILE_NAMES, and
+  // nothing referenced the square version. Listing it in both places put the
+  // name in FRAME_NAMES twice, so the image was processed and bin-packed
+  // twice and one copy was silently dropped by the JSON key collision.
   decor_bench: 128,
   decor_flowerbed: 128,
   decor_fence: 128,

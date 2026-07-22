@@ -3192,9 +3192,9 @@ export class GameStateStore {
    *
    * Returns false WITHOUT mutating anything when the tier is unknown, the
    * coords are off the validator's grid, or coins are short - the same
-   * refusal feel as failing to plant. Gravel is free this pass, so its
-   * balance check trivially passes, but the deduction runs unchanged for a
-   * priced tier (the caller shows a "-N" float when `costCoins > 0`).
+   * refusal feel as failing to plant. Only `dirt` is free, so its balance
+   * check trivially passes; the three priced rungs above it charge through
+   * this same path (the caller shows a "-N" float when `costCoins > 0`).
    *
    * Deliberately does NO legality check beyond the coordinate bounds: paths
    * are cosmetic and block nothing, so a plot or structure standing on the

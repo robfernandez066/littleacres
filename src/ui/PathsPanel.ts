@@ -1,7 +1,12 @@
 import Phaser from 'phaser';
 
 import { ATLAS_KEY, DESIGN_WIDTH, PANEL_SLICE } from '../config';
-import { PATH_TIER_LIST, type PathTierDef, type PathTierId } from '../data/paths';
+import {
+  DEFAULT_PATH_TIER,
+  PATH_TIER_LIST,
+  type PathTierDef,
+  type PathTierId,
+} from '../data/paths';
 import type { AudioManager } from '../systems/audio';
 import type { GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -11,7 +16,13 @@ import { ModalBackdrop } from './ModalBackdrop';
  * Modal Paths panel (T4.12), reached from the HUD's Shop button via the
  * Building Shop's "Paths" button: every entry in `PATH_TIERS` as one row -
  * a tile-diamond preview, name, and cost ("Free" at 0 coins, a coin icon and
- * amount otherwise) - with a "Paint" button on the right.
+ * amount otherwise) - with a "Paint" button on the right. T4.13 grew this to
+ * the four-rung coin ladder; the rows are entirely registry-driven, so that
+ * was a data change here.
+ *
+ * The most recently painted tier is marked with a selection caret, seeded to
+ * `DEFAULT_PATH_TIER` (the free rung) so a fresh player's eye lands on
+ * something they can always afford.
  *
  * Unlike `BuildingShop`, choosing a row is NOT a purchase: it closes this
  * panel and enters a PERSISTENT paint mode (`onSelectTier`), where the player
@@ -58,6 +69,12 @@ const ICON_SCALE = ICON_DISPLAY_WIDTH / ICON_NATIVE_WIDTH;
 
 const NAME_OFFSET_X = -190;
 const NAME_OFFSET_Y = -34;
+
+/**
+ * The selected-tier caret, left of the tile preview (the preview spans
+ * ICON_OFFSET_X +/- half of ICON_DISPLAY_WIDTH, so this clears it).
+ */
+const SELECT_MARKER_OFFSET_X = -405;
 
 const PRICE_ICON_OFFSET_X = -175;
 const PRICE_ICON_OFFSET_Y = 34;
@@ -121,10 +138,19 @@ const HINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   align: 'center',
 };
 
+const SELECT_MARKER_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '36px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 interface PathRow {
   def: PathTierDef;
   paintButton: Phaser.GameObjects.NineSlice;
   paintText: Phaser.GameObjects.Text;
+  /** Shown on exactly one row - see `selectedTier`. */
+  selectMarker: Phaser.GameObjects.Text;
 }
 
 export class PathsPanel {
@@ -132,6 +158,12 @@ export class PathsPanel {
   private readonly backdrop: ModalBackdrop;
   private readonly rows: PathRow[] = [];
   private visible = false;
+  /**
+   * The tier the caret marks - the last one painted, seeded to the free rung
+   * (T4.13). Presentation only: `FarmScene.pathModeTier` is the authority on
+   * what a stroke actually lays.
+   */
+  private selectedTier: PathTierId = DEFAULT_PATH_TIER;
 
   constructor(
     private readonly scene: Phaser.Scene,
@@ -205,7 +237,12 @@ export class PathsPanel {
       .text(NAME_OFFSET_X, y + NAME_OFFSET_Y, def.name, NAME_STYLE)
       .setOrigin(0, 0.5);
 
-    const rowObjects: Phaser.GameObjects.GameObject[] = [icon, nameText];
+    const selectMarker = this.scene.add
+      .text(SELECT_MARKER_OFFSET_X, y, '>', SELECT_MARKER_STYLE)
+      .setOrigin(0.5)
+      .setVisible(def.id === this.selectedTier);
+
+    const rowObjects: Phaser.GameObjects.GameObject[] = [selectMarker, icon, nameText];
     if (def.costCoins > 0) {
       rowObjects.push(
         this.scene.add
@@ -241,17 +278,28 @@ export class PathsPanel {
       this.audio.sfx('tap');
       // Selecting a tier is not a purchase: close and hand the scene the
       // persistent paint mode. Coins are charged per tile, by the store.
+      this.selectedTier = def.id;
+      this.updateSelectMarkers();
       this.hide();
       this.onSelectTier(def.id);
     });
 
     this.container.add([...rowObjects, paintButton, paintText]);
-    return { def, paintButton, paintText };
+    return { def, paintButton, paintText, selectMarker };
+  }
+
+  /** Show the caret on exactly the selected row. */
+  private updateSelectMarkers(): void {
+    for (const row of this.rows) {
+      row.selectMarker.setVisible(row.def.id === this.selectedTier);
+    }
   }
 
   /**
    * Re-derive each row's affordability dimming from state. A dimmed row is
-   * still selectable - see the class comment.
+   * still selectable - see the class comment. Every tier stays VISIBLE at
+   * every coin balance (T4.13): the ladder is coin-gated, never hidden, so a
+   * player can always see what the next rung up costs.
    */
   refresh(state: GameStateData): void {
     for (const row of this.rows) {
@@ -261,6 +309,7 @@ export class PathsPanel {
       row.paintText.setAlpha(alpha);
       row.paintButton.setInteractive({ useHandCursor: true });
     }
+    this.updateSelectMarkers();
   }
 
   isVisible(): boolean {

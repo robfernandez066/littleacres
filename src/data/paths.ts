@@ -10,8 +10,8 @@
  * replaces its tier rather than stacking.
  */
 
-/** The path tiers. v1 ships gravel only; stone/moonstone slot in here. */
-export type PathTierId = 'gravel';
+/** The path tiers, cheapest to priciest (T4.13). */
+export type PathTierId = 'dirt' | 'gravel' | 'stone' | 'moonstone';
 
 export interface PathTierDef {
   /** Tier id, also the save's per-tile identifier. */
@@ -21,16 +21,31 @@ export interface PathTierDef {
   /** Atlas frame - a 256x128 tile diamond drawn at origin (0.5, 0.5). */
   frame: string;
   /**
-   * Coins deducted per painted tile. Gravel is FREE this pass (owner
-   * decision), but paint mode still runs the full deduct-and-float path so a
-   * priced tier needs no new flow - see `GameStateStore.paintPath`.
+   * Coins deducted per painted tile, by `GameStateStore.paintPath`. Only
+   * `dirt` is free - it is the entry rung a player lands on, and the three
+   * priced rungs above it are the coin sink (T4.13).
    */
   costCoins: number;
 }
 
+/**
+ * The coin ladder (T4.13). Insertion order IS the Paths-panel row order and
+ * must stay cheapest -> priciest: `PATH_TIER_LIST` derives from it, and the
+ * panel's first row is what a player lands on, so `dirt` leads.
+ */
 export const PATH_TIERS: Readonly<Record<PathTierId, PathTierDef>> = {
-  gravel: { id: 'gravel', name: 'Gravel', frame: 'gravel_path', costCoins: 0 },
+  dirt: { id: 'dirt', name: 'Dirt', frame: 'dirt_path', costCoins: 0 },
+  gravel: { id: 'gravel', name: 'Gravel', frame: 'gravel_path', costCoins: 15 },
+  stone: { id: 'stone', name: 'Stone', frame: 'stone_path', costCoins: 70 },
+  moonstone: { id: 'moonstone', name: 'Moonstone', frame: 'moonstone_path', costCoins: 350 },
 };
+
+/**
+ * The DEFAULT tier - the free rung, so a player who has not chosen lands on
+ * something they can always afford. Must stay the cheapest entry in
+ * `PATH_TIERS` (pinned by a test in `paths.test.ts`).
+ */
+export const DEFAULT_PATH_TIER: PathTierId = 'dirt';
 
 /** The tiers in Paths-panel row order. */
 export const PATH_TIER_LIST: readonly PathTierDef[] = Object.values(PATH_TIERS);

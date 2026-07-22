@@ -659,7 +659,7 @@ const DRESSING_DEPTH = 6;
  * ground) and never against anything else (nothing else lives in this band).
  */
 /**
- * Per-tile deterministic mirroring (T4.12): the gravel art is hard-edged and
+ * Per-tile deterministic mirroring (T4.12): the path art is hard-edged and
  * tiles gaplessly, so an unbroken run reads as an obvious repeat. A cheap
  * integer hash of (col, row) picks flipX/flipY per tile - deterministic, so a
  * tile looks identical every load and needs nothing saved. The two odd
@@ -5196,7 +5196,8 @@ export class FarmScene extends Phaser.Scene {
    * The store is the sole authority on whether the tile lays and what it
    * costs: a refusal (short coins, off-grid) simply shows nothing, the same
    * feel as failing to plant. A successful PAID placement floats "-N" at the
-   * tile; a free tier (gravel, this pass) floats nothing.
+   * tile; the free tier (dirt) floats nothing, and neither does a same-tier
+   * repaint - the store refuses it, so there is no float and no second charge.
    */
   private paintPathAt(worldX: number, worldY: number): void {
     const tier = this.pathModeTier;

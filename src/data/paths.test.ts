@@ -1,17 +1,55 @@
 import { describe, expect, it } from 'vitest';
 
-import { findPathTier, PATH_TIER_IDS, PATH_TIER_LIST, PATH_TIERS } from './paths';
+import {
+  DEFAULT_PATH_TIER,
+  findPathTier,
+  PATH_TIER_IDS,
+  PATH_TIER_LIST,
+  PATH_TIERS,
+} from './paths';
 
-describe('path tiers (T4.12)', () => {
-  it('ships gravel as a free tier on the packed gravel_path frame', () => {
+describe('path tiers (T4.12/T4.13)', () => {
+  it('ships the four-rung coin ladder on its packed frames', () => {
+    // Pinned to the T4.13 owner-set prices: dirt free, then 15 / 70 / 350.
+    expect(PATH_TIERS.dirt).toEqual({
+      id: 'dirt',
+      name: 'Dirt',
+      frame: 'dirt_path',
+      costCoins: 0,
+    });
     expect(PATH_TIERS.gravel).toEqual({
       id: 'gravel',
       name: 'Gravel',
       frame: 'gravel_path',
-      // FREE this pass (owner decision) - paint mode still runs the full
-      // deduct-and-float path so a priced tier needs no new flow.
-      costCoins: 0,
+      // Was free in T4.12's single-tier v1; repriced as rung two of the ladder.
+      costCoins: 15,
     });
+    expect(PATH_TIERS.stone).toEqual({
+      id: 'stone',
+      name: 'Stone',
+      frame: 'stone_path',
+      costCoins: 70,
+    });
+    expect(PATH_TIERS.moonstone).toEqual({
+      id: 'moonstone',
+      name: 'Moonstone',
+      frame: 'moonstone_path',
+      costCoins: 350,
+    });
+  });
+
+  it('lists the tiers cheapest to priciest, with the free rung as the default', () => {
+    const costs = PATH_TIER_LIST.map((def) => def.costCoins);
+    expect(costs).toEqual([...costs].sort((a, b) => a - b));
+    // The default must be the cheapest rung - a player who has not chosen
+    // lands on something they can always afford.
+    expect(PATH_TIER_LIST[0]?.id).toBe(DEFAULT_PATH_TIER);
+    expect(PATH_TIERS[DEFAULT_PATH_TIER].costCoins).toBe(0);
+  });
+
+  it('gives every tier its own atlas frame', () => {
+    const frames = PATH_TIER_LIST.map((def) => def.frame);
+    expect(new Set(frames).size).toBe(frames.length);
   });
 
   it('every tier is keyed by its own id, non-empty, and non-negative', () => {

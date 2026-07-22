@@ -52,7 +52,7 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
-import { PATH_TIERS } from '../data/paths';
+import { PATH_TIER_LIST, PATH_TIERS } from '../data/paths';
 import {
   GROWTH_TARGETS_BY_LEVEL,
   growthTargetForLevel,
@@ -8307,31 +8307,46 @@ describe('paths (T4.12)', () => {
   });
 
   describe('paintPath', () => {
-    it('places a tile and deducts the tier cost', () => {
-      const store = loadedStore(savedWithPaths({ coins: 500 }));
-      expect(store.paintPath(1, 2, 'gravel')).toBe(true);
-      expect(store.getState().paths).toEqual([{ col: 1, row: 2, tier: 'gravel' }]);
-      // Gravel is free this pass (PATH_TIERS.gravel.costCoins === 0), so the
-      // deduction is real but zero - the assertion derives from the data.
-      expect(store.getState().coins).toBe(500 - PATH_TIERS.gravel.costCoins);
+    it('places a tile and deducts the tier cost, on every rung of the ladder', () => {
+      // One paint per tier, each on its own tile, against a balance that
+      // covers the whole ladder (0 + 15 + 70 + 350 = 435).
+      const store = loadedStore(savedWithPaths({ coins: 1000 }));
+      let spent = 0;
+      PATH_TIER_LIST.forEach((def, index) => {
+        expect(store.paintPath(index, 2, def.id)).toBe(true);
+        spent += def.costCoins;
+        // Derived from the registry, so a reprice moves this with the data.
+        expect(store.getState().coins).toBe(1000 - spent);
+      });
+      expect(store.getState().paths).toEqual(
+        PATH_TIER_LIST.map((def, index) => ({ col: index, row: 2, tier: def.id })),
+      );
+      // The T4.13 prices, pinned literally so a silent reprice fails here too.
+      expect(spent).toBe(435);
     });
 
     it('refuses without mutation when coins are short', () => {
-      // Gravel is FREE this pass, so an insufficient-funds refusal cannot be
-      // provoked through the shipping registry. Temporarily price the tier -
-      // exactly what a future stone/moonstone entry will look like - so the
-      // store's balance guard is exercised for real, and restore it after.
-      const store = loadedStore(savedWithPaths({ coins: 5 }));
-      const tiers = PATH_TIERS as Record<'gravel', (typeof PATH_TIERS)['gravel']>;
-      const original = tiers.gravel;
-      tiers.gravel = { ...original, costCoins: 10 };
-      try {
-        expect(store.paintPath(1, 2, 'gravel')).toBe(false);
-      } finally {
-        tiers.gravel = original;
-      }
+      // One coin below gravel's 15 - the store's balance guard, exercised
+      // through the shipping registry now that the ladder has priced rungs.
+      const store = loadedStore(savedWithPaths({ coins: PATH_TIERS.gravel.costCoins - 1 }));
+      expect(store.paintPath(1, 2, 'gravel')).toBe(false);
       expect(store.getState().paths).toEqual([]);
-      expect(store.getState().coins).toBe(5);
+      expect(store.getState().coins).toBe(PATH_TIERS.gravel.costCoins - 1);
+      // The free rung stays paintable at any balance - that is the point of it.
+      expect(store.paintPath(1, 2, 'dirt')).toBe(true);
+    });
+
+    it('charges a repaint that CHANGES tier, and nothing for a same-tier repaint', () => {
+      const store = loadedStore(savedWithPaths({ coins: 500 }));
+      expect(store.paintPath(3, 3, 'dirt')).toBe(true);
+      expect(store.getState().coins).toBe(500);
+      // Upgrading the tile to a priced tier bills once, in place.
+      expect(store.paintPath(3, 3, 'stone')).toBe(true);
+      expect(store.getState().coins).toBe(500 - PATH_TIERS.stone.costCoins);
+      expect(store.getState().paths).toEqual([{ col: 3, row: 3, tier: 'stone' }]);
+      // ...and re-laying the same tier over it is free, not a second charge.
+      expect(store.paintPath(3, 3, 'stone')).toBe(false);
+      expect(store.getState().coins).toBe(500 - PATH_TIERS.stone.costCoins);
     });
 
     it('refuses an unknown tier and off-grid coordinates without mutating', () => {
@@ -8365,8 +8380,11 @@ describe('paths (T4.12)', () => {
   describe('erasePath', () => {
     it('removes a painted tile with no refund', () => {
       const store = loadedStore(savedWithPaths({ coins: 500 }));
-      expect(store.paintPath(2, 2, 'gravel')).toBe(true);
+      // Erase a PAID tile (moonstone, the priciest rung) - the case where a
+      // refund would be most tempting and most visible if one leaked in.
+      expect(store.paintPath(2, 2, 'moonstone')).toBe(true);
       const coinsAfterPaint = store.getState().coins;
+      expect(coinsAfterPaint).toBe(500 - PATH_TIERS.moonstone.costCoins);
       expect(store.erasePath(2, 2)).toBe(true);
       expect(store.getState().paths).toEqual([]);
       // No refund (owner decision): erasing never returns coins.
