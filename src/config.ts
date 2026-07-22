@@ -175,6 +175,98 @@ export const GOALS_ICON_POSITION = { x: 955, y: 86 } as const;
 export const NOTICE_BOARD_POSITION = { x: 912, y: 1389 } as const;
 
 /**
+ * Native (unscaled) size of a packed structure/building frame - every one of
+ * them comes through the packer's 256-square path (tools/pack-atlas.mjs
+ * SQUARE_DOWNSCALE_SIZES), so this is the common denominator every structure
+ * scale below divides by. Lived in FarmScene.ts until T4.12, which needed it
+ * here to derive the farmhouse's render offset from its display height.
+ */
+export const STRUCTURE_FRAME_SIZE = 256;
+
+/**
+ * FARMHOUSE SIZE + BASE ANCHOR (T4.12) - THE TWO OWNER-TUNABLE KNOBS.
+ *
+ * Retuning the farmhouse's fit on its 2x2 footprint means editing
+ * FARMHOUSE_DISPLAY_HEIGHT (how big) and/or FARMHOUSE_BASE_FRONT_CORNER_NATIVE
+ * (which point on the art sits on the footprint's front corner). Everything
+ * else - FARMHOUSE_SCALE, STRUCTURE_RENDER_OFFSETS.farmhouse and
+ * FARMHOUSE_POSITION - derives from them, so one number moves the whole thing
+ * coherently (art, hit area and cast shadow all follow the sprite).
+ *
+ * WHY IT CHANGED: at the previous 420 the farmhouse's base spanned only ~370
+ * design px against a 512-wide footprint diamond, and its render offset put
+ * the frame's bottom edge 37px ABOVE the footprint's front corner - the grass
+ * gap the owner traced against the edit-mode footprint.
+ *
+ * MEASURED (Jimp alpha scan of the packed `farmhouse` frame, threshold 8 - the
+ * same scan the constants below and in FarmScene.ts use):
+ * - The base diamond's widest span is native x 14..238 (~225px) at rows
+ *   214..226. 512 / 225 * 256 = 583, so a display height in the high 500s puts
+ *   the base across the full footprint width; 576 is picked because it makes
+ *   FARMHOUSE_SCALE exactly 2.25 and lands the base at 225 * 2.25 = 506px, a
+ *   hair inside 512 rather than over it.
+ *   NOTE the PM's provisional 545-560 was derived from the frame's full opaque
+ *   bbox (240px wide, which includes roof/bush overhang above the base), not
+ *   from the base contact - hence the higher number here. This is exactly the
+ *   knob the owner eyeballs.
+ * - The base's FRONT corner is where the two tapering front edges of the base
+ *   diamond meet. Extrapolating them from rows 226..253 (left edge x 20 -> 82,
+ *   slope 2.30; right edge x 219 -> 155, slope 2.37) they intersect at native
+ *   (118, 269) - i.e. the true corner is CLIPPED ~13px off the bottom of the
+ *   256 frame (the art is bottom-flush and height-limited). The 6 stray opaque
+ *   px on row 255 (x 145..150) are a detail nub sitting right of that corner,
+ *   NOT the corner itself, which is why the frame's bottom-most pixels are the
+ *   wrong thing to anchor on.
+ */
+export const FARMHOUSE_DISPLAY_HEIGHT = 576;
+export const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
+export const FARMHOUSE_BASE_FRONT_CORNER_NATIVE = { x: 118, y: 269 } as const;
+
+/**
+ * The farmhouse's GROUND point in native frame px - the point
+ * `structureBaseOriginY` pins to the sprite's position (frame centre-x, base
+ * row). Mirrors STRUCTURE_BASE_ROW_NATIVE.farmhouse in FarmScene.ts; kept
+ * here so the render offset below can measure from it.
+ */
+const FARMHOUSE_GROUND_POINT_NATIVE = { x: STRUCTURE_FRAME_SIZE / 2, y: 256 } as const;
+
+/**
+ * The FRONT (bottom-most) corner of the farmhouse's 2x2 footprint diamond,
+ * as a pixel delta from the ANCHOR tile's centre. Derived from
+ * STRUCTURE_FOOTPRINT_OFFSETS.farmhouse in the frozen iso frame (systems/iso.ts,
+ * TILE_WIDTH/HEIGHT 256x128): the front-most tile is offset (2,1), whose centre
+ * sits at ((2-1)*128, (2+1)*64) = (128, 192), and its own bottom vertex is a
+ * further 64px down - so (128, 256). (The whole block's diamond spans x
+ * -128..384, y 0..256 relative to the anchor centre: 512x256, the 2x2 ground
+ * area.)
+ */
+const FARMHOUSE_FOOTPRINT_FRONT_CORNER = { x: 128, y: 256 } as const;
+
+/**
+ * Where the farmhouse's GROUND point lands, relative to its anchor tile's
+ * centre - i.e. STRUCTURE_RENDER_OFFSETS.farmhouse, computed here so it can
+ * feed FARMHOUSE_POSITION below without a temporal-dead-zone read of the table.
+ *
+ * Solve for the ground point that puts the art's base front corner ON the
+ * footprint's front corner: the corner sits (corner - groundPoint) native px
+ * from the ground point, so the ground point must sit that far back from the
+ * footprint corner, in DISPLAY px:
+ *   x: 128 + (128 - 118) * 2.25 = 150.5 -> 151
+ *   y: 256 + (256 - 269) * 2.25 = 226.75 -> 227
+ * Rounded so positions stay whole pixels. Was (137, 219) at the old 420 size.
+ */
+const FARMHOUSE_RENDER_OFFSET = {
+  x: Math.round(
+    FARMHOUSE_FOOTPRINT_FRONT_CORNER.x +
+      (FARMHOUSE_GROUND_POINT_NATIVE.x - FARMHOUSE_BASE_FRONT_CORNER_NATIVE.x) * FARMHOUSE_SCALE,
+  ),
+  y: Math.round(
+    FARMHOUSE_FOOTPRINT_FRONT_CORNER.y +
+      (FARMHOUSE_GROUND_POINT_NATIVE.y - FARMHOUSE_BASE_FRONT_CORNER_NATIVE.y) * FARMHOUSE_SCALE,
+  ),
+} as const;
+
+/**
  * Screen position (design space) of the decorative farmhouse structure.
  *
  * T2.22a: relocated to the notice board's old top-right spot (swapping with
@@ -199,8 +291,17 @@ export const NOTICE_BOARD_POSITION = { x: 912, y: 1389 } as const;
  * did not move - the value rose by half the farmhouse's display height
  * (420/2 = 210, y 521 -> 731) purely because it now names a different point
  * on the same sprite. See STRUCTURE_RENDER_OFFSETS.
+ *
+ * T4.12: DERIVED rather than hand-written, so the owner's size/anchor retune
+ * cannot leave this constant behind. gridToIso(-1,-3) = (796, 512) is inlined
+ * as literals because systems/iso.ts imports THIS file (deriving it live would
+ * be a cycle); those two numbers are frozen-frame values that never move.
+ * (933, 731) -> (947, 739) is the size-and-anchor fit, not an art move.
  */
-export const FARMHOUSE_POSITION = { x: 933, y: 731 } as const;
+export const FARMHOUSE_POSITION = {
+  x: 796 + FARMHOUSE_RENDER_OFFSET.x,
+  y: 512 + FARMHOUSE_RENDER_OFFSET.y,
+} as const;
 
 /**
  * Movable structures (T3.3s, schema v18): the farmhouse and the notice board
@@ -240,15 +341,18 @@ export const FARMHOUSE_POSITION = { x: 933, y: 731 } as const;
  *   its base row, not its centre), so this offset now names a point ON the
  *   footprint instead of a point floating mid-building. At the default
  *   anchors:
- *   farmhouse: gridToIso(-1,-3) = (796, 512), +(137, 219) = FARMHOUSE_POSITION;
+ *   farmhouse: gridToIso(-1,-3) = (796, 512), +(151, 227) = FARMHOUSE_POSITION;
  *   noticeBoard: gridToIso(5,3) = (796, 1280), +(116, 109) = NOTICE_BOARD_POSITION.
  *
- *   Each y grew by exactly half that structure's display height over its
- *   pre-T3.27 value (farmhouse 9 + 420/2 = 219; board -11 + 240/2 = 109),
- *   which is the centre-to-base distance - so the ART IS PIXEL-IDENTICAL to
- *   where the 2026-07-17 Art Studio ruling put it; only the point these
- *   numbers name changed. Both ground points land inside a footprint tile of
- *   their structure (farmhouse (933,731) is inside its 2x2 block, whose
+ *   At T3.27 each y grew by exactly half that structure's display height over
+ *   its pre-T3.27 value (farmhouse 9 + 420/2 = 219; board -11 + 240/2 = 109),
+ *   which is the centre-to-base distance - so the ART WAS PIXEL-IDENTICAL to
+ *   where the 2026-07-17 Art Studio ruling put it; only the point those
+ *   numbers named changed. T4.12 then deliberately MOVED the farmhouse's art:
+ *   219 -> 227 (and 137 -> 151), fitting the base onto the footprint instead
+ *   of leaving it floating high inside it - see FARMHOUSE_RENDER_OFFSET above.
+ *   The board's is untouched. Both ground points land inside a footprint tile
+ *   of their structure (farmhouse (947,739) is inside its 2x2 block, whose
  *   diamond spans y 512..768; board (912,1389) is inside tile (6,3), which
  *   spans y 1280..1408), which is what "the base sits on the footprint"
  *   means numerically.
@@ -280,7 +384,8 @@ export const STRUCTURE_FOOTPRINT_OFFSETS: Record<
 };
 
 export const STRUCTURE_RENDER_OFFSETS: Record<StructureId, { x: number; y: number }> = {
-  farmhouse: { x: 137, y: 219 },
+  // T4.12: derived from the farmhouse size/anchor knobs above, not hand-tuned.
+  farmhouse: { x: FARMHOUSE_RENDER_OFFSET.x, y: FARMHOUSE_RENDER_OFFSET.y },
   noticeBoard: { x: 116, y: 109 },
 };
 

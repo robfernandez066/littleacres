@@ -86,6 +86,7 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
+import { findPathTier, type PathTierId, PATH_TIER_IDS } from '../data/paths';
 import {
   growthTargetForLevel,
   type LongQuestCounter,
@@ -183,6 +184,20 @@ export interface DecorationPlacement {
   scale: number;
   /** Horizontal mirror (T3.15) - flipX, never rotation. */
   flip: boolean;
+}
+
+/**
+ * One player-painted path tile (T4.12, schema v28): a grid tile in the frozen
+ * iso frame plus the tier painted on it. Purely COSMETIC - a path tile blocks
+ * nothing and is never consulted by `isPlotTileFree` or
+ * `isStructureAnchorFree`, so a plot, structure, or decoration may sit right
+ * on top of one. At most ONE tile per (col, row): repainting replaces the
+ * tier rather than stacking (see `paintPath`).
+ */
+export interface PathTile {
+  col: number;
+  row: number;
+  tier: PathTierId;
 }
 
 /**
@@ -573,6 +588,13 @@ export interface GameStateData {
    * `batches`), so a building instance is always one object.
    */
   buildings: BuildingPlacement[];
+  /**
+   * Player-painted path tiles (T4.12, schema v28), at most one per (col, row).
+   * A COSMETIC ground layer: nothing here participates in placement legality,
+   * so this list only ever affects what is drawn. Empty on a fresh or migrated
+   * save.
+   */
+  paths: PathTile[];
   /** Permanent restoration upgrades (T3.25, schema v20). */
   restoration: RestorationState;
   /**
@@ -1094,6 +1116,15 @@ const v26ToV27: Migration = (raw) => {
   };
 };
 
+/**
+ * v27 -> v28: player-painted paths (T4.12). Purely ADDITIVE - every existing
+ * save gains an empty path list and no existing field changes shape or value.
+ * Paths are a NEW cosmetic collection alongside `decorations` and `buildings`,
+ * never a reinterpretation of one, so nothing is mapped (the `v22ToV23`
+ * buildings precedent).
+ */
+const v27ToV28: Migration = (raw) => ({ ...raw, paths: [] });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1122,6 +1153,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v24ToV25,
   v25ToV26,
   v26ToV27,
+  v27ToV28,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1148,6 +1180,7 @@ export function createDefaultState(version: number): GameStateData {
     warehouse: {},
     structures: createDefaultStructures(),
     buildings: [],
+    paths: [],
     restoration: { farmhouse: 0 },
     regionsUnlocked: [],
     twoFingerHintShown: false,
@@ -2024,6 +2057,33 @@ function isOrderSkipsState(value: unknown): value is OrderSkipsState {
   return isRecord(value) && isFiniteNumber(value.count) && isFiniteNumber(value.lastAt);
 }
 
+/**
+ * A saved path tile (T4.12): integer grid coords within the same static
+ * validator bounds a plot uses, and a tier the current `PATH_TIERS` registry
+ * knows. An unknown tier rejects the save rather than rendering a missing
+ * frame - the `isBuildingPlacement`/`isDecorationPlacement` convention.
+ */
+function isPathTile(value: unknown): value is PathTile {
+  return (
+    isRecord(value) &&
+    isPlotGridCoord(value.col) &&
+    isPlotGridCoord(value.row) &&
+    typeof value.tier === 'string' &&
+    PATH_TIER_IDS.has(value.tier)
+  );
+}
+
+/** No two path tiles on one tile (T4.12). Entries must already be shape-proven. */
+function pathTilesDistinct(paths: readonly PathTile[]): boolean {
+  const seen = new Set<string>();
+  for (const path of paths) {
+    const key = `${path.col},${path.row}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+  }
+  return true;
+}
+
 function isDecorationPlacement(value: unknown): value is DecorationPlacement {
   return (
     isRecord(value) &&
@@ -2233,6 +2293,10 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isStructuresState(raw.structures) &&
     Array.isArray(raw.buildings) &&
     raw.buildings.every(isBuildingPlacement) &&
+    Array.isArray(raw.paths) &&
+    raw.paths.every(isPathTile) &&
+    // Entries are shape-proven above, so their col/row are safe to read here.
+    pathTilesDistinct(raw.paths as PathTile[]) &&
     isRestorationState(raw.restoration) &&
     isQuestsState(raw.quests) &&
     isOnboardingState(raw.onboarding) &&
@@ -3118,6 +3182,51 @@ export class GameStateStore {
     });
     this.save();
     return this.state.decorations.length - 1;
+  }
+
+  /**
+   * Paint one path tile (T4.12) - THE authority on whether a tile lays and
+   * what it costs. Deducts the tier's `costCoins` and places (or REPLACES, so
+   * a repaint switches tier in place rather than stacking) the tile at
+   * (col, row).
+   *
+   * Returns false WITHOUT mutating anything when the tier is unknown, the
+   * coords are off the validator's grid, or coins are short - the same
+   * refusal feel as failing to plant. Gravel is free this pass, so its
+   * balance check trivially passes, but the deduction runs unchanged for a
+   * priced tier (the caller shows a "-N" float when `costCoins > 0`).
+   *
+   * Deliberately does NO legality check beyond the coordinate bounds: paths
+   * are cosmetic and block nothing, so a plot or structure standing on the
+   * tile is irrelevant.
+   */
+  paintPath(col: number, row: number, tier: PathTierId): boolean {
+    const def = findPathTier(tier);
+    if (def === undefined) return false;
+    if (!isPlotGridCoord(col) || !isPlotGridCoord(row)) return false;
+    if (this.state.coins < def.costCoins) return false;
+    const existing = this.state.paths.find((path) => path.col === col && path.row === row);
+    // A repaint of the SAME tier is a no-op, not a second charge - a drag that
+    // re-enters a tile it already laid must never bill twice.
+    if (existing?.tier === def.id) return false;
+    this.state.coins -= def.costCoins;
+    if (existing !== undefined) existing.tier = def.id;
+    else this.state.paths.push({ col, row, tier: def.id });
+    this.save();
+    return true;
+  }
+
+  /**
+   * Erase the path tile at (col, row) (T4.12). NO refund (owner decision -
+   * paint is a spend, not an inventory). Returns false without mutating
+   * anything when no tile is painted there.
+   */
+  erasePath(col: number, row: number): boolean {
+    const index = this.state.paths.findIndex((path) => path.col === col && path.row === row);
+    if (index === -1) return false;
+    this.state.paths.splice(index, 1);
+    this.save();
+    return true;
   }
 
   /**

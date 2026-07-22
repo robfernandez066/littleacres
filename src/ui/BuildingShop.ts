@@ -37,8 +37,13 @@ const PANEL_DEPTH = 2100;
 /** Distance from the panel's top edge to the first row's center. */
 const ROW_TOP_INSET = 200;
 const ROW_SPACING = 200;
-/** Space below the last row for the confirmation line and the move hint. */
-const ROW_BOTTOM_BAND = 210;
+/**
+ * Space below the last row for the Paths button, the confirmation line, and
+ * the move hint. Grown from 210 in T4.12: at 210 the Paths button's top edge
+ * (PANEL_HEIGHT/2 - 180) sat above the last row icon's bottom (row center
+ * + 60), and the two share the panel's left column.
+ */
+const ROW_BOTTOM_BAND = 290;
 const ROW_COUNT = Object.keys(BUILDINGS).length;
 /**
  * DERIVED from the roster rather than hand-tuned, like InventoryPanel's: a
@@ -97,6 +102,17 @@ const CONFIRM_FADE_MS = 450;
 
 const HINT_Y = PANEL_HEIGHT / 2 - 45;
 const HINT_TEXT = 'Tap Edit Layout to move a building.';
+
+/**
+ * "Paths" button (T4.12): the Shop's entry point to the Paths panel, sat in
+ * the confirmation band's left half so it does not collide with the centered
+ * confirmation label. Not a building row - paths are not bought here, they
+ * are painted tile by tile - so it deliberately sits apart from the roster.
+ */
+const PATHS_BUTTON_X = -PANEL_WIDTH / 2 + 170;
+const PATHS_BUTTON_Y = PANEL_HEIGHT / 2 - 135;
+const PATHS_BUTTON_WIDTH = 240;
+const PATHS_BUTTON_HEIGHT = 90;
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
@@ -177,6 +193,8 @@ export class BuildingShop {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly audio: AudioManager,
+    /** Close this panel and open the Paths panel (T4.12) - see PATHS_BUTTON_X. */
+    private readonly onOpenPaths: () => void,
   ) {
     this.backdrop = new ModalBackdrop(scene, () => {
       this.audio.sfx('tap');
@@ -232,6 +250,32 @@ export class BuildingShop {
       .setVisible(false);
     const hint = scene.add.text(0, HINT_Y, HINT_TEXT, HINT_STYLE).setOrigin(0.5);
     this.container.add([this.confirmText, hint]);
+
+    // Paths entry (T4.12): one Shop button reaches both the building roster
+    // and the path tiers, so the player has a single "shop" to learn.
+    const pathsButton = scene.add
+      .nineslice(
+        PATHS_BUTTON_X,
+        PATHS_BUTTON_Y,
+        ATLAS_KEY,
+        'panel',
+        PATHS_BUTTON_WIDTH,
+        PATHS_BUTTON_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+    const pathsText = scene.add
+      .text(PATHS_BUTTON_X, PATHS_BUTTON_Y, 'Paths', BUY_STYLE)
+      .setOrigin(0.5);
+    pathsButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.hide();
+      this.onOpenPaths();
+    });
+    this.container.add([pathsButton, pathsText]);
   }
 
   private buildRow(def: BuildingDef, index: number): BuildingRow {

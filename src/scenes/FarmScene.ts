@@ -11,12 +11,15 @@ import {
   type DressingPlacement,
   DRESSING,
   DRESSING_SCALE_STEP,
+  FARMHOUSE_DISPLAY_HEIGHT,
+  FARMHOUSE_SCALE,
   GROUND_MODE,
   GROUND_TEXTURE_A_KEY,
   GROUND_TEXTURE_A_TILE_SCALE,
   type GroundMode,
   PANEL_SLICE,
   STRUCTURE_FOOTPRINT_OFFSETS,
+  STRUCTURE_FRAME_SIZE,
   STRUCTURE_RENDER_OFFSETS,
   type StructureId,
   SHADOW_CANVAS_PAD,
@@ -47,6 +50,7 @@ import { findRegion, type RegionDef, REGIONS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
+import { PATH_TIERS, type PathTierId } from '../data/paths';
 import {
   FARMHOUSE_FRAME,
   FARMHOUSE_RESTORED_FRAME,
@@ -92,10 +96,12 @@ import {
   structureRenderPosition,
   type DecorationPlacement,
   type GameStateData,
+  type PathTile,
   type PlotState,
 } from '../systems/gameState';
 import { isReady, stageIndex } from '../systems/growth';
 import { buzz } from '../systems/haptics';
+import { type GridCell, gridCellLine } from '../systems/gridLine';
 import { gridToIso, isoToGrid, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
 import { isModalOpen, setPanelOpen } from '../systems/modalPanels';
 import { plotIndexAtScreen, PlotPointerTracker } from '../systems/plotPointer';
@@ -283,14 +289,14 @@ const RESTORATION_SECOND_BURST_DELAY_MS = 180;
  * (a brief 216 experiment in that task was reversed by the owner in
  * T3.3s-r2b - the rename stays, the size is back to 240). Badge and hit-pad
  * math derive from NOTICE_BOARD_SCALE, so they follow the size automatically.
+ *
+ * T4.12 moved STRUCTURE_FRAME_SIZE and the farmhouse's own size constants into
+ * config.ts (imported above): the farmhouse's render offset is derived from its
+ * display height now, and that offset lives in config.ts, so the height had to
+ * live where it could be read from.
  */
-const STRUCTURE_FRAME_SIZE = 256;
 const NOTICE_BOARD_DISPLAY_HEIGHT = 240;
 const NOTICE_BOARD_SCALE = NOTICE_BOARD_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
-/** T2.22a: the farmhouse alone grew to this height when it moved to the board's old, more
- *  prominent top-right spot - see FARMHOUSE_POSITION's comment in config.ts. */
-const FARMHOUSE_DISPLAY_HEIGHT = 420;
-const FARMHOUSE_SCALE = FARMHOUSE_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 
 /**
  * The BASE row of each structure's building, in native frame px measured down
@@ -330,14 +336,19 @@ const STRUCTURE_BASE_ROW_NATIVE: Record<StructureId, number> = {
  * `farmhouse` (240x256) and `notice_board` (165x256), so its base EDGE - the
  * row just below the last opaque one - sits at 256, the frame's own bottom.
  *
- * BUILDING_DISPLAY_HEIGHT is PROVISIONAL and FLAGGED FOR AN OWNER EYEBALL:
- * it deliberately equals FARMHOUSE_DISPLAY_HEIGHT, since the mill's footprint
- * is the farmhouse's 2x2 and its art comes through the same pipeline at the
- * same staged 512x512 - so "as big as the farmhouse" is the honest baseline to
- * judge the mill's real size against, not a tuned value.
+ * BUILDING_DISPLAY_HEIGHT is PROVISIONAL and STILL FLAGGED FOR AN OWNER
+ * EYEBALL. It was written as `= FARMHOUSE_DISPLAY_HEIGHT` because the mill
+ * shares the farmhouse's 2x2 footprint and comes through the same pipeline at
+ * the same staged 512x512, so "as big as the farmhouse" was the honest
+ * baseline. T4.12 DECOUPLED it - literal 420, the exact value it had - because
+ * that task refit the FARMHOUSE alone onto the 2x2 and must not silently
+ * resize the mill and bakery with it. The mill/bakery almost certainly have
+ * the SAME too-small-for-footprint gap the farmhouse had (same footprint, same
+ * pipeline, still at 420); that is a separate owner-eyeball task, and this
+ * constant plus BUILDING_BASE_ROW_NATIVE are where it would be fixed.
  */
 const BUILDING_BASE_ROW_NATIVE = 256;
-const BUILDING_DISPLAY_HEIGHT = FARMHOUSE_DISPLAY_HEIGHT;
+const BUILDING_DISPLAY_HEIGHT = 420;
 const BUILDING_SCALE = BUILDING_DISPLAY_HEIGHT / STRUCTURE_FRAME_SIZE;
 /** Hit-area pad around a building's frame, in DISPLAY px - the notice board's
  *  convention (its own frame-relative rect + pad), same generous grab target. */
@@ -636,6 +647,28 @@ const WAREHOUSE_EMPTY_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
  * commenting it out disables all of this task's dressing.
  */
 const DRESSING_DEPTH = 6;
+
+/**
+ * Player-painted path tiles (T4.12): a COSMETIC ground-decal band. It must
+ * sit above the grass (GROUND_LAYER_DEPTH -2000 and its overlays) but below
+ * everything the player farms with - plot tiles (PLOT_TILE_DEPTH -1000),
+ * crops, structures, decorations, and the scene dressing (DRESSING_DEPTH 6) -
+ * so a path always reads as painted ON the ground, never over a plot.
+ * PLOT_TILE_DEPTH - 1 puts it in exactly that gap and keeps the whole path
+ * layer flat: paths never y-sort against each other (they are coplanar
+ * ground) and never against anything else (nothing else lives in this band).
+ */
+/**
+ * Per-tile deterministic mirroring (T4.12): the gravel art is hard-edged and
+ * tiles gaplessly, so an unbroken run reads as an obvious repeat. A cheap
+ * integer hash of (col, row) picks flipX/flipY per tile - deterministic, so a
+ * tile looks identical every load and needs nothing saved. The two odd
+ * multipliers keep the pattern from aligning with either grid axis.
+ */
+function pathTileFlip(col: number, row: number): { flipX: boolean; flipY: boolean } {
+  const hash = Math.abs(col * 73856093 + row * 19349663);
+  return { flipX: (hash & 1) === 1, flipY: (hash & 2) === 2 };
+}
 
 /**
  * Dressing editor (T2.28a, dev-only): drag/spawn/scale/delete step sizes and
@@ -947,6 +980,17 @@ const FOOTPRINT_PREVIEW_DEPTH = 2100;
 const PLOT_TILE_DEPTH = -1000;
 const PLOT_TILE_DEPTH_Y_STEP = 0.001;
 /**
+ * Player-painted path tiles (T4.12): a COSMETIC ground-decal band. It must
+ * sit above the grass (GROUND_LAYER_DEPTH -2000 and its overlays) but below
+ * everything the player farms with - plot tiles, crops, structures,
+ * decorations, and the scene dressing (DRESSING_DEPTH 6) - so a path always
+ * reads as painted ON the ground, never over a plot. PLOT_TILE_DEPTH - 1 is
+ * exactly that gap, and the whole layer stays FLAT: paths are coplanar
+ * ground, so they never y-sort against each other, and nothing else lives in
+ * this band to sort against.
+ */
+const PATH_LAYER_DEPTH = PLOT_TILE_DEPTH - 1;
+/**
  * A LIFTED plot tile's temporary depth (T3.3b-r3): at the flat
  * PLOT_TILE_DEPTH a dragged plot would vanish under any crop, decor or
  * structure it crosses, so the lift elevates it above the whole standing
@@ -1242,6 +1286,44 @@ export class FarmScene extends Phaser.Scene {
   private lastDecorationsJson = '';
   /** Whether arrange mode (T3.9a) is active - see `enterArrangeMode`/`exitArrangeMode`. */
   private arrangeModeActive = false;
+  /**
+   * Painted path tile sprites (T4.12), keyed "col,row" so a single painted or
+   * erased tile is an O(1) sprite add/remove (T4.12-r1). Keyed rather than a
+   * list precisely because painting is per-tile and continuous: the original
+   * whole-layer teardown+recreate cost O(area) on EVERY tile of a drag, which
+   * is what made painting into a large path lag.
+   */
+  private readonly pathSprites = new Map<string, Phaser.GameObjects.Image>();
+  /**
+   * The `paths` ARRAY last rendered from - identity, not contents (T4.12-r1).
+   * `paintPath`/`erasePath` mutate that array in place, so a live stroke keeps
+   * the same reference and `refreshPaths` stays a no-op while the incremental
+   * updates do the drawing. Every BULK change - load, migration, backup
+   * restore, import, reset - assigns a whole new state object and therefore a
+   * new array, which is exactly when a full rebuild is wanted.
+   */
+  private lastPathsRef: readonly PathTile[] | null = null;
+  /**
+   * The tier being painted while path paint mode is active (T4.12), or null
+   * outside the mode. THE mode flag: paint mode is on exactly when this is
+   * non-null. Mutually exclusive with arrange and dressing edit - see
+   * `enterPathMode`.
+   */
+  private pathModeTier: PathTierId | null = null;
+  /**
+   * Tiles already visited by the CURRENT paint gesture, as "col,row" (T4.12).
+   * The path analogue of `PlotPointerTracker`'s per-gesture dedup: a drag
+   * re-entering a tile must not re-run the paint (the store also refuses a
+   * same-tier repaint, but this keeps the gesture from churning at all).
+   */
+  private readonly pathGestureVisited = new Set<string>();
+  /**
+   * The grid cell the current paint gesture last sampled (T4.12-r1), or null
+   * before its first sample. The anchor the next sample interpolates FROM -
+   * cleared at every gesture boundary so a new stroke never draws a line back
+   * to where the previous one ended.
+   */
+  private pathLastCell: GridCell | null = null;
   /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
   private selectedDecorationIndex: number | null = null;
   /**
@@ -1350,6 +1432,10 @@ export class FarmScene extends Phaser.Scene {
    *   A down whose topmost movable is the CURRENTLY SELECTED piece
    *   (T3.3a-r3c) classifies 'lift' directly - no hold; selection is the
    *   player's explicit "I'm working with this piece".
+   * - 'paint' (T4.12): path paint mode is active and the down landed on the
+   *   field band. Lays its tile immediately (no arm/defer - Erase makes a
+   *   mistaken tile trivially undoable) and every NEW tile the drag crosses
+   *   paints too, deduped per gesture by `pathGestureVisited`.
    * - 'object': the down landed on any other interactive object - not ours,
    *   its own per-object input handles everything.
    * - 'idle': the down landed in the banner or seed-bar band - nothing to do
@@ -1363,6 +1449,7 @@ export class FarmScene extends Phaser.Scene {
     | 'structure-armed'
     | 'lift-pending'
     | 'lift'
+    | 'paint'
     | 'object'
     | 'idle'
     | null = null;
@@ -1593,8 +1680,15 @@ export class FarmScene extends Phaser.Scene {
     gameState.ensureOrders();
     this.hud = this.inUiLayer(
       () =>
-        new Hud(this, this.coinArc, this.moondustArc, this.uiFloatingText, this.audio, () =>
-          this.toggleArrangeMode(),
+        new Hud(
+          this,
+          this.coinArc,
+          this.moondustArc,
+          this.uiFloatingText,
+          this.audio,
+          () => this.toggleArrangeMode(),
+          (tier) => this.enterPathMode(tier),
+          () => this.exitPathMode(),
         ),
     );
     // Constructed after Hud (needs it for claim-reward juice - see
@@ -1624,6 +1718,9 @@ export class FarmScene extends Phaser.Scene {
     // up a later purchase on the refresh tick.
     this.createBuildings();
     this.lastBuildingsJson = buildingPositionsKey(gameState.getState());
+    // Painted paths (T4.12): drawn once here so a loaded save shows them on
+    // the first frame rather than one refresh tick in.
+    this.refreshPaths();
     registerPulseTarget('empty-plot', () => this.plotPulseTarget('empty'));
     registerPulseTarget('ready-plot', () => this.plotPulseTarget('ready'));
     // Live board position (T3.3s - the board is movable), read at pulse time.
@@ -1845,6 +1942,9 @@ export class FarmScene extends Phaser.Scene {
     this.refreshNoticeBoardBadge();
     this.applyFarmhouseRailsGating();
     this.refreshDecorations();
+    // Painted paths (T4.12): a cheap key compare unless a tile was just laid
+    // or erased. Sits with the other ground-layer rebuilds.
+    this.refreshPaths();
     // Production indicators (T4.2b): re-derived every tick off millSlots, so a
     // batch ripening (even one that finished while the game was closed) shows
     // up here without anything being rebuilt. Runs BEFORE refreshBuildings so
@@ -2075,6 +2175,25 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     const world = this.fieldPointerWorld(pointer);
+    if (this.pathModeActive()) {
+      // Paint mode (T4.12) owns every ONE-finger gesture on the field band -
+      // two fingers still pinch (handled at the top of this method), and the
+      // HUD's own buttons were already claimed by the currentlyOver branch
+      // above. Unlike a farm gesture the down is NOT armed and deferred: a
+      // painted tile is instantly undoable with Erase, so there is nothing
+      // to protect the way a mistaken harvest needs protecting. Outside the
+      // pan band (banner, the paint bar's own row at y 1700) nothing paints,
+      // so the HUD can never be painted through.
+      if (pointer.y > PAN_BAND_TOP_Y && pointer.y < PAN_BAND_BOTTOM_Y) {
+        this.fieldGesture = 'paint';
+        this.pathGestureVisited.clear();
+        this.pathLastCell = null;
+        this.paintPathAt(world.x, world.y);
+      } else {
+        this.fieldGesture = 'idle';
+      }
+      return;
+    }
     const plotIndex = plotIndexAtScreen(world.x, world.y, gameState.getState().plots);
     if (!this.arrangeModeActive && plotIndex !== null && this.plotActionable(plotIndex)) {
       // T3.4c: ARM the plot, do not process it - a pinch's first finger
@@ -2685,6 +2804,15 @@ export class FarmScene extends Phaser.Scene {
       }
       return;
     }
+    if (this.fieldGesture === 'paint' && !this.farmingSuppressed) {
+      // The paint run (T4.12): each move paints the tile under the finger,
+      // deduped per gesture inside `paintPathAt`. `farmingSuppressed` is
+      // shared with farming deliberately - a gesture that became a pinch must
+      // stop painting for the same reason it stops harvesting.
+      const world = this.fieldPointerWorld(pointer);
+      this.paintPathAt(world.x, world.y);
+      return;
+    }
     if (this.fieldGesture === 'farm' && !this.farmingSuppressed) {
       const world = this.fieldPointerWorld(pointer);
       this.handlePlotEntered(this.plotTracker.move(world.x, world.y, gameState.getState().plots));
@@ -2733,6 +2861,11 @@ export class FarmScene extends Phaser.Scene {
         // gesture ends exactly like a one-plot sweep.
         this.confirmArmedPlot();
         this.endFarmGesture();
+      } else if (gesture === 'paint') {
+        // The run ends; the next gesture starts with a clean visited set so
+        // re-crossing a tile in a NEW stroke paints (or erases) it again.
+        this.pathGestureVisited.clear();
+        this.pathLastCell = null;
       } else if (gesture === 'pan') {
         this.finishPan(true);
       } else if (gesture === 'lift-pending') {
@@ -3194,7 +3327,13 @@ export class FarmScene extends Phaser.Scene {
    * tutorial chip owns countdown duty there) or a modal panel is open.
    */
   private maybeShowCountdown(plotIndex: number | null): void {
-    if (plotIndex === null || isModalOpen() || this.dressingEditActive || this.arrangeModeActive)
+    if (
+      plotIndex === null ||
+      isModalOpen() ||
+      this.dressingEditActive ||
+      this.arrangeModeActive ||
+      this.pathModeActive()
+    )
       return;
     const state = gameState.getState();
     if (!state.onboarding.completed) return;
@@ -3226,7 +3365,11 @@ export class FarmScene extends Phaser.Scene {
       this.chestCeremony.isActive() ||
       isModalOpen() ||
       this.dressingEditActive ||
-      this.arrangeModeActive
+      this.arrangeModeActive ||
+      // Paint mode never reaches here (its down classifies 'paint', not
+      // 'farm'), but the tutorial's legacy instant-farm path bypasses the
+      // classifier - so the gate is asserted here too, like every other mode.
+      this.pathModeActive()
     )
       return;
     if (this.gestureMode !== 'plant') {
@@ -4335,6 +4478,80 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
+  /** A path sprite's map key - the tile it occupies (T4.12-r1). */
+  private static pathKey(col: number, row: number): string {
+    return `${col},${row}`;
+  }
+
+  /**
+   * Draw ONE path tile's sprite (T4.12-r1), replacing any sprite already on
+   * that tile so a repaint swaps tiers in place. The single place path art is
+   * created, so the full rebuild and the incremental paint can never drift
+   * apart on depth, origin, or flip.
+   */
+  private setPathSprite(tile: PathTile): void {
+    const key = FarmScene.pathKey(tile.col, tile.row);
+    this.pathSprites.get(key)?.destroy();
+    const { x, y } = gridToIso(tile.col, tile.row);
+    const { flipX, flipY } = pathTileFlip(tile.col, tile.row);
+    // Origin (0.5, 0.5) on the tile CENTER: a path frame is the bare 256x128
+    // diamond with no lip band, unlike grass/plot's 256x160 frames (which is
+    // why this does not use TILE_ORIGIN_Y). See the packer's PATH_TILE_NAMES.
+    this.pathSprites.set(
+      key,
+      this.add
+        .image(x, y, ATLAS_KEY, PATH_TIERS[tile.tier].frame)
+        .setOrigin(0.5, 0.5)
+        .setFlip(flipX, flipY)
+        .setDepth(PATH_LAYER_DEPTH),
+    );
+  }
+
+  /** Destroy ONE path tile's sprite (T4.12-r1); a no-op if nothing is drawn there. */
+  private clearPathSprite(col: number, row: number): void {
+    const key = FarmScene.pathKey(col, row);
+    this.pathSprites.get(key)?.destroy();
+    this.pathSprites.delete(key);
+  }
+
+  /**
+   * Redraw the WHOLE path layer from state (T4.12-r1). O(area), so it is only
+   * ever for scene create and bulk reloads (see `refreshPaths`) - never for a
+   * tile laid during a gesture, which goes through `setPathSprite`.
+   */
+  private rebuildPaths(): void {
+    for (const sprite of this.pathSprites.values()) sprite.destroy();
+    this.pathSprites.clear();
+    const paths = gameState.getState().paths;
+    for (const path of paths) this.setPathSprite(path);
+    this.lastPathsRef = paths;
+  }
+
+  /**
+   * Per-tick path-layer check (T4.12-r1). Painting and erasing draw their own
+   * one tile incrementally (`setPathSprite`/`clearPathSprite`) while mutating
+   * the existing `paths` array in place, so during a stroke both tests below
+   * hold and this costs one reference compare and one length compare - frame
+   * time does NOT grow with the painted area.
+   *
+   * It rebuilds on exactly two signals, both O(1) to test:
+   * - a NEW paths array: every bulk change (load, migration, backup restore,
+   *   import, reset) installs a fresh state object, so this catches all of
+   *   them without diffing contents.
+   * - sprite count disagreeing with tile count: a self-heal, so any future
+   *   writer that changes `paths` without going through the paint gesture
+   *   still renders correctly (one frame later) instead of silently drifting.
+   *
+   * Path sprites are never made interactive - the field's scene-wide gesture
+   * classifier hit-tests the iso grid, so a path under a plot can never
+   * intercept a farm tap.
+   */
+  private refreshPaths(): void {
+    const paths = gameState.getState().paths;
+    if (paths === this.lastPathsRef && paths.length === this.pathSprites.size) return;
+    this.rebuildPaths();
+  }
+
   /**
    * One decoration's sprite (T3.9a). No per-object listeners since
    * T3.3a-r3: arrange mode's tap-select and long-press lift both run
@@ -4915,11 +5132,115 @@ export class FarmScene extends Phaser.Scene {
    * on the arrange-mode exempt list, so it stays tappable throughout).
    */
   private toggleArrangeMode(): void {
+    // Paint mode owns the field's gestures and the same control band arrange
+    // wants; leaving it first is what keeps the two mutually exclusive
+    // (the dressing/arrange refusal precedent in `setDressingEditActive`).
+    if (this.pathModeActive()) this.exitPathMode();
     if (this.arrangeModeActive) {
       this.exitArrangeMode();
     } else {
       this.enterArrangeMode();
     }
+  }
+
+  /** Whether path paint mode (T4.12) is active - `pathModeTier` is the flag. */
+  private pathModeActive(): boolean {
+    return this.pathModeTier !== null;
+  }
+
+  /**
+   * Enter the persistent path paint mode (T4.12), from the Paths panel's
+   * per-tier button (already closed by then). The player stays in this mode
+   * laying tile after tile - it is NOT a one-shot purchase - until the HUD
+   * bar's Done button (or anything else that calls `exitPathMode`) leaves it.
+   *
+   * Mutually exclusive with arrange and dressing edit: those two sweep every
+   * hitbox in the scene through `setOtherHitboxesEnabled`, whose restore pass
+   * assumes one mode at a time, so paint mode leaves arrange first rather
+   * than interleaving. Paint mode itself needs NO hitbox sweep: it acts only
+   * through the scene-wide field gesture classifier, which every other mode
+   * already gates on.
+   *
+   * Inert during the tutorial: the Shop button that reaches the Paths panel
+   * only exists post-onboarding (Hud.applyShopVisibility), and the field
+   * gates below re-check the rails anyway.
+   */
+  private enterPathMode(tier: PathTierId): void {
+    if (this.arrangeModeActive) this.exitArrangeMode();
+    if (!gameState.getState().onboarding.completed) return;
+    this.pathModeTier = tier;
+    this.pathGestureVisited.clear();
+    this.pathLastCell = null;
+    this.setStructureSelection(null);
+    this.selectedDecorationIndex = null;
+    this.selectedPlotIndex = null;
+    this.seedBar.setVisible(false);
+    this.hud.setPathModeActive(true);
+  }
+
+  /** Leave path paint mode (T4.12) and restore normal play. */
+  private exitPathMode(): void {
+    if (!this.pathModeActive()) return;
+    this.pathModeTier = null;
+    this.pathGestureVisited.clear();
+    this.pathLastCell = null;
+    this.hud.setPathModeActive(false);
+    this.seedBar.setVisible(true);
+  }
+
+  /**
+   * Paint (or erase) the path tile under a screen point (T4.12) - the paint
+   * mode's per-tile action, called on the gesture's first contact and again
+   * for each NEW tile a drag crosses.
+   *
+   * The store is the sole authority on whether the tile lays and what it
+   * costs: a refusal (short coins, off-grid) simply shows nothing, the same
+   * feel as failing to plant. A successful PAID placement floats "-N" at the
+   * tile; a free tier (gravel, this pass) floats nothing.
+   */
+  private paintPathAt(worldX: number, worldY: number): void {
+    const tier = this.pathModeTier;
+    if (tier === null) return;
+    const { col, row } = isoToGrid(worldX, worldY);
+    const target = { col: Math.round(col), row: Math.round(row) };
+    // Fill in the cells between the last sample and this one (T4.12-r1): a
+    // pointer move stream is sampled, not continuous, so a fast drag jumps
+    // several cells per event and painting only the sampled cell leaves a
+    // dotted run. `gridCellLine` walks the 4-connected line so consecutive
+    // tiles share an edge. The first sample of a gesture has nothing to
+    // interpolate from and paints its own cell alone.
+    const cells = this.pathLastCell === null ? [target] : gridCellLine(this.pathLastCell, target);
+    this.pathLastCell = target;
+
+    const erasing = this.hud.isPathEraseActive();
+    const cost = PATH_TIERS[tier].costCoins;
+    let changed = false;
+    for (const cell of cells) {
+      const key = FarmScene.pathKey(cell.col, cell.row);
+      if (this.pathGestureVisited.has(key)) continue;
+      this.pathGestureVisited.add(key);
+      if (erasing) {
+        if (!gameState.erasePath(cell.col, cell.row)) continue;
+        this.clearPathSprite(cell.col, cell.row);
+        changed = true;
+        continue;
+      }
+      if (!gameState.paintPath(cell.col, cell.row, tier)) continue;
+      // Draw just this tile - never a whole-layer rebuild mid-stroke.
+      this.setPathSprite({ col: cell.col, row: cell.row, tier });
+      changed = true;
+      if (cost > 0) {
+        const { x, y } = gridToIso(cell.col, cell.row);
+        this.worldFloatingText.show(x, y + XP_LABEL_OFFSET_Y, `-${cost}`, PLANT_COST_TEXT_OPTIONS);
+      }
+    }
+    // Feedback fires once per POINTER EVENT, not once per tile: one fast move
+    // can now lay a dozen tiles, and a dozen simultaneous taps/buzzes would
+    // machine-gun. A tap or slow drag lays one tile per event, so those feel
+    // exactly as before.
+    if (!changed) return;
+    this.audio.sfx('tap');
+    buzz(HAPTIC_LIGHT_MS);
   }
 
   /**
@@ -6402,6 +6723,10 @@ export class FarmScene extends Phaser.Scene {
       );
       return;
     }
+    // Path paint mode (T4.12) owns the field's one-finger gestures, which a
+    // decal drag would fight. It runs no hitbox sweep of its own, so unlike
+    // arrange above it can simply be left rather than refused.
+    if (this.pathModeActive()) this.exitPathMode();
     this.dressingEditActive = enabled;
     for (const sprite of this.dressingSprites) {
       if (enabled) sprite.setInteractive({ draggable: true });

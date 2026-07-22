@@ -28,6 +28,9 @@
  *   scalloped/torn-edge fringe and lip removed (mirrored top-face + deep-
  *   interior sample + a synthetic diamond alpha mask), for the 'tiles_flat'
  *   ground mode. See processTileFlat.
+ * - gravel_path (T4.12): a player-painted path tile - trimmed and resized
+ *   non-uniformly onto the exact 256x128 tile diamond (no lip band), so
+ *   painted tiles butt flush on the iso grid. See PATH_TILE_NAMES.
  * - Crops (21): trimmed, scaled to a per-stage height target (stage 2 = 100%
  *   of the max legal height, stage 1 = 78%, stage 0 = 55% - a glance must
  *   read small -> medium -> full), width still capped at 128, placed on a
@@ -156,6 +159,19 @@ const TILE_NAMES = ['grass', 'plot', 'plot_occupied'];
  * 'tiles_flat' ground mode (see processTileFlat).
  */
 const DERIVED_TILE_NAMES = ['grass_flat'];
+/**
+ * Player-painted path tiles (T4.12). These must tile GAPLESSLY on the frozen
+ * iso grid, so they get their own processor instead of the `grass`/`plot`
+ * one: the staged masters are bare 512x256 diamonds with no raised lip and no
+ * scalloped fringe (measured - `gravel_path`'s opaque bounds fill its master
+ * edge to edge), so a path frame is EXACTLY the 256x128 tile diamond - no
+ * 160px lip band, no centering slack - and the runtime draws it at origin
+ * (0.5, 0.5) straight on `gridToIso`'s tile center. Trimming and then
+ * resizing NON-uniformly onto the diamond's exact size is what guarantees
+ * adjacent painted tiles butt flush. Only `gravel_path` ships in v1; the
+ * staged stone/moonstone masters stay unpacked until their tiers land.
+ */
+const PATH_TILE_NAMES = ['gravel_path'];
 /**
  * processTileFlat's deep-interior sample size, as a fraction of the trimmed
  * source's width/height, centered - stays comfortably clear of the measured
@@ -295,6 +311,7 @@ console.log(
 const FRAME_NAMES = [
   ...TILE_NAMES,
   ...DERIVED_TILE_NAMES,
+  ...PATH_TILE_NAMES,
   ...CROP_NAMES,
   ...ICON_NAMES,
   ...SIGN_NAMES,
@@ -438,6 +455,17 @@ function processTileBase(image, name) {
 
 function processTile(image, name) {
   return processTileBase(image, name);
+}
+
+/**
+ * Path tile (T4.12): trim, then resize NON-uniformly onto the exact
+ * 256x128 tile diamond - see PATH_TILE_NAMES for why this is its own
+ * processor rather than the lipped `processTile`.
+ */
+function processPathTile(image, name) {
+  trim(image, name);
+  image.resize({ w: TILE_DIAMOND_WIDTH, h: TILE_DIAMOND_HEIGHT });
+  return image;
 }
 
 /**
@@ -1106,6 +1134,7 @@ for (const name of [...FRAME_NAMES].sort()) {
     frame = processRestoredFarmhouse(image, name, farmhouseRef);
   } else if (TILE_NAMES.includes(name)) frame = processTile(image, name);
   else if (DERIVED_TILE_NAMES.includes(name)) frame = processTileFlat(image, name);
+  else if (PATH_TILE_NAMES.includes(name)) frame = processPathTile(image, name);
   else if (CROP_NAMES.includes(name)) frame = processCrop(image, name);
   else if (CHEST_NAMES.includes(name)) frame = processChest(image, name);
   else if (ICON_NAMES.includes(name)) frame = processIcon(image, name, ICON_SIZE);

@@ -16,6 +16,7 @@ import { formatCurrency } from '../data/format';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { LONG_QUESTS } from '../data/quests';
 import type { AudioManager } from '../systems/audio';
+import type { PathTierId } from '../data/paths';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { registerPulseTarget } from '../systems/pulseTargets';
@@ -29,6 +30,7 @@ import { BuildingShop } from './BuildingShop';
 import { InventoryPanel, type SellableRef } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
+import { PathsPanel } from './PathsPanel';
 import type { QuestBoard } from './QuestBoard';
 import { SettingsPanel } from './SettingsPanel';
 
@@ -293,6 +295,35 @@ const SHOP_HIT_HEIGHT = EDIT_LAYOUT_HIT_HEIGHT;
 const SHOP_EDGE_INSET = DESIGN_WIDTH - (GEAR_X + GEAR_SIZE / 2);
 const SHOP_X = SHOP_EDGE_INSET + SHOP_WIDTH / 2;
 
+/**
+ * Path paint-mode bar (T4.12): the only on-screen affordance while the
+ * persistent paint mode is up - an Erase toggle and a Done button, centered
+ * as one row. It sits on the arrange controls' bottom row y (FarmScene's
+ * ARRANGE_ROW2_Y = 1700) because the two modes are mutually exclusive, so
+ * they can never both want that band. Built with Edit Layout's convention: a
+ * `panel` nineslice sized directly to its display bounds (its default hit
+ * area therefore already covers the full visible rectangle) with a centered
+ * label, so no custom hit area is needed - both buttons clear 96px already.
+ */
+const PATH_BAR_Y = 1700;
+const PATH_BAR_HEIGHT = 100;
+const PATH_BAR_GAP = 24;
+const PATH_ERASE_WIDTH = 220;
+const PATH_DONE_WIDTH = 220;
+const PATH_BAR_X_ERASE = DESIGN_WIDTH / 2 - (PATH_ERASE_WIDTH + PATH_BAR_GAP) / 2;
+const PATH_BAR_X_DONE = DESIGN_WIDTH / 2 + (PATH_DONE_WIDTH + PATH_BAR_GAP) / 2;
+/** Above the arrange UI's own depth so it is never buried by a stale control. */
+const PATH_BAR_DEPTH = 2200;
+/** The Erase toggle reads ON by lighting up; OFF is the same dim as an inert button. */
+const PATH_ERASE_ON_ALPHA = 1;
+const PATH_ERASE_OFF_ALPHA = 0.55;
+const PATH_BAR_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '34px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+
 /** Bag bounce on a harvested crop's arrival only - never on harvest start or a timer. */
 const BAG_BOUNCE_SCALE = 1.12;
 const BAG_BOUNCE_MS = 150;
@@ -404,6 +435,14 @@ export class Hud {
   private readonly inventoryPanel: InventoryPanel;
   /** The Building Shop the Shop button opens (T4.2d) - Hud-owned, like the bag. */
   private readonly buildingShop: BuildingShop;
+  /** The Paths panel the Building Shop's "Paths" button opens (T4.12). */
+  private readonly pathsPanel: PathsPanel;
+  /** Paint-mode bar (T4.12), hidden outside the mode - see PATH_BAR_Y. */
+  private readonly pathBarContainer: Phaser.GameObjects.Container;
+  private readonly pathEraseButton: Phaser.GameObjects.NineSlice;
+  private readonly pathEraseText: Phaser.GameObjects.Text;
+  /** Whether paint mode's Erase toggle is on - read by `FarmScene` per paint. */
+  private pathEraseActive = false;
   private readonly orderBoard: OrderBoard;
 
   /** Animated display value; ticks toward `gameState`'s true coin count. */
@@ -457,6 +496,10 @@ export class Hud {
     private readonly floatingText: FloatingText,
     private readonly audio: AudioManager,
     private readonly onToggleArrange: () => void,
+    /** Enter the persistent path paint mode for `tier` (T4.12). */
+    private readonly onEnterPathMode: (tier: PathTierId) => void,
+    /** Leave path paint mode - the bar's Done button (T4.12). */
+    private readonly onExitPathMode: () => void,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
     this.moondustDisplay.value = gameState.getState().moondust;
@@ -553,6 +596,7 @@ export class Hud {
       this.goalsPanel?.hide();
       this.millPanel?.hide();
       this.buildingShop.hide();
+      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
@@ -665,6 +709,7 @@ export class Hud {
       this.goalsPanel?.hide();
       this.millPanel?.hide();
       this.buildingShop.hide();
+      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -739,6 +784,7 @@ export class Hud {
       this.questBoard?.hide();
       this.millPanel?.hide();
       this.buildingShop.hide();
+      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       // Deliberately does NOT hide itself first (unlike the other panels this
       // closes): that would turn a second tap into a re-open instead of a
@@ -777,7 +823,16 @@ export class Hud {
     // Building Shop (T4.2d): Hud-owned and built here like the bag panel, so
     // it lands on the UI layer with the rest of the HUD and `closePanels`
     // can hold exclusivity over it.
-    this.buildingShop = new BuildingShop(this.scene, this.audio);
+    // Paths panel (T4.12): Hud-owned like the Building Shop that reaches it,
+    // so it lands on the UI layer and `closePanels` holds exclusivity over it.
+    // Selecting a tier closes the panel (the panel's own job) and hands the
+    // scene the persistent paint mode.
+    this.pathsPanel = new PathsPanel(this.scene, this.audio, (tier) => {
+      this.onEnterPathMode(tier);
+    });
+    this.buildingShop = new BuildingShop(this.scene, this.audio, () => {
+      this.pathsPanel.show(gameState.getState());
+    });
 
     this.orderBoard = new OrderBoard(
       this.scene,
@@ -788,7 +843,73 @@ export class Hud {
 
     this.settingsPanel = new SettingsPanel(this.scene, this.audio);
 
+    // Paint-mode bar (T4.12), built hidden - `setPathModeActive` is the only
+    // thing that ever shows it.
+    this.pathBarContainer = this.scene.add
+      .container(0, 0)
+      .setDepth(PATH_BAR_DEPTH)
+      .setVisible(false);
+    this.pathEraseButton = this.buildPathBarButton(PATH_BAR_X_ERASE, PATH_ERASE_WIDTH);
+    this.pathEraseText = this.scene.add
+      .text(PATH_BAR_X_ERASE, PATH_BAR_Y, 'Erase', PATH_BAR_STYLE)
+      .setOrigin(0.5);
+    const doneButton = this.buildPathBarButton(PATH_BAR_X_DONE, PATH_DONE_WIDTH);
+    const doneText = this.scene.add
+      .text(PATH_BAR_X_DONE, PATH_BAR_Y, 'Done', PATH_BAR_STYLE)
+      .setOrigin(0.5);
+    this.pathBarContainer.add([this.pathEraseButton, this.pathEraseText, doneButton, doneText]);
+
+    this.pathEraseButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.setPathEraseActive(!this.pathEraseActive);
+    });
+    doneButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.onExitPathMode();
+    });
+
     this.refresh();
+  }
+
+  /** One paint-mode bar button - see PATH_BAR_Y for the construction convention. */
+  private buildPathBarButton(x: number, width: number): Phaser.GameObjects.NineSlice {
+    return this.scene.add
+      .nineslice(
+        x,
+        PATH_BAR_Y,
+        ATLAS_KEY,
+        'panel',
+        width,
+        PATH_BAR_HEIGHT,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+        PANEL_SLICE,
+      )
+      .setInteractive({ useHandCursor: true });
+  }
+
+  /**
+   * Show or hide the paint-mode bar (T4.12). `FarmScene` owns whether paint
+   * mode is active; this only reflects it. Leaving the mode always resets the
+   * Erase toggle, so re-entering paint mode never starts in erase.
+   */
+  setPathModeActive(active: boolean): void {
+    this.pathBarContainer.setVisible(active);
+    if (!active) this.setPathEraseActive(false);
+    else this.setPathEraseActive(this.pathEraseActive);
+  }
+
+  /** Whether paint mode's Erase toggle is on - `FarmScene` reads this per tile. */
+  isPathEraseActive(): boolean {
+    return this.pathEraseActive;
+  }
+
+  private setPathEraseActive(active: boolean): void {
+    this.pathEraseActive = active;
+    const alpha = active ? PATH_ERASE_ON_ALPHA : PATH_ERASE_OFF_ALPHA;
+    this.pathEraseButton.setAlpha(alpha);
+    this.pathEraseText.setAlpha(alpha);
   }
 
   /**
@@ -817,6 +938,7 @@ export class Hud {
     this.goalsPanel?.hide();
     this.millPanel?.hide();
     this.buildingShop.hide();
+    this.pathsPanel.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
@@ -836,6 +958,7 @@ export class Hud {
     this.goalsPanel?.hide();
     this.millPanel?.hide();
     this.buildingShop.hide();
+    this.pathsPanel.hide();
     this.currencyInfoCard.hide();
   }
 
@@ -1006,6 +1129,9 @@ export class Hud {
     // Only while visible, like the mill panel: this keeps the Buy button live
     // as coins and level change under an open shop.
     if (this.buildingShop.isVisible()) this.buildingShop.refresh(state);
+    // Same "only while visible" rule: keeps the tier rows' affordability
+    // dimming live as coins change under an open panel.
+    if (this.pathsPanel.isVisible()) this.pathsPanel.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 
