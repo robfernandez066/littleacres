@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-22 - Shop & Edit UI overhaul ADOPTED (U-wave); T4.14 SUPERSEDED
+**Context:** Owner delivered the full redesign spec: one unified Shop (Buildings/Paths/Decor tabs), a Shed inventory pipeline (buy -> shed -> place, put-away returns, never rebuy/refund), edit-scene rework with contextual toolbar + Undo, paths painted from inventory. Filed at docs/design/shop-edit-ui-spec.md (ACTIVE).
+**Decision:** Sequenced as U1 (model + schema v29; catalog DERIVED from existing registries; spec's unified placedInstances schema declined - existing placed arrays stay, only shedInventory is added), U2 (unified shop replaces both shops, two-button HUD), U3 (edit scene; resize UI removed, existing decor scales preserved), U4 (paint-from-inventory; T4.13 paint-time coin charge retires - the sink moves to buy time). T4.14 reclaim/storage bank SUPERSEDED by the Shed pipeline; Remove All stays deferred. U1 written to currenttask.md (complex).
+**Trigger:** owner spec upload - "track the next tasks for this UI rework".
+
 ## 2026-07-22 - Loop v1 LIVE: T-DOCS1 shipped through the file loop
 **Context:** First task run entirely through the new PM<->Coder file loop (the two entries below); cleanup + loop commits landed as 8f5c719 + 328606e.
 **Decision:** T-DOCS1 (8 code-comment pointers repointed to docs/ASSETS.md across 5 files, comment-only diff verified) - COMMIT b0cff8a, bundled with a prettier format of CLAUDE.md (the PM's delivered copy was not prettier-clean; that lint red was pre-existing, not the coder's). Loop verdict: the channel works end to end - preflight, sentinel checks, self-exported UTF-8 diff, sentinel-closed report. Tests 754, schema v28, both unchanged.

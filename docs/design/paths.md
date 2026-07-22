@@ -1,6 +1,6 @@
 # Paths / Roads - design
 
-Status: ACTIVE. v1 (gravel, free) shipped 2026-07-22 (T4.12, commit 20eb5d6): the paint system, the cosmetic ground layer, and the per-tile model. The FOUR-TIER COIN LADDER shipped 2026-07-22 (T4.13): dirt (free, default) / gravel 15 / stone 70 / moonstone 350, all COIN sinks, with their edgeless-diamond tile art. NEXT (decided, not built): T4.14 tile reclaim - a per-tier storage bank + Remove All.
+Status: ACTIVE. v1 (gravel, free) shipped 2026-07-22 (T4.12, commit 20eb5d6): the paint system, the cosmetic ground layer, and the per-tile model. The FOUR-TIER COIN LADDER shipped 2026-07-22 (T4.13): dirt (free, default) / gravel 15 / stone 70 / moonstone 350, all COIN sinks, with their edgeless-diamond tile art. T4.14 tile reclaim (storage bank + Remove All) was SUPERSEDED 2026-07-22 by the Shed pipeline in docs/design/shop-edit-ui-spec.md - paths become shop-bought inventory painted from the Shed (U4); Remove All stays deferred.
 
 ## Model
 

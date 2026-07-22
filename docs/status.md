@@ -6,13 +6,11 @@
 
 ## In flight
 
-- **UI rework (incoming, scope TBD from owner)** - a large UI pass is the next task; the paths reclaim work waits behind it.
-- **T4.14 paths reclaim (Remove All + per-tier storage bank) - DECIDED, prompt-ready, ON HOLD.** Held behind the UI rework because it reshapes the same panels (PathsPanel, paint-mode bar). See docs/design/paths.md and the T4.13/T4.14 decision entry.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). **U1 (Shed pipeline model, schema v28 -> v29, complex) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Then U2 unified shop -> U3 edit scene -> U4 paint-from-inventory.
 
 ## Queued next
 
-- **UI rework** (owner to specify) - runs first.
-- **T4.14 - paths reclaim / storage bank** (schema v28 -> v29): coins mint tiles the player owns; placing draws from per-tier storage first (free) then coins; any removal banks the tile (no coin resale); Remove All with a confirm tap. Coder prompt written; slots after the UI rework.
+- **U2 / U3 / U4** of the U-wave (see spec's PM sequencing header).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
@@ -46,7 +44,7 @@
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
-- T4.14 reclaim will bump schema v28 -> v29 (additive pathBank); no demotion risk.
+- U1 bumps schema v28 -> v29 (additive shedInventory); no demotion risk. U4 will retire the T4.13 paint-time coin charge (sink moves to shop buy time) - re-check the balance mirror's paths row when U4 ships.
 
 ## Backlog nits (fold into convenient tasks)
 
