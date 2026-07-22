@@ -6356,7 +6356,7 @@ export class FarmScene extends Phaser.Scene {
         ? 0
         : session.kind === 'plot'
           ? state.unplacedPlots
-          : (state.warehouse[session.frame] ?? 0);
+          : (state.shedInventory[session.frame] ?? 0);
     const visible = this.arrangeModeActive && count > 0;
     this.arrangePlaceNextButton.setVisible(visible);
     this.arrangePlaceNextText.setVisible(visible);
@@ -6600,7 +6600,8 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * Re-derive every row's visibility/count/Place-button state from the
-   * live warehouse (T3.9b): rows with nothing owned hide entirely (icon,
+   * live shed (T3.9b; the warehouse merged into it in U2a): rows with nothing
+   * owned hide entirely (icon,
    * name, count, button - never a dangling interactive hitbox on an invisible
    * row), rows with any owned show with a truthful "xN" and an interactive
    * Place button. Visible rows are also (re)positioned here (T3.18), in
@@ -6610,7 +6611,10 @@ export class FarmScene extends Phaser.Scene {
    */
   private refreshWarehousePanel(): void {
     const state = gameState.getState();
-    const warehouse = state.warehouse;
+    // The rows are built from DECOR_ITEMS + TROPHY_ITEMS, so only decor ids are
+    // ever looked up here - a building or path tier sitting in the same shed
+    // has no row and is silently (and correctly) not shown by this panel.
+    const stored = state.shedInventory;
     let anyOwned = false;
     let visibleIndex = 0;
     // "Farm Plot xN" leads (T3.3a): counted from `unplacedPlots`. Its Place
@@ -6640,7 +6644,7 @@ export class FarmScene extends Phaser.Scene {
       this.plotShedRow.placeButton.disableInteractive();
     }
     for (const row of this.warehouseRows) {
-      const owned = warehouse[row.frame] ?? 0;
+      const owned = stored[row.frame] ?? 0;
       const has = owned > 0;
       if (has) anyOwned = true;
       row.icon.setVisible(has);

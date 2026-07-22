@@ -16,7 +16,7 @@
  */
 
 import { BUILDINGS, type BuildingDef } from './buildings';
-import { DECOR_ITEMS, type DecorItemDef } from './decor';
+import { DECOR_ITEMS, TROPHY_ITEMS, type DecorItemDef, type TrophyDef } from './decor';
 import { PATH_TIER_LIST, type PathTierDef } from './paths';
 
 /** Which registry an item came from - also which placed collection it lands in. */
@@ -54,6 +54,15 @@ export interface CatalogItem {
    * decorations, which are owned in quantity by design.
    */
   allowMultiple: boolean;
+  /**
+   * Whether the Shop may SELL it (U2a). True for everything with a price in a
+   * source registry; false only for TROPHIES, which are quest grants the player
+   * can own, store, and place but never buy. They are catalog items all the
+   * same, so the shed can key them and the edit mode can put them away through
+   * the one pipeline - `purchasable` is what keeps them off the shop shelf
+   * without a second "is it a trophy" rule anywhere.
+   */
+  purchasable: boolean;
 }
 
 /** No gate in the source registry - see `CatalogItem.unlockLevel`. */
@@ -70,6 +79,7 @@ function buildingToCatalogItem(def: BuildingDef): CatalogItem {
     unlockLevel: def.unlockLevel,
     // One per type, exactly as `buyBuilding` already enforces.
     allowMultiple: false,
+    purchasable: true,
   };
 }
 
@@ -85,6 +95,7 @@ function pathToCatalogItem(def: PathTierDef): CatalogItem {
     price: def.costCoins,
     unlockLevel: UNGATED,
     allowMultiple: true,
+    purchasable: true,
   };
 }
 
@@ -100,18 +111,45 @@ function decorToCatalogItem(def: DecorItemDef): CatalogItem {
     price: def.price,
     unlockLevel: UNGATED,
     allowMultiple: true,
+    purchasable: true,
+  };
+}
+
+/**
+ * A TROPHY as a catalog item (U2a). Trophies were absent from U1's catalog
+ * because they have no price to derive; they are here now because the SHED is
+ * the one inventory and a trophy the player owns has to be able to sit in it.
+ * The unpriced fields take the only honest values: `price` 0 in the default
+ * currency and no level gate, both inert since `purchasable` false means no
+ * shop path ever reads them. A trophy's frame is its id, exactly as a
+ * decoration's is, and its category is 'decor' because it places, stores, and
+ * arranges as one - the trophy/decor difference is purchasability, nothing
+ * more.
+ */
+function trophyToCatalogItem(def: TrophyDef): CatalogItem {
+  return {
+    id: def.frame,
+    name: def.name,
+    category: 'decor',
+    frame: def.frame,
+    currency: 'coins',
+    price: 0,
+    unlockLevel: UNGATED,
+    allowMultiple: true,
+    purchasable: false,
   };
 }
 
 /**
  * Every catalog item, grouped by category in registry order within each group.
- * TROPHIES are deliberately absent: they are quest grants, not purchases, and
- * have no price or currency to derive (see `TROPHY_ITEMS`).
+ * Trophies close out the 'decor' group (U2a) so the category stays contiguous;
+ * they are the only non-purchasable items in the list.
  */
 export const CATALOG: readonly CatalogItem[] = [
   ...Object.values(BUILDINGS).map(buildingToCatalogItem),
   ...PATH_TIER_LIST.map(pathToCatalogItem),
   ...DECOR_ITEMS.map(decorToCatalogItem),
+  ...TROPHY_ITEMS.map(trophyToCatalogItem),
 ];
 
 /** Catalog by id - the lookup `shedInventory` reads keys against. */

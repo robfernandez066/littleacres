@@ -8,7 +8,7 @@ import {
   findCatalogItem,
   type CatalogItem,
 } from './catalog';
-import { DECOR_ITEMS, TROPHY_FRAMES } from './decor';
+import { DECOR_ITEMS, TROPHY_ITEMS } from './decor';
 import { PATH_TIER_LIST } from './paths';
 
 /**
@@ -36,6 +36,7 @@ describe('catalog', () => {
       expect(item.unlockLevel).toBe(def.unlockLevel);
       // Today's one-per-type rule, the one `buyBuilding` already enforces.
       expect(item.allowMultiple).toBe(false);
+      expect(item.purchasable).toBe(true);
     }
   });
 
@@ -52,11 +53,14 @@ describe('catalog', () => {
       // No level gate in `PATH_TIERS`.
       expect(item.unlockLevel).toBe(0);
       expect(item.allowMultiple).toBe(true);
+      expect(item.purchasable).toBe(true);
     }
   });
 
   it('covers every purchasable decoration exactly once, matching the registry', () => {
-    const items = catalogItemsInCategory('decor');
+    // Trophies share the 'decor' category (U2a) and close out the group, so the
+    // purchasable decorations are this list minus its trophy tail.
+    const items = catalogItemsInCategory('decor').filter((item) => item.purchasable);
     expect(items.map((item) => item.id)).toEqual(DECOR_ITEMS.map((def) => def.frame));
     for (const def of DECOR_ITEMS) {
       const item = byId(def.frame);
@@ -67,18 +71,46 @@ describe('catalog', () => {
       expect(item.currency).toBe(def.currency);
       expect(item.unlockLevel).toBe(0);
       expect(item.allowMultiple).toBe(true);
+      expect(item.purchasable).toBe(true);
     }
   });
 
-  it('excludes trophies - they are quest grants, not purchases', () => {
-    for (const frame of TROPHY_FRAMES) {
-      expect(findCatalogItem(frame)).toBeUndefined();
+  /**
+   * Trophies joined the catalog in U2a so the shed can key them - as decor the
+   * player owns but cannot buy. Every field is derived from `TROPHY_ITEMS` or
+   * is the inert unpriced default; no literal frame or name is copied here.
+   */
+  it('includes every trophy as non-purchasable decor', () => {
+    for (const def of TROPHY_ITEMS) {
+      const item = byId(def.frame);
+      expect(item.name).toBe(def.name);
+      expect(item.category).toBe('decor');
+      // A trophy's frame is its id, exactly as a decoration's is.
+      expect(item.frame).toBe(def.frame);
+      expect(item.id).toBe(def.frame);
+      // Unpriced and ungated - inert, since nothing sells a trophy.
+      expect(item.price).toBe(0);
+      expect(item.currency).toBe('coins');
+      expect(item.unlockLevel).toBe(0);
+      expect(item.allowMultiple).toBe(true);
+      expect(item.purchasable).toBe(false);
     }
   });
 
-  it('holds exactly the three registries and nothing else', () => {
+  /** Trophies are the ONLY non-purchasable items - nothing else opted out. */
+  it('marks every non-trophy item purchasable', () => {
+    const trophyFrames = new Set(TROPHY_ITEMS.map((def) => def.frame));
+    for (const item of CATALOG) {
+      expect(item.purchasable, `${item.id} purchasability`).toBe(!trophyFrames.has(item.id));
+    }
+  });
+
+  it('holds exactly the four registries and nothing else', () => {
     expect(CATALOG).toHaveLength(
-      Object.keys(BUILDINGS).length + PATH_TIER_LIST.length + DECOR_ITEMS.length,
+      Object.keys(BUILDINGS).length +
+        PATH_TIER_LIST.length +
+        DECOR_ITEMS.length +
+        TROPHY_ITEMS.length,
     );
   });
 

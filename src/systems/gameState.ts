@@ -627,13 +627,6 @@ export interface GameStateData {
   /** Placed decorations (T3.9); purchasable placed+warehoused within the split budgets (MAX_DECOR_ITEMS / MAX_FENCES, T3.3a2), trophies exempt (T3.17). */
   decorations: DecorationPlacement[];
   /**
-   * Owned-but-unplaced decorations (T3.9b): frame -> count. A purchase always
-   * lands here first (`buyDecoration`); `placeFromWarehouse`/`storeDecoration`
-   * move one unit between here and `decorations`. Keys are removed once their
-   * count reaches 0, never left at 0 (see `placeFromWarehouse`).
-   */
-  warehouse: Record<string, number>;
-  /**
    * The SHED (U1, schema v29): catalog item id -> count of that item owned but
    * NOT on the farm. The one inventory the unified Shop buys into and the edit
    * mode places out of - `Shop --buy--> shed --place--> farm`, and
@@ -643,12 +636,14 @@ export interface GameStateData {
    *
    * Keys are catalog ids (`CATALOG_IDS`) and values are POSITIVE integers - a
    * key is deleted the moment its count reaches 0 rather than left at 0,
-   * exactly the `warehouse` convention this generalizes.
+   * exactly the `warehouse` convention it generalized.
    *
-   * Model-only for now: `warehouse`, `buyBuilding` and `paintPath` are still
-   * the live purchase paths (a later task cuts them over), so a decoration
-   * mirrored in here from the v29 migration is deliberately also still counted
-   * in `warehouse`.
+   * THE ONE unplaced-decor store since U2a (schema v30): the decoration
+   * `warehouse` (T3.9b) merged into here and was deleted from the save, so
+   * `buyDecoration`, `placeFromWarehouse` and `storeDecoration` are now thin
+   * delegates onto the shed reducers and there is exactly one implementation of
+   * each move. `buyBuilding` and `paintPath` are still their own purchase paths
+   * (a later task cuts them over).
    */
   shedInventory: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
@@ -1234,6 +1229,45 @@ const v28ToV29: Migration = (raw) => {
   return { ...raw, shedInventory };
 };
 
+/**
+ * v29 -> v30: the warehouse retires into the Shed (U2a). LOSSLESS - every
+ * stored item survives the merge and no currency moves; the save simply stops
+ * carrying two records of the same thing.
+ *
+ * v29 left both maps live with `warehouse` STILL AUTHORITATIVE for decor (the
+ * decor shop bought into it, `placeFromWarehouse`/`storeDecoration` moved units
+ * through it), while the shed held a one-time mirror taken at migration time.
+ * Any purchase or placement since then moved the warehouse and not the mirror,
+ * so the shed's decor counts are potentially STALE. The merge therefore
+ * OVERWRITES each merged id rather than adding: the warehouse's number is the
+ * true one, and adding would double-count every item that was mirrored.
+ *
+ * TROPHIES merge on the same terms now that they are catalog items (U2a) -
+ * v29's carve-out is gone, so a trophy in the warehouse becomes a trophy in the
+ * shed rather than being left behind by a field that is about to be deleted.
+ *
+ * Defensive like every other migration: a non-count value is skipped rather
+ * than merged and the validator judges the resulting save.
+ */
+const v29ToV30: Migration = (raw) => {
+  // The v29 shed passes through as-is (the validator judges its entries, as it
+  // already did) and the warehouse's counts land on top of it.
+  const shedInventory: Record<string, unknown> = isRecord(raw.shedInventory)
+    ? { ...raw.shedInventory }
+    : {};
+  if (isRecord(raw.warehouse)) {
+    for (const [frame, count] of Object.entries(raw.warehouse)) {
+      if (!CATALOG_IDS.has(frame)) continue;
+      if (!isFiniteNumber(count) || !Number.isInteger(count) || count <= 0) continue;
+      // OVERWRITE, never add - see this migration's doc.
+      shedInventory[frame] = count;
+    }
+  }
+  const merged: Record<string, unknown> = { ...raw, shedInventory };
+  delete merged.warehouse;
+  return merged;
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1264,6 +1298,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v26ToV27,
   v27ToV28,
   v28ToV29,
+  v29ToV30,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1287,7 +1322,6 @@ export function createDefaultState(version: number): GameStateData {
     orders: createPendingOrderSlots(),
     orderSkips: { count: 0, lastAt: 0 },
     decorations: [],
-    warehouse: {},
     shedInventory: {},
     structures: createDefaultStructures(),
     buildings: [],
@@ -2208,29 +2242,18 @@ function isDecorationPlacement(value: unknown): value is DecorationPlacement {
 }
 
 /**
- * The warehouse record (T3.9b): every key a known decor/trophy frame, every
- * value a positive integer count. An empty record is valid (nothing stored).
- */
-function isWarehouseRecord(value: unknown): value is Record<string, number> {
-  return (
-    isRecord(value) &&
-    Object.entries(value).every(
-      ([frame, count]) =>
-        DECOR_FRAMES.has(frame) && isFiniteNumber(count) && Number.isInteger(count) && count > 0,
-    )
-  );
-}
-
-/**
  * The shed record (U1): every key a KNOWN catalog id, every value a positive
- * integer count - the `isWarehouseRecord` rule with the catalog as its registry
- * instead of the decor frames. An empty record is valid (nothing in the shed).
+ * integer count - the retired `isWarehouseRecord` rule (U2a) with the catalog
+ * as its registry instead of the decor frames. TROPHY ids pass here without a
+ * carve-out: they became catalog ids in U2a, so `CATALOG_IDS` admits them and
+ * this function needed no change to accept them. An empty record is valid
+ * (nothing in the shed).
  *
  * An unknown id is REJECTED rather than ignored, matching how a building type
  * is treated (and unlike an inert `regionsUnlocked` entry): a shed count is
  * spendable ownership, so a save claiming an item this build cannot place is
  * not a save this build can honour. Zero and negative counts are rejected by
- * the same `count > 0` rule that keeps `warehouse` free of 0 entries.
+ * the same `count > 0` rule the warehouse used to enforce.
  */
 function isShedInventoryRecord(value: unknown): value is Record<string, number> {
   return (
@@ -2414,15 +2437,17 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     raw.orders.length === ORDER_SLOTS &&
     raw.orders.every(isOrderSlot) &&
     isOrderSkipsState(raw.orderSkips) &&
-    isWarehouseRecord(raw.warehouse) &&
     isShedInventoryRecord(raw.shedInventory) &&
     Array.isArray(raw.decorations) &&
     raw.decorations.every(isDecorationPlacement) &&
     // Entries are shape-proven above, so their frames are safe to read here.
-    // Purchasable only - trophy frames are exempt from both budgets (T3.17).
+    // Purchasable only - trophy frames are exempt from both budgets (T3.17),
+    // and non-decor shed ids (buildings, path tiers) are filtered out by the
+    // same PURCHASABLE_FRAMES rule, so the shed can stand in for the retired
+    // `warehouse` here unchanged (U2a).
     // Split budgets (T3.3a2): non-fence decor and fences cap independently.
-    decorOwnedCount(raw.decorations, raw.warehouse) <= MAX_DECOR_ITEMS &&
-    fenceOwnedCount(raw.decorations, raw.warehouse) <= MAX_FENCES &&
+    decorOwnedCount(raw.decorations, raw.shedInventory) <= MAX_DECOR_ITEMS &&
+    fenceOwnedCount(raw.decorations, raw.shedInventory) <= MAX_FENCES &&
     isStructuresState(raw.structures) &&
     Array.isArray(raw.buildings) &&
     raw.buildings.every(isBuildingPlacement) &&
@@ -3262,59 +3287,54 @@ export class GameStateStore {
   }
 
   /**
-   * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b):
-   * deducts its price from the right currency and increments its warehouse
-   * count - nothing is placed on the lawn. Returns false without mutating
-   * anything if `itemFrame` is not a known `DECOR_ITEMS` frame, the item's
-   * OWN placed+warehoused budget is already full (split budgets, T3.3a2:
+   * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b, cut over
+   * to the shed in U2a): deducts its price from the right currency and
+   * increments its SHED count - nothing is placed on the lawn. Returns false
+   * without mutating anything if `itemFrame` is not a known `DECOR_ITEMS` frame,
+   * the item's OWN placed+stored budget is already full (split budgets, T3.3a2:
    * fences against MAX_FENCES, everything else against MAX_DECOR_ITEMS;
    * trophies exempt, T3.17), the balance is insufficient, or onboarding is
    * still active (the tutorial has no shop step).
+   *
+   * The DECOR_ITEMS lookup stays out front of the delegation rather than
+   * leaning on the catalog: it is what keeps a TROPHY (a catalog item since
+   * U2a, at price 0) from being bought here for free. Everything after it - the
+   * balance check, the charge, the bank - is `buyToShed`, so the purchase has
+   * exactly one implementation. Its level gate is inert for decor
+   * (`unlockLevel` 0 for every decoration), so nothing shifted.
    */
   buyDecoration(itemFrame: string): boolean {
     if (!this.railsAllow('decor-shop')) return false;
     const item = DECOR_ITEMS.find((candidate) => candidate.frame === itemFrame);
     if (item === undefined) return false;
     if (item.frame === FENCE_FRAME) {
-      if (fenceOwnedCount(this.state.decorations, this.state.warehouse) >= MAX_FENCES) return false;
-    } else if (decorOwnedCount(this.state.decorations, this.state.warehouse) >= MAX_DECOR_ITEMS) {
+      if (fenceOwnedCount(this.state.decorations, this.state.shedInventory) >= MAX_FENCES) {
+        return false;
+      }
+    } else if (
+      decorOwnedCount(this.state.decorations, this.state.shedInventory) >= MAX_DECOR_ITEMS
+    ) {
       return false;
     }
-    const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
-    if (balance < item.price) return false;
-    if (item.currency === 'coins') this.state.coins -= item.price;
-    else this.state.moondust -= item.price;
-    this.state.warehouse[item.frame] = (this.state.warehouse[item.frame] ?? 0) + 1;
-    this.save();
-    return true;
+    return this.buyToShed(item.frame);
   }
 
   /**
-   * Place one warehoused unit of `frame` onto the lawn (T3.9b), at screen
-   * center and its per-item spawn scale (WAREHOUSE_PLACE_X/Y,
-   * `decorSpawnScale` - showcase size for DECOR_SIZING items, T3.3a2) so a
-   * placed item is immediately visible and ready to drag - shrunk to taste
-   * from there via arrange mode. Decrements the warehouse count
-   * (removing the key entirely once it hits 0, never leaving a 0 entry),
-   * appends the new placement (unmirrored), one save. Returns the new
-   * placement's index (always `decorations.length - 1`, since placements
-   * only ever append) so the caller can select it, or false if none are
-   * owned.
+   * Place one stored unit of `frame` onto the lawn (T3.9b), at screen center
+   * and its per-item spawn scale (WAREHOUSE_PLACE_X/Y, `decorSpawnScale` -
+   * showcase size for DECOR_SIZING items, T3.3a2) so a placed item is
+   * immediately visible and ready to drag - shrunk to taste from there via
+   * arrange mode. Returns the new placement's index (always
+   * `decorations.length - 1`, since placements only ever append) so the caller
+   * can select it, or false if none are owned.
+   *
+   * A thin delegate onto `placeFromShed` since U2a - the option-less decor path
+   * through it spawns at exactly these coordinates and scale, so the placement
+   * is byte-identical to the one this used to write itself. Kept under its own
+   * name because the arrange-mode call sites read in terms of decorations.
    */
   placeFromWarehouse(frame: string): number | false {
-    const owned = this.state.warehouse[frame] ?? 0;
-    if (owned <= 0) return false;
-    if (owned === 1) delete this.state.warehouse[frame];
-    else this.state.warehouse[frame] = owned - 1;
-    this.state.decorations.push({
-      frame,
-      x: WAREHOUSE_PLACE_X,
-      y: WAREHOUSE_PLACE_Y,
-      scale: decorSpawnScale(frame),
-      flip: false,
-    });
-    this.save();
-    return this.state.decorations.length - 1;
+    return this.placeFromShed(frame);
   }
 
   /**
@@ -3384,17 +3404,17 @@ export class GameStateStore {
   }
 
   /**
-   * Return a placed decoration to the warehouse (T3.9b): removes it from
-   * `decorations` and increments its frame's warehouse count, one save.
-   * Returns false without mutating anything if `index` is out of range.
+   * Return a placed decoration to the shed (T3.9b, cut over in U2a): removes it
+   * from `decorations` and increments its frame's shed count, one save. Returns
+   * false without mutating anything if `index` is out of range.
+   *
+   * A thin delegate onto `putAwayToShed` - which refuses a non-catalog id, a
+   * condition no decoration can now meet (trophies joined the catalog in U2a
+   * and every other frame was already in it), so an out-of-range index remains
+   * the only way this returns false.
    */
   storeDecoration(index: number): boolean {
-    const decoration = this.state.decorations[index];
-    if (decoration === undefined) return false;
-    this.state.decorations.splice(index, 1);
-    this.state.warehouse[decoration.frame] = (this.state.warehouse[decoration.frame] ?? 0) + 1;
-    this.save();
-    return true;
+    return this.putAwayToShed({ category: 'decor', index }) !== null;
   }
 
   // ---------------------------------------------------------------------------
@@ -3590,9 +3610,10 @@ export class GameStateStore {
    * land it exactly where it was.
    *
    * Returns null having mutated NOTHING when the reference points at nothing,
-   * the instance's item is not in the catalog (a quest TROPHY - it has no
-   * catalog id, so it keeps using `storeDecoration`/`warehouse`), or the
-   * instance is a building with batches in flight.
+   * the instance's item is not in the catalog, or the instance is a building
+   * with batches in flight. TROPHIES are no longer the carve-out they were in
+   * U1: they are catalog items as of U2a, so putting one away banks it in the
+   * shed like any other decoration.
    *
    * That last refusal is the honest handling of a shape limit: `shedInventory`
    * counts items and cannot hold per-instance production state, so putting away
@@ -3897,17 +3918,21 @@ export class GameStateStore {
   }
 
   /**
-   * Grant a quest's reward: a trophy lands directly in the warehouse with no
-   * cap check needed - trophy frames are exempt from the purchasable
-   * budgets (MAX_DECOR_ITEMS/MAX_FENCES) BY DEFINITION (T3.17), so the grant and save
-   * validation agree and this is not a bypass; chests go through the
-   * existing chest-grant path (`grantChests`: rolled contents, instant
-   * grant, ceremony event queued); moondust is direct. Any subset may be
-   * present (composable rewards).
+   * Grant a quest's reward: a trophy lands directly in the shed (U2a - it was
+   * the warehouse until the merge) with no cap check needed - trophy frames are
+   * exempt from the purchasable budgets (MAX_DECOR_ITEMS/MAX_FENCES) BY
+   * DEFINITION (T3.17), so the grant and save validation agree and this is not
+   * a bypass; chests go through the existing chest-grant path (`grantChests`:
+   * rolled contents, instant grant, ceremony event queued); moondust is direct.
+   * Any subset may be present (composable rewards).
+   *
+   * The grant stays a direct bank rather than `buyToShed`: a reward is not a
+   * purchase, and a trophy's catalog price of 0 is an inert placeholder that no
+   * grant should route through.
    */
   private grantQuestReward(reward: { trophy?: string; chests?: number; moondust?: number }): void {
     if (reward.trophy !== undefined) {
-      this.state.warehouse[reward.trophy] = (this.state.warehouse[reward.trophy] ?? 0) + 1;
+      this.addToShed(reward.trophy, 1);
     }
     if (reward.chests !== undefined) this.grantChests(reward.chests);
     if (reward.moondust !== undefined) this.state.moondust += reward.moondust;

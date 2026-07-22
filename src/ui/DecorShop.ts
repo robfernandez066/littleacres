@@ -373,8 +373,8 @@ export class DecorShop {
     // Purchasable only (T3.17) - trophies never consume shop capacity.
     // Split budgets (T3.3a2): fences have their own cap and never consume
     // decor slots (nor the reverse).
-    const decorOwned = decorOwnedCount(state.decorations, state.warehouse);
-    const fenceOwned = fenceOwnedCount(state.decorations, state.warehouse);
+    const decorOwned = decorOwnedCount(state.decorations, state.shedInventory);
+    const fenceOwned = fenceOwnedCount(state.decorations, state.shedInventory);
     const decorFull = decorOwned >= MAX_DECOR_ITEMS;
     const fenceFull = fenceOwned >= MAX_FENCES;
     this.budgetsText.setText(
@@ -387,11 +387,11 @@ export class DecorShop {
     ].join(' - ');
     this.capNoticeText.setText(notice).setVisible(notice !== '');
     for (const row of this.rows) {
-      // Placed + warehoused (T3.9b) - a purchase always lands in the
-      // warehouse, so a placed-only count would undercount what's owned.
+      // Placed + stored (T3.9b; the shed since U2a) - a purchase always lands
+      // in storage, so a placed-only count would undercount what's owned.
       const owned =
         state.decorations.filter((d) => d.frame === row.item.frame).length +
-        (state.warehouse[row.item.frame] ?? 0);
+        (state.shedInventory[row.item.frame] ?? 0);
       row.ownedBadge.setText(`x${owned}`).setVisible(owned > 0);
 
       const balance = row.item.currency === 'coins' ? state.coins : state.moondust;
