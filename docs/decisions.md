@@ -19,6 +19,19 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-22 - Paths v1: player-painted gravel paths (T4.12)
+**Context:** Owner wants players to paint roads/paths on the iso grid. v1 ships the first tier only - gravel, free - to prove the whole flow before priced tiers.
+**Decision:** New `paths: PathTile[]` state, schema v27->v28 (additive migration - existing saves gain `paths:[]`). A COSMETIC ground-decal layer (depth just under plots): a painted tile blocks nothing, so a plot/structure/decor may sit on it. Reached from Shop -> Paths panel, which enters a PERSISTENT paint mode (paint/erase, not a one-shot buy). Drag paints a run, grid-line interpolated (4-connected, no diagonal so tiles share an edge) so a fast drag stays contiguous, and the render is incremental per tile so painting a large area never lags (both added in T4.12-r1 after the owner hit gaps + lag). Per-tile cost + "-N" float path is built but gravel is FREE this pass; priced tiers (stone + moonstone, both COIN sinks - see docs/design/paths.md) are data-only additions later. gravel_path packed at 256x128 (own packer path, no lip, tiles gaplessly).
+**Verdict:** COMMIT 20eb5d6 (combined with the farmhouse fit - the two tangle in FarmScene.ts; tests 751). Owner did the real-phone paint/drag/erase pass.
+**Trigger:** owner - "add the ability for users to create roads/paths".
+
+## 2026-07-22 - Farmhouse refit onto its 2x2 footprint (T4.12)
+**Context:** The farmhouse rendered too small for its fixed 2x2 footprint and floated high inside it - the grass gap the owner traced against the edit-mode footprint diamond.
+**Decision:** Display height 420->576 (scale 2.25) so the measured base contact (225 native px) spans the 512-wide footprint diamond, and the render offset + canonical position RE-DERIVED from two knobs in config.ts (FARMHOUSE_DISPLAY_HEIGHT + FARMHOUSE_BASE_FRONT_CORNER_NATIVE) so the base's front corner sits ON the footprint's front corner ((933,731)->(947,739)). BUILDING_DISPLAY_HEIGHT decoupled to a literal 420 so mill/bakery are untouched. Pure display geometry - no art, footprint, or save change. Owner accepts 576 "for now" (not thrilled).
+**Follow-ups:** the art's base tip is clipped ~13px off the 256 frame, so a thin grass sliver survives at the front tip (base kept concentric; real fix is repacking the art). Mill (fills 55%) and bakery (78%) have the SAME undersized-footprint gap - each needs its own height. Shadow authoring lab still shows the old scale (in-game shadow is correct, reads sprite scaleX) - self-fixes on next repack.
+**Verdict:** COMMIT 20eb5d6 (tests 751).
+**Trigger:** owner - "regenerate the farmhouse to make it evenly sit on the tiles".
+
 ## 2026-07-21 - Order refresh cooldown (Q2)
 **Context:** A fulfilled order slot returned to `pending` and `ensureOrders` refilled it on the next tick - instant. A fresh player could churn ~43 fulfillments on day 1, racing the level curve.
 **Decision:** Added ORDER_REFRESH_COOLDOWN_MS = 600_000 (10 min, flat). fulfillOrder now parks a POST-TUTORIAL slot on the existing `cooldown` state (readyAt = now()+CD) instead of `pending`; the tutorial ORDER_A->ORDER_B swap stays instant (gated on onboarding.completed) and the skip streak is untouched (a separate lever). PM sim: any cooldown >=5min cuts day-1 fulfillments ~43->~13 and keeps L1->L8 inside 10-14d; the engaged player is insensitive to the exact value above 5min, so 10min is a pure feel call (owner). Reuses CooldownOrderSlot + the existing "New order soon..." card - NO schema/UI/migration change. Not in the balance mirror (board timing, like SKIP_COOLDOWN).

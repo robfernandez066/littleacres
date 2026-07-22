@@ -1,8 +1,8 @@
 # Little Acres - Status
 
-**Updated:** 2026-07-21
-**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11).
-**Schema:** v27 · **Tests:** 726 · **Live:** robfernandez066.github.io/littleacres/
+**Updated:** 2026-07-22
+**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths v1 (gravel paint) + farmhouse 2x2 fit shipped (T4.12).
+**Schema:** v28 · **Tests:** 751 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
@@ -10,12 +10,13 @@
 
 ## Queued next
 
-- **Paths/roads (in design, see docs/design/paths.md):** per-tile painted iso roads, tiered COIN materials dirt -> gravel -> stone -> moonstone (moonstone locked as a coin sink 2026-07-21), a coin-sink ladder that helps the Q3 surplus. 4 tier raws staged but need rework (grass edges baked in; need edgeless diamond material). Forks locking incrementally.
+- **Paths - priced tiers next (see docs/design/paths.md):** v1 gravel (free) SHIPPED. Next: stone + moonstone as COIN sinks (moonstone locked coins, not moondust) - a coin-sink ladder for the Q3 surplus; data-only tier additions + their tile art. Staged tier raws need edgeless-diamond rework (grass edges baked in).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred - paths/stone may absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- Paths v1 (gravel paint, free, cosmetic layer) + farmhouse 2x2 refit - 20eb5d6, schema v28
 - Q2 order refresh cooldown (fulfilled slot repopulates after 10 min; fixes the day-1 order spike) - 0b0c6b6 (no schema change; not mirrored)
 - T4.11 economy balance pass v2 (crop/good/order/level/moondust/decor/quest retune + onboarding L2 reshape + 2-chest revive) - a9e542b (schema v27 unchanged; balance mirror re-exported)
 - T4.10 starter area +2 columns west - 077d6ce (no schema change)
@@ -43,6 +44,9 @@
 
 ## Backlog nits (fold into convenient tasks)
 
+- Farmhouse fit revisit: the 576 size feel + the clipped base tip (thin grass sliver at the front - real fix is repacking the art so the base is not cut off the 256 frame); sweep the duplicate path-layer comment in FarmScene.ts while there.
+- Mill + bakery too small for their 2x2 footprints (mill fills 55%, bakery 78%) - same fit as the farmhouse, each needs its own display height.
+- Farmhouse shadow authoring lab still shows the old scale (in-game shadow is correct) - self-fixes on the next atlas/shadow repack.
 - gameState.test.ts "harvesting queues the same kind of event as addXp": its comment still says the L2 threshold is 900 and over-sizes the loop guard to 1000 - the test passes (L2 is 30, so it exits at ~15) but the derivation is stale; fix next time that file is touched.
 - Decorations polish pass (sounds, arrange-mode juice, shop scroll >10 items, decor-over-plot rules).
 - Partial crop selling (sell X, not all) - scheduling with owner.

@@ -1,6 +1,6 @@
 # Paths / Roads - design (in progress)
 
-Status: ACTIVE - shape being locked with the owner one fork at a time; not yet a coder task. First build uses the single dirt texture.
+Status: ACTIVE - v1 (gravel, free) SHIPPED 2026-07-22 (commit 20eb5d6): the paint system, the cosmetic ground layer, and the per-tile model are live. Remaining: the priced tiers (stone + moonstone, both COIN sinks) and their edgeless-diamond tile art.
 
 ## Model
 
