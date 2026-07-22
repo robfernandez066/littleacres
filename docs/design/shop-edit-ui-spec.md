@@ -16,17 +16,30 @@ task file when it goes ACTIVE):**
   arrays (buildings/decorations/paths/structures) already carry
   position+flip and stay the placed representation; only `shedInventory`
   is added. Zero visual migration risk, honors section 8.
-- **U2 - Unified Shop**: tabs/cards/stepper/locked+owned states, building
-  fast path, fly-to-Shed feedback + one-time tooltip; REPLACES Building
-  Shop + Decor Shop; HUD goes to the two-button layout (section 4).
+- **U2a - Warehouse retires into the Shed** (schema v30; added after the
+  U1 review): trophies join the catalog as `purchasable: false` items, the
+  v30 migration OVERWRITE-merges warehouse counts into the shed (warehouse
+  stayed authoritative after U1's mirror) and DELETES the warehouse field;
+  decor buy/store/place reducers cut over to the shed. Player-visible
+  behavior unchanged.
+- **U2b - Unified Shop, Buildings + Decor tabs**: tabs/cards/stepper/
+  locked+owned states, fly-to-Shed feedback + one-time tooltip; REPLACES
+  Building Shop + Decor Shop; HUD goes to the two-button layout
+  (section 4). The building "in-hand" fast path lands with U3's edit
+  scene; until then a bought building places at its default anchor as
+  today. The PATHS TAB is deferred to U4 so shop-bought tiles never
+  coexist with T4.13's paint-time charging.
 - **U3 - Edit scene rework**: contextual Flip/Put-away toolbar, persistent
-  bottom bar (Shed/Shop/Undo/Done), long-press entry, resize buttons
-  REMOVED. RULING: existing scaled decor keeps its saved scale - only the
-  resize UI goes; nothing moves visually.
-- **U4 - Path painting from inventory**: paint draws from Shed counts,
-  erase refunds, gentle zero-stop; the T4.13 paint-time coin charge
-  RETIRES (the shop stepper purchase replaces it - same coin sink, moved
-  to buy time).
+  bottom bar (Shed/Shop/Undo/Done), long-press entry, building in-hand
+  placement, resize buttons REMOVED. RULINGS: existing scaled decor keeps
+  its saved scale - only the resize UI goes; building slot unlocks move
+  to per-TYPE state (schema bump) so a shelved mill keeps its paid
+  capacity - put-away of a building with batches in flight stays refused.
+- **U4 - Paths tab + painting from inventory**: the shop's Paths tab
+  ships here; paint draws from Shed counts, erase refunds, gentle
+  zero-stop; the T4.13 paint-time coin charge RETIRES (the shop stepper
+  purchase replaces it - same coin sink, moved to buy time; balance
+  mirror's paths row re-checked).
 
 Owner's spec follows, verbatim.
 

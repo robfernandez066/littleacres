@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-22 - U1 Shed pipeline model shipped; wave re-sliced (U2 -> U2a/U2b, paths tab to U4)
+**Context:** U1 shipped the model layer through the new loop. Its review surfaced two structural facts: the warehouse now DUPLICATES into the shed (v29 mirrored it, warehouse stayed authoritative), and a shed count map cannot hold a building's paid slot unlocks.
+**Decision/verdict:** COMMIT c8d061e (schema v29, tests 788, +26; catalog derived, reducers via existing authorities, checksum-verified save backup). Rulings: (1) U2a is a dedicated cutover task - trophies join the catalog as purchasable:false items, v30 OVERWRITE-merges warehouse into the shed and DELETES warehouse; (2) U3 moves building slot unlocks to per-TYPE state so a shelved mill keeps paid capacity (put-away with batches in flight stays refused); (3) the shop's Paths tab moves to U4 so shop-bought tiles never coexist with T4.13's paint-time charging (no double-pay window). Test baseline 754-vs-762 pending an owner read.
+**Trigger:** U1 report + review.
+
 ## 2026-07-22 - Shop & Edit UI overhaul ADOPTED (U-wave); T4.14 SUPERSEDED
 **Context:** Owner delivered the full redesign spec: one unified Shop (Buildings/Paths/Decor tabs), a Shed inventory pipeline (buy -> shed -> place, put-away returns, never rebuy/refund), edit-scene rework with contextual toolbar + Undo, paths painted from inventory. Filed at docs/design/shop-edit-ui-spec.md (ACTIVE).
 **Decision:** Sequenced as U1 (model + schema v29; catalog DERIVED from existing registries; spec's unified placedInstances schema declined - existing placed arrays stay, only shedInventory is added), U2 (unified shop replaces both shops, two-button HUD), U3 (edit scene; resize UI removed, existing decor scales preserved), U4 (paint-from-inventory; T4.13 paint-time coin charge retires - the sink moves to buy time). T4.14 reclaim/storage bank SUPERSEDED by the Shed pipeline; Remove All stays deferred. U1 written to currenttask.md (complex).

@@ -2,20 +2,21 @@
 
 **Updated:** 2026-07-22
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v28 · **Tests:** 754 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v29 · **Tests:** 788 (U1 report; baseline discrepancy 754-vs-762 pending an owner npm-test read) · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). **U1 (Shed pipeline model, schema v28 -> v29, complex) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Then U2 unified shop -> U3 edit scene -> U4 paint-from-inventory.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 SHIPPED (c8d061e). **U2a (warehouse retires into the Shed, schema v30, complex) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Wave re-sliced after U1 review: U2a data cutover -> U2b unified Shop (Buildings+Decor tabs) -> U3 edit scene (incl. per-TYPE building slot unlocks) -> U4 paths tab + paint-from-inventory.
 
 ## Queued next
 
-- **U2 / U3 / U4** of the U-wave (see spec's PM sequencing header).
+- **U2b / U3 / U4** of the U-wave (see spec's PM sequencing header).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- U1 Shed pipeline model (derived catalog, shedInventory schema v29, buy/place/put-away reducers, warehouse mirrored) - c8d061e, tests 788
 - T-DOCS1 code-comment pointers -> docs/ASSETS.md (first task through the file loop) + CLAUDE.md prettier fix - b0cff8a
 - Process rework: file-based PM<->Coder loop + one-place docs consolidation + folder cleanup - 8f5c719 + 328606e
 - Paths four-tier coin ladder (dirt free / gravel 15 / stone 70 / moonstone 350; T4.13) - own commit, schema v28, tests 754; also fixed a dirt_path atlas name collision (288-square vs path tile)
@@ -44,7 +45,7 @@
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
-- U1 bumps schema v28 -> v29 (additive shedInventory); no demotion risk. U4 will retire the T4.13 paint-time coin charge (sink moves to shop buy time) - re-check the balance mirror's paths row when U4 ships.
+- U1 shipped v29 with warehouse counts MIRRORED into the shed (both live; warehouse authoritative for decor) - U2a MUST resolve this by overwrite-merge + warehouse deletion, or stored decor double-counts. U3 owes the per-TYPE slot-unlock ruling (shelved mill keeps paid capacity). U4 will retire the T4.13 paint-time coin charge (sink moves to shop buy time) - re-check the balance mirror's paths row when U4 ships.
 
 ## Backlog nits (fold into convenient tasks)
 
