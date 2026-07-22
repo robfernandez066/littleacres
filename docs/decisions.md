@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-22 - Loop v1 LIVE: T-DOCS1 shipped through the file loop
+**Context:** First task run entirely through the new PM<->Coder file loop (the two entries below); cleanup + loop commits landed as 8f5c719 + 328606e.
+**Decision:** T-DOCS1 (8 code-comment pointers repointed to docs/ASSETS.md across 5 files, comment-only diff verified) - COMMIT b0cff8a, bundled with a prettier format of CLAUDE.md (the PM's delivered copy was not prettier-clean; that lint red was pre-existing, not the coder's). Loop verdict: the channel works end to end - preflight, sentinel checks, self-exported UTF-8 diff, sentinel-closed report. Tests 754, schema v28, both unchanged.
+**Trigger:** T-DOCS1 coder report.
+
 ## 2026-07-22 - Folder cleanup: docs consolidated, stale design contracts archived
 **Context:** Owner wants fewer folders/files and all md docs in one place with pointers updated.
 **Decision:** ALL md docs live under docs/ (owner: one place); root keeps ONLY CLAUDE.md (auto-loaded coder rules) and AGENTS.md (pointer stub). Moves: ASSETS.md -> docs/ASSETS.md (shared; a coder read carve-out, T-DOCS1 updates the five code-comment pointers); loop channel -> docs/tasks/ (gitignored, coder carve-out); PM notes + monetization report -> docs/private/ (gitignored, supersedes private/misc and the tasks//private-misc paths in the loop entry below); private/ shrinks to to_delete/ only. The coder's docs/ ban now has exactly two carve-outs: docs/tasks/ and docs/ASSETS.md. Four shipped/stale design contracts archived to docs/archive/ with corrected Status headers: sweep-vs-pan-checkpoint (CLOSED), land-camera-design (SHIPPED), goals-hub (SHIPPED), mere-art-direction (PARKED - reserve absorbed by T4.10); paths.md and restoration-boundary.md stay ACTIVE. Owner purges private/to_delete, registration overlays, and git-rms docs/archive/balance-v1.xlsx (superseded by the CSV mirror). Verified pack-atlas.mjs never reads art-staging *_raw*/backup files - deleting them is provenance loss only, owner's call.

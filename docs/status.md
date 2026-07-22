@@ -6,7 +6,6 @@
 
 ## In flight
 
-- **Process rework + docs consolidation SHIPPED docs-side (2026-07-22):** file-based PM<->Coder loop under docs/tasks/ (currenttask.md + progress.md, coder self-exports review diffs), ALL md docs under docs/, PM notes in docs/private/ (see decisions.md). PENDING owner: the cleanup/commit action block. **T-DOCS1 (ASSETS.md pointer comments, TRIVIAL) is loaded in docs/tasks/currenttask.md - run the coder loop AFTER the cleanup commit.**
 - **UI rework (incoming, scope TBD from owner)** - a large UI pass is the next task; the paths reclaim work waits behind it.
 - **T4.14 paths reclaim (Remove All + per-tier storage bank) - DECIDED, prompt-ready, ON HOLD.** Held behind the UI rework because it reshapes the same panels (PathsPanel, paint-mode bar). See docs/design/paths.md and the T4.13/T4.14 decision entry.
 
@@ -19,6 +18,8 @@
 
 ## Completed (newest first)
 
+- T-DOCS1 code-comment pointers -> docs/ASSETS.md (first task through the file loop) + CLAUDE.md prettier fix - b0cff8a
+- Process rework: file-based PM<->Coder loop + one-place docs consolidation + folder cleanup - 8f5c719 + 328606e
 - Paths four-tier coin ladder (dirt free / gravel 15 / stone 70 / moonstone 350; T4.13) - own commit, schema v28, tests 754; also fixed a dirt_path atlas name collision (288-square vs path tile)
 - Paths v1 (gravel paint, free, cosmetic layer) + farmhouse 2x2 refit - 20eb5d6, schema v28
 - Q2 order refresh cooldown (fulfilled slot repopulates after 10 min; fixes the day-1 order spike) - 0b0c6b6 (no schema change; not mirrored)
@@ -68,5 +69,5 @@
 
 ## Waiting on user
 
-- Folder cleanup 2026-07-22 (PM cannot delete on device): owner runs the purge + git mv/rm block from the cleanup reply - to_delete purge, pm-process.md delete, four design docs -> docs/archive/, balance-v1.xlsx git rm, optional staging-raws backup.
+- Optional owner call, no deadline: back up or drop the art-staging *_raw*/backup PNGs (packer never reads them; provenance only).
 - Device Cowork workspace (local Linux VM) still down (failed to start again 2026-07-22); a checksum verification pass is owed once it is healthy, now covering the earlier bridged docs PLUS all 2026-07-22 PM writes: docs/balance/currencies.csv, docs/status.md, docs/decisions.md, .gitignore, docs/tasks/*, docs/private/pm-rules.md, the four re-headered design docs, and CLAUDE.md (after the owner copies it in). Bridge reads looked current today (post-T4.13 content).
