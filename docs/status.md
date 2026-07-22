@@ -1,21 +1,24 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-22
-**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths v1 (gravel paint) + farmhouse 2x2 fit shipped (T4.12).
-**Schema:** v28 · **Tests:** 751 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
+**Schema:** v28 · **Tests:** 754 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- None.
+- **UI rework (incoming, scope TBD from owner)** - a large UI pass is the next task; the paths reclaim work waits behind it.
+- **T4.14 paths reclaim (Remove All + per-tier storage bank) - DECIDED, prompt-ready, ON HOLD.** Held behind the UI rework because it reshapes the same panels (PathsPanel, paint-mode bar). See docs/design/paths.md and the T4.13/T4.14 decision entry.
 
 ## Queued next
 
-- **Paths - priced tiers next (see docs/design/paths.md):** v1 gravel (free) SHIPPED. Next: stone + moonstone as COIN sinks (moonstone locked coins, not moondust) - a coin-sink ladder for the Q3 surplus; data-only tier additions + their tile art. Staged tier raws need edgeless-diamond rework (grass edges baked in).
-- **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Deferred - paths/stone may absorb part of the coin surplus.
+- **UI rework** (owner to specify) - runs first.
+- **T4.14 - paths reclaim / storage bank** (schema v28 -> v29): coins mint tiles the player owns; placing draws from per-tier storage first (free) then coins; any removal banks the tile (no coin resale); Remove All with a confirm tap. Coder prompt written; slots after the UI rework.
+- **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- Paths four-tier coin ladder (dirt free / gravel 15 / stone 70 / moonstone 350; T4.13) - own commit, schema v28, tests 754; also fixed a dirt_path atlas name collision (288-square vs path tile)
 - Paths v1 (gravel paint, free, cosmetic layer) + farmhouse 2x2 refit - 20eb5d6, schema v28
 - Q2 order refresh cooldown (fulfilled slot repopulates after 10 min; fixes the day-1 order spike) - 0b0c6b6 (no schema change; not mirrored)
 - T4.11 economy balance pass v2 (crop/good/order/level/moondust/decor/quest retune + onboarding L2 reshape + 2-chest revive) - a9e542b (schema v27 unchanged; balance mirror re-exported)
@@ -41,6 +44,8 @@
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
+- **Balance mirror:** the paths coin sink (gravel 15 / stone 70 / moonstone 350) is NOT yet in docs/balance/currencies.csv - add a "Paths (tiles)" coin-sink row on the next mirror re-export. T4.13 committed code-only; the mirror row was deferred because a device-workspace outage during the doc pass blocked a clean read of the current CSV.
+- T4.14 reclaim will bump schema v28 -> v29 (additive pathBank); no demotion risk.
 
 ## Backlog nits (fold into convenient tasks)
 
@@ -48,6 +53,7 @@
 - Mill + bakery too small for their 2x2 footprints (mill fills 55%, bakery 78%) - same fit as the farmhouse, each needs its own display height.
 - Farmhouse shadow authoring lab still shows the old scale (in-game shadow is correct) - self-fixes on the next atlas/shadow repack.
 - gameState.test.ts "harvesting queues the same kind of event as addXp": its comment still says the L2 threshold is 900 and over-sizes the loop guard to 1000 - the test passes (L2 is 30, so it exits at ~15) but the derivation is stale; fix next time that file is touched.
+- Path tiles show faint diagonal seams on large stone/moonstone plazas (brick courses don't align across tile edges) - acceptable for the stylized look; revisit only if it bugs the owner.
 - Decorations polish pass (sounds, arrange-mode juice, shop scroll >10 items, decor-over-plot rules).
 - Partial crop selling (sell X, not all) - scheduling with owner.
 - MAX-level order cards still advertise xp at the cap - de-emphasize.
@@ -58,7 +64,9 @@
 
 - Camera feel on the LIVE site from a real phone (post-deploy).
 - T4.11 tutorial on a FRESH save (save backup first): the level-2 celebration + Starcorn reveal should fire on the ORDER A delivery, and plant-mixed should complete with 57 coins. The logic is unit-covered; this is the visual eyeball only.
+- T4.13 paths four-tier ladder: owner did the real-phone paint pass (four rows, floats, no double-charge) before the push - DONE.
 
 ## Waiting on user
 
 - Local cleanup only the owner can do (PM cannot delete on device): stale review copies + the gitignored _to_delete/ folder.
+- Device Cowork workspace (local Linux VM) failed to boot mid-session, blocking on-disk checksum verification of these docs; a desktop-app restart did not revive it, and the file bridge is serving a stale cached snapshot. Docs delivered via the file bridge; a checksum verification pass is owed once the workspace is healthy.
