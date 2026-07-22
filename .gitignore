@@ -5,6 +5,9 @@ dist
 tools/audio-staging/
 tools/art-staging/
 
+# PM<->Coder loop files - task prompts + reports carry design context, never public (2026-07-22)
+tasks/
+
 # Owner-private area - never public (2026-07-17 reorg):
 #   private/to_delete/  disposable transfer files (review diffs, raw art)
 #   private/misc/       private keepers (reports, PM notes)
