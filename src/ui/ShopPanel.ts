@@ -14,6 +14,7 @@ import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { ModalBackdrop } from './ModalBackdrop';
+import { decorCardTops } from './shopDecorLayout';
 
 /**
  * The unified Shop (U2b): ONE tabbed panel that replaces the old Building Shop
@@ -103,18 +104,17 @@ const TOOLTIP_FADE_MS = 500;
 const TOOLTIP_TEXT = 'Your items live in the Shed - open it in Edit mode to place them.';
 
 /**
- * Card vertical layout (U2b-r2). A card is a fixed stack of rows, each owning a
- * HEIGHT; CARD_HEIGHT is their sum plus top/bottom padding, and every element
- * sits at the CENTER of its row. This block is the SINGLE source of truth for
- * card geometry - the row heights are the only vertical numbers authored; every
- * element's y, plus CARD_HEIGHT, the grid spacing, and the panel fit, derive
- * from them. Change a row height and the rest follows.
+ * Card vertical layout (U2b-r2; TOP-anchored since U3b-r2). A card is a stack of
+ * rows, each owning a HEIGHT; the row heights are the only vertical numbers
+ * authored and every element's y derives from them. Rows, top to bottom: art
+ * (hero icon), name, price/status pill, stepper (- qty +), Add-to-shed button.
  *
- * Rows, top to bottom: art (hero icon), name, price/status pill, stepper
- * (- qty +), Add-to-shed button. A building card populates only the first three
- * rows; a decor card adds the stepper and Add rows. Ten decorations = five rows
- * that must ALL stay visible above the Paths footer with no scroll, which caps
- * the card height and so keeps the hero icon compact.
+ * Cards are TOP-anchored: the container sits at the card's TOP-center and every
+ * row Y is measured DOWN from the top (y = 0 at the top edge). A decor card
+ * shows only the top three rows COLLAPSED (U3b-r2) and grows the stepper + Add
+ * rows below when tapped; a building card is always full height (its bottom two
+ * rows sit empty, unchanged from U2b-r2). Because growth is purely downward, the
+ * collapsed, expanded, and building faces share identical top rows.
  */
 const CARD_WIDTH = 430;
 const CARD_PAD_Y = 6;
@@ -123,13 +123,18 @@ const ROW_NAME_H = 42;
 const ROW_PRICE_H = 42;
 const ROW_STEPPER_H = 46;
 const ROW_ADD_H = 46;
-const CARD_HEIGHT =
-  CARD_PAD_Y * 2 + ROW_ART_H + ROW_NAME_H + ROW_PRICE_H + ROW_STEPPER_H + ROW_ADD_H;
-const CARD_HALF_H = CARD_HEIGHT / 2;
+/**
+ * COLLAPSED = art + name + price (a decor card's default face). EXPANDED adds
+ * the stepper + Add rows. A building card is always full height (EXPANDED), so
+ * its layout is unchanged from U2b-r2.
+ */
+const COLLAPSED_CARD_HEIGHT = CARD_PAD_Y * 2 + ROW_ART_H + ROW_NAME_H + ROW_PRICE_H;
+const EXPANDED_CARD_HEIGHT = COLLAPSED_CARD_HEIGHT + ROW_STEPPER_H + ROW_ADD_H;
+const BUILDING_CARD_HEIGHT = EXPANDED_CARD_HEIGHT;
 
-// Row tops and centers, derived top-down from the card's top edge. These row
-// centers are the ONLY vertical coordinates any card element uses.
-const ROW_ART_TOP = -CARD_HALF_H + CARD_PAD_Y;
+// Row tops and centers, top-down from the card's TOP edge (y = 0 at the top).
+// These are the ONLY vertical coordinates any card element uses.
+const ROW_ART_TOP = CARD_PAD_Y;
 const CARD_ICON_Y = ROW_ART_TOP + ROW_ART_H / 2;
 const ROW_NAME_TOP = ROW_ART_TOP + ROW_ART_H;
 const CARD_NAME_Y = ROW_NAME_TOP + ROW_NAME_H / 2;
@@ -154,7 +159,7 @@ const CARD_PRICE_GAP = 6;
 
 /** Owned "xN" badge overlays the card's top-right corner - the one intended overlap. */
 const CARD_OWNED_BADGE_X = CARD_WIDTH / 2 - 36;
-const CARD_OWNED_BADGE_Y = -CARD_HALF_H + 26;
+const CARD_OWNED_BADGE_Y = 26;
 
 /** Decor stepper geometry: horizontal placement only; row heights come from above. */
 const STEPPER_MINUS_X = -104;
@@ -168,14 +173,16 @@ const QTY_MIN = 1;
 const QTY_MAX = 99;
 
 /**
- * Card grid: 2 columns. ROW_SPACING derives from the card height (plus a fixed
- * gap) and GRID_TOP is placed so all five decor rows clear the tab row above
- * and the Paths footer below - the panel shows every row with no scroll.
+ * Card grid: 2 columns. GRID_TOP_EDGE is the TOP edge of row 0. Buildings keep
+ * their U2b-r2 row CENTERS (so the Buildings tab is pixel-identical), hence the
+ * top edge is that center minus a full card's half-height. Building rows pack by
+ * the full card height; decor rows pack by the collapsed height and reflow when
+ * a card expands (see `shopDecorLayout`).
  */
 const COLUMN_X = [-232, 232] as const;
 const CARD_ROW_GAP = 12;
-const ROW_SPACING = CARD_HEIGHT + CARD_ROW_GAP;
-const GRID_TOP = -HALF_H + 392;
+const BUILDING_ROW_SPACING = BUILDING_CARD_HEIGHT + CARD_ROW_GAP;
+const GRID_TOP_EDGE = -HALF_H + 392 - BUILDING_CARD_HEIGHT / 2;
 
 const ENABLED_ALPHA = 1;
 const DISABLED_ALPHA = 0.4;
@@ -340,11 +347,18 @@ interface CardStepper {
 
 interface Card {
   item: CatalogItem;
+  /** Grid slot within the card's own tab - drives the decor reflow. */
+  slot: number;
   container: Phaser.GameObjects.Container;
   /** Drawn card fill+border. */
   cardBg: Phaser.GameObjects.Graphics;
   /** Whole-card tap target for a building card (undefined on a decor card). */
   hitZone?: Phaser.GameObjects.Zone;
+  /**
+   * Decor-only (U3b-r2): the collapsed-face tap target over the art/name/price
+   * rows; tapping it expands the card (or collapses it when already expanded).
+   */
+  headerZone?: Phaser.GameObjects.Zone;
   icon: Phaser.GameObjects.Image;
   nameText: Phaser.GameObjects.Text;
   pricePill: Phaser.GameObjects.Graphics;
@@ -364,9 +378,13 @@ interface Card {
    */
   ownedCount: number;
   statusKey: string;
-  /** Card-center in main-container space, for the fly-to-chip start point. */
+  /**
+   * Container origin (top-center) in main-container space, for the fly-to-chip
+   * start point. `originY` tracks the reflow, so it moves when a decor card
+   * above expands.
+   */
   centerX: number;
-  centerY: number;
+  originY: number;
   stepper?: CardStepper;
   wiggle: Phaser.Tweens.Tween | null;
 }
@@ -398,6 +416,13 @@ export class ShopPanel {
   private lastShedTotal = -1;
 
   private readonly cards: Card[] = [];
+
+  /**
+   * The one decor card currently expanded (U3b-r2), or null when all are
+   * collapsed. Tapping a collapsed card's header expands it and collapses any
+   * other; switching tabs or closing the panel resets it to null.
+   */
+  private expandedDecorCard: Card | null = null;
 
   /**
    * Every persistent hit target the panel owns - the body-tap blocker, the X,
@@ -532,6 +557,9 @@ export class ShopPanel {
     for (const item of catalogItemsInCategory('decor').filter((i) => i.purchasable)) {
       this.cards.push(this.buildCard(item));
     }
+    // Every decor card starts collapsed (U3b-r2): hide the stepper rows and pack
+    // the grid at the collapsed height before the first open.
+    this.applyDecorExpansionAll();
 
     // Paths stopgap (U4): a plain button opening the existing PathsPanel
     // unchanged, until U4 ships the Paths tab and retires this.
@@ -609,6 +637,16 @@ export class ShopPanel {
     g.strokeRoundedRect(-halfW, -halfH, halfW * 2, halfH * 2, radius);
   }
 
+  /**
+   * Draw a card's fill+border to `height` (U3b-r2). TOP-anchored: the graphics
+   * sit at the card's vertical centre so the rounded rect spans y in [0, height]
+   * within the container - a redraw at a new height just grows the card downward.
+   */
+  private drawCardBg(g: Phaser.GameObjects.Graphics, height: number): void {
+    g.setPosition(0, height / 2);
+    this.drawRoundRect(g, CARD_WIDTH / 2, height / 2, CARD_RADIUS, CARD_FILL, CARD_STROKE_W);
+  }
+
   /** Redraw a fully-rounded pill sized to enclose `contentWidth` with padding. */
   private drawPill(
     g: Phaser.GameObjects.Graphics,
@@ -652,13 +690,16 @@ export class ShopPanel {
     const col = slot % 2;
     const rowIndex = Math.floor(slot / 2);
     const centerX = COLUMN_X[col]!;
-    const centerY = GRID_TOP + rowIndex * ROW_SPACING;
+    // TOP-anchored: the container sits at the card's top edge. Buildings pack by
+    // the full card height; decor start collapsed and reflow via `layoutDecorGrid`.
+    const isBuilding = item.category === 'building';
+    const originY = GRID_TOP_EDGE + rowIndex * (isBuilding ? BUILDING_ROW_SPACING : 0);
 
-    const cardContainer = this.scene.add.container(centerX, centerY).setVisible(false);
+    const cardContainer = this.scene.add.container(centerX, originY).setVisible(false);
 
-    // Drawn card fill + border (no sprite chrome).
+    // Drawn card fill + border (no sprite chrome), drawn to the card's height.
     const cardBg = this.scene.add.graphics();
-    this.drawRoundRect(cardBg, CARD_WIDTH / 2, CARD_HALF_H, CARD_RADIUS, CARD_FILL, CARD_STROKE_W);
+    this.drawCardBg(cardBg, isBuilding ? BUILDING_CARD_HEIGHT : COLLAPSED_CARD_HEIGHT);
 
     const iconNative = item.category === 'building' ? BUILDING_ICON_NATIVE : DECOR_ICON_NATIVE;
     const icon = this.scene.add
@@ -708,6 +749,7 @@ export class ShopPanel {
 
     const card: Card = {
       item,
+      slot,
       container: cardContainer,
       cardBg,
       icon,
@@ -722,18 +764,32 @@ export class ShopPanel {
       ownedCount: -1,
       statusKey: '',
       centerX,
-      centerY,
+      originY,
       wiggle: null,
     };
 
     if (item.category === 'building') {
       // The whole card is the tap-to-buy / wiggle target - an invisible Zone
-      // over the drawn card.
-      card.hitZone = this.makeHitZone(cardContainer, 0, 0, CARD_WIDTH, CARD_HEIGHT, () =>
-        this.onBuildingTap(card),
+      // over the drawn card (centred on the full card, TOP-anchored).
+      card.hitZone = this.makeHitZone(
+        cardContainer,
+        0,
+        BUILDING_CARD_HEIGHT / 2,
+        CARD_WIDTH,
+        BUILDING_CARD_HEIGHT,
+        () => this.onBuildingTap(card),
       );
     } else {
       card.stepper = this.buildStepper(cardContainer, card);
+      // The collapsed-face header (art/name/price rows) toggles expansion.
+      card.headerZone = this.makeHitZone(
+        cardContainer,
+        0,
+        COLLAPSED_CARD_HEIGHT / 2,
+        CARD_WIDTH,
+        COLLAPSED_CARD_HEIGHT,
+        () => this.onDecorHeaderTap(card),
+      );
     }
 
     this.container.add(cardContainer);
@@ -823,6 +879,87 @@ export class ShopPanel {
     };
   }
 
+  /**
+   * Tap on a decor card's collapsed-face header (U3b-r2): expand it, or collapse
+   * it when it is already the expanded one. Exactly one card is ever expanded, so
+   * expanding a new card collapses the previous.
+   */
+  private onDecorHeaderTap(card: Card): void {
+    this.audio.sfx('tap');
+    this.setDecorExpansion(this.expandedDecorCard === card ? null : card);
+  }
+
+  /** Set (or clear) the one expanded decor card, then reflow + re-derive (U3b-r2). */
+  private setDecorExpansion(card: Card | null): void {
+    this.expandedDecorCard = card;
+    this.applyDecorExpansionAll();
+    this.refresh(gameState.getState());
+  }
+
+  /**
+   * Reflow the decor grid and apply every decor card's expanded/collapsed
+   * visuals from the current `expandedDecorCard` (U3b-r2), WITHOUT re-deriving
+   * from state - so the constructor and `hide` can reset to all-collapsed before
+   * any refresh (the next `openTo` refreshes).
+   */
+  private applyDecorExpansionAll(): void {
+    this.layoutDecorGrid();
+    for (const c of this.cards) {
+      if (c.item.category === 'decor') this.applyDecorExpansion(c);
+    }
+  }
+
+  /**
+   * Reposition every decor card's container top from the reflow (U3b-r2). The
+   * expanded card's row grows; later rows shift down. `originY` tracks the move
+   * so the fly-to-chip start stays correct.
+   */
+  private layoutDecorGrid(): void {
+    const decorCards = this.cards.filter((c) => c.item.category === 'decor');
+    const tops = decorCardTops(
+      decorCards.length,
+      this.expandedDecorCard?.slot ?? null,
+      GRID_TOP_EDGE,
+      COLLAPSED_CARD_HEIGHT,
+      EXPANDED_CARD_HEIGHT,
+      CARD_ROW_GAP,
+    );
+    for (const card of decorCards) {
+      const top = tops[card.slot]!;
+      card.container.setY(top);
+      card.originY = top;
+    }
+  }
+
+  /**
+   * Apply a decor card's expanded/collapsed visuals (U3b-r2): grow/shrink the
+   * card BG and show/hide the stepper + Add row. Zone interactivity for the
+   * stepper is (re-)derived by `refreshDecorCard` on top of this (affordability),
+   * but a collapsed card must carry no live stepper hitboxes regardless.
+   */
+  private applyDecorExpansion(card: Card): void {
+    const stepper = card.stepper;
+    if (stepper === undefined) return;
+    const expanded = this.expandedDecorCard === card;
+    this.drawCardBg(card.cardBg, expanded ? EXPANDED_CARD_HEIGHT : COLLAPSED_CARD_HEIGHT);
+    for (const el of [
+      stepper.minusG,
+      stepper.minusLabel,
+      stepper.qtyText,
+      stepper.plusG,
+      stepper.plusLabel,
+      stepper.addG,
+      stepper.addText,
+    ]) {
+      el.setVisible(expanded);
+    }
+    if (!expanded) {
+      stepper.minusZone.disableInteractive();
+      stepper.plusZone.disableInteractive();
+      stepper.addZone.disableInteractive();
+    }
+  }
+
   /** Nudge a decor card's quantity within [QTY_MIN, QTY_MAX] and re-derive it. */
   private stepQty(card: Card, delta: number): void {
     const stepper = card.stepper;
@@ -877,13 +1014,14 @@ export class ShopPanel {
   private selectTab(tab: ShopTab): void {
     if (this.activeTab === tab) return;
     this.activeTab = tab;
-    this.refresh(gameState.getState());
+    // Expanded state resets on a tab switch (U3b-r2); setDecorExpansion refreshes.
+    this.setDecorExpansion(null);
   }
 
   /** Fly a one-off copy of the card icon into the Shed chip, then bounce it. */
   private flyToChip(card: Card): void {
     const startX = card.centerX + card.icon.x;
-    const startY = card.centerY + card.icon.y;
+    const startY = card.originY + card.icon.y;
     const fly = this.scene.add
       .image(startX, startY, ATLAS_KEY, card.item.frame)
       .setScale(card.icon.scaleX);
@@ -1073,6 +1211,18 @@ export class ShopPanel {
     const shed = state.shedInventory[card.item.id] ?? 0;
     this.setOwnedBadge(card, placed + shed);
 
+    // A collapsed card hides its stepper, so it must carry no live stepper
+    // hitboxes (U3b-r2) - `setInteractivesEnabled(true)` on open re-armed them
+    // blindly, so re-drop them here for every card that is not the expanded one.
+    if (this.expandedDecorCard !== card) {
+      stepper.minusZone.disableInteractive();
+      stepper.plusZone.disableInteractive();
+      stepper.addZone.disableInteractive();
+      return;
+    }
+    stepper.minusZone.setInteractive({ useHandCursor: true });
+    stepper.plusZone.setInteractive({ useHandCursor: true });
+
     const balance = card.item.currency === 'coins' ? state.coins : state.moondust;
     const affordable = balance >= card.item.price * stepper.qty;
     // Same split-budget cap `buyToShed` enforces - presentation only here.
@@ -1151,5 +1301,9 @@ export class ShopPanel {
     this.tooltipTween?.stop();
     this.tooltipTween = null;
     this.tooltipText.setVisible(false);
+    // Expanded state resets when the panel closes (U3b-r2), so the next open
+    // starts calm with every decor card collapsed.
+    this.expandedDecorCard = null;
+    this.applyDecorExpansionAll();
   }
 }

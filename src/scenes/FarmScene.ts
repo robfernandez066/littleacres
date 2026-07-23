@@ -451,9 +451,7 @@ const FARMHOUSE_HIT_PAD_DISPLAY_PX = 20;
 const ARRANGE_UI_DEPTH = 2200;
 const ARRANGE_ROW_HEIGHT = 100;
 const ARRANGE_ROW_GAP = 24;
-const ARRANGE_ROW_VGAP = 16;
 const ARRANGE_ROW2_Y = 1700;
-const ARRANGE_ROW1_Y = ARRANGE_ROW2_Y - ARRANGE_ROW_HEIGHT - ARRANGE_ROW_VGAP;
 
 const ARRANGE_SHED_WIDTH = 175;
 const ARRANGE_SHOP_WIDTH = 175;
@@ -471,16 +469,6 @@ const ARRANGE_SAVE_WIDTH = 220;
 const ARRANGE_CANCEL_ARM_MS = 3000;
 const ARRANGE_CANCEL_LABEL = 'Cancel';
 const ARRANGE_CANCEL_ARMED_LABEL = 'Confirm?';
-
-/**
- * Chain placement (T3.3a-r): the "Place Next xN" button lives on its own,
- * centered row directly ABOVE the bottom bar, keeping the bar untouched - it
- * only exists during a placement session, so a transient tier reads as
- * "session control", not a mode action. Same panel-nineslice convention.
- */
-const ARRANGE_PLACE_NEXT_WIDTH = 300;
-const ARRANGE_PLACE_NEXT_X = DESIGN_WIDTH / 2;
-const ARRANGE_PLACE_NEXT_Y = ARRANGE_ROW1_Y;
 
 /**
  * Decor chain spawns offset a little down-right of the last-placed item
@@ -539,22 +527,29 @@ const ARRANGE_SHED_BADGE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 };
 
 /**
- * Contextual toolbar (U3b): a small drawn-vector bar (U2b card language -
- * parchment fill, thin dark-brown stroke) that floats just above the currently
- * selected / lifted asset, carrying only the actions that asset can take today
- * (Flip where flippable; Put away where storable). It lives in the WORLD layer
- * so it tracks the asset in world space with no per-frame camera maths - it
- * scales with the camera zoom like the asset it is attached to. A high depth
- * keeps it above every field object (lifted plots reach PLOT_LIFT_DEPTH 2050,
- * the footprint preview 2100). Hidden - and holding zero live hitboxes - the
- * moment nothing actionable is selected.
+ * Contextual toolbar (U3b; a vertical COLUMN since U3b-r2): a small drawn-vector
+ * bar (U2b card language - parchment fill, thin dark-brown stroke) that floats
+ * just above the currently selected / lifted asset, carrying only the actions
+ * that asset can take. The buttons stack top-to-bottom - Flip, Put away, Place -
+ * each a fixed-width row shown only when valid for the selection:
+ *   - Flip: flippable kinds (decor, buildings, farmhouse).
+ *   - Put away: decorations only (U3b-r1 exempts buildings).
+ *   - Place: when more of the selection can come out of storage - selected decor
+ *     whose frame has shed stock, or a selected plot with unplaced plots. This
+ *     ABSORBS the retired floating "Place Next" button (U3b-r2).
+ * It lives in the WORLD layer so it tracks the asset in world space with no
+ * per-frame camera maths - it scales with the camera zoom like the asset it is
+ * attached to. A high depth keeps it above every field object (lifted plots
+ * reach PLOT_LIFT_DEPTH 2050, the footprint preview 2100). Hidden - and holding
+ * zero live hitboxes - the moment nothing actionable is selected.
  */
 const CTX_TOOLBAR_DEPTH = 3000;
 const CTX_BTN_HEIGHT = 74;
-const CTX_FLIP_WIDTH = 150;
-const CTX_PUT_AWAY_WIDTH = 200;
-const CTX_BTN_GAP = 14;
-/** Clearance between the asset's top edge and the toolbar's bottom edge. */
+/** Uniform button width - the column is one stack, so every row shares it. */
+const CTX_BTN_WIDTH = 200;
+/** Vertical gap between stacked buttons. */
+const CTX_BTN_VGAP = 12;
+/** Clearance between the asset's top edge and the column's bottom edge. */
 const CTX_TOOLBAR_GAP = 26;
 const CTX_STROKE_BROWN = 0x4a3218;
 const CTX_BTN_FILL = 0xf1e2c0;
@@ -1375,23 +1370,21 @@ export class FarmScene extends Phaser.Scene {
   /**
    * The active chain-placement session (T3.3a-r), or null: started by the
    * Shed panel's Place buttons and the grant popup's Place Now, ended by
-   * leaving arrange mode. While active (and more of the item remain in the
-   * shed), the "Place Next xN" button chains further spawns without
-   * round-tripping to the Shed panel. `lastPlaced*Index` anchors the next
+   * leaving arrange mode. It tracks the chain's adjacency so the contextual
+   * toolbar's Place button (U3b-r2, which replaced the floating "Place Next")
+   * spawns the next item beside the last. `lastPlaced*Index` anchors the next
    * spawn's adjacency; every spawn is already committed to state, so Done at
    * any moment is safe.
    */
   private placementSession: { kind: 'plot' } | { kind: 'decor'; frame: string } | null = null;
   /**
    * The plot session's committed placements IN ORDER (T3.3a-r2f), as indices
-   * into `gameState.plots` - resolved to their CURRENT tiles at Place Next
-   * time, so a player dragging a spawned plot re-aims the chain's direction
-   * inference (see `nextChainPlotTile`).
+   * into `gameState.plots` - resolved to their CURRENT tiles at Place time, so a
+   * player dragging a spawned plot re-aims the chain's direction inference (see
+   * `nextChainPlotTile`).
    */
   private sessionPlotIndices: number[] = [];
   private lastPlacedDecorIndex = -1;
-  private arrangePlaceNextButton!: Phaser.GameObjects.NineSlice;
-  private arrangePlaceNextText!: Phaser.GameObjects.Text;
   /** The plot-grant popup (T3.3a) - see `create` and the update() drain. */
   private plotGrantPopup!: PlotGrantPopup;
   /** The Shed panel's "Farm Plot xN" row (T3.3a), separate from the decor rows. */
@@ -1414,10 +1407,10 @@ export class FarmScene extends Phaser.Scene {
   private arrangeShopButton!: Phaser.GameObjects.NineSlice;
   private arrangeShopText!: Phaser.GameObjects.Text;
   /**
-   * Contextual toolbar (U3b): a world-layer drawn-vector bar that floats above
-   * the selected asset with its valid Flip / Put away actions - see
-   * `createContextualToolbar`. Hidden with zero live hitboxes when nothing
-   * actionable is selected.
+   * Contextual toolbar (U3b; a vertical column since U3b-r2): a world-layer
+   * drawn-vector bar that floats above the selected asset with its valid
+   * Flip / Put away / Place actions - see `createContextualToolbar`. Hidden with
+   * zero live hitboxes when nothing actionable is selected.
    */
   private ctxToolbar!: Phaser.GameObjects.Container;
   private ctxFlipBg!: Phaser.GameObjects.Graphics;
@@ -1426,6 +1419,10 @@ export class FarmScene extends Phaser.Scene {
   private ctxPutAwayBg!: Phaser.GameObjects.Graphics;
   private ctxPutAwayLabel!: Phaser.GameObjects.Text;
   private ctxPutAwayZone!: Phaser.GameObjects.Zone;
+  /** Place button (U3b-r2): absorbs the retired floating "Place Next" button. */
+  private ctxPlaceBg!: Phaser.GameObjects.Graphics;
+  private ctxPlaceLabel!: Phaser.GameObjects.Text;
+  private ctxPlaceZone!: Phaser.GameObjects.Zone;
   /** Every OTHER interactive object suppressed for the duration of arrange mode - see `setOtherHitboxesEnabled`. */
   private readonly arrangeModeDisabledObjects: Phaser.GameObjects.GameObject[] = [];
   /** Shed panel (T3.9b) - see `createShedPanel`. */
@@ -2008,9 +2005,6 @@ export class FarmScene extends Phaser.Scene {
     // dev.footprints() overlay (T3.3s-r2): re-derive from live state on the
     // same tick so it tracks structure moves and the expansion purchase.
     if (this.devFootprintsEnabled) this.rebuildDevFootprints();
-    // Chain placement (T3.3a-r): keep the Place Next button truthful on the
-    // tick too - grants and put-aways can change its count mid-arrange.
-    if (this.arrangeModeActive) this.updatePlaceNextButton();
     // Onboarding's select-sunwheat step: checked every tick (not just on the
     // tap) so a selection made before the step began still counts. Cheap
     // no-op whenever the step is not active.
@@ -4830,33 +4824,6 @@ export class FarmScene extends Phaser.Scene {
       this.exitArrangeMode();
     });
 
-    // Chain placement (T3.3a-r): "Place Next xN", its own centered row above
-    // the bar. Visibility/label/enabled state are owned entirely by
-    // `updatePlaceNextButton` - it only exists during a placement session.
-    this.arrangePlaceNextButton = this.add
-      .nineslice(
-        ARRANGE_PLACE_NEXT_X,
-        ARRANGE_PLACE_NEXT_Y,
-        ATLAS_KEY,
-        'panel',
-        ARRANGE_PLACE_NEXT_WIDTH,
-        ARRANGE_ROW_HEIGHT,
-        PANEL_SLICE,
-        PANEL_SLICE,
-        PANEL_SLICE,
-        PANEL_SLICE,
-      )
-      .setDepth(ARRANGE_UI_DEPTH)
-      .setVisible(false);
-    this.arrangePlaceNextText = this.add
-      .text(ARRANGE_PLACE_NEXT_X, ARRANGE_PLACE_NEXT_Y, 'Place Next', ARRANGE_BUTTON_STYLE)
-      .setOrigin(0.5)
-      .setDepth(ARRANGE_UI_DEPTH + 1)
-      .setVisible(false);
-    this.arrangePlaceNextButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
-      this.handlePlaceNext();
-    });
-
     this.createShedPanel();
   }
 
@@ -4902,9 +4869,9 @@ export class FarmScene extends Phaser.Scene {
     this.ctxToolbar = this.add.container(0, 0).setDepth(CTX_TOOLBAR_DEPTH).setVisible(false);
 
     this.ctxFlipBg = this.add.graphics();
-    this.drawCtxButton(this.ctxFlipBg, CTX_FLIP_WIDTH);
+    this.drawCtxButton(this.ctxFlipBg);
     this.ctxFlipLabel = this.add.text(0, 0, 'Flip', CTX_LABEL_STYLE).setOrigin(0.5);
-    this.ctxFlipZone = this.add.zone(0, 0, CTX_FLIP_WIDTH, CTX_BTN_HEIGHT);
+    this.ctxFlipZone = this.add.zone(0, 0, CTX_BTN_WIDTH, CTX_BTN_HEIGHT);
     this.ctxFlipZone.on(
       Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
       (
@@ -4920,9 +4887,9 @@ export class FarmScene extends Phaser.Scene {
     );
 
     this.ctxPutAwayBg = this.add.graphics();
-    this.drawCtxButton(this.ctxPutAwayBg, CTX_PUT_AWAY_WIDTH);
+    this.drawCtxButton(this.ctxPutAwayBg);
     this.ctxPutAwayLabel = this.add.text(0, 0, 'Put away', CTX_LABEL_STYLE).setOrigin(0.5);
-    this.ctxPutAwayZone = this.add.zone(0, 0, CTX_PUT_AWAY_WIDTH, CTX_BTN_HEIGHT);
+    this.ctxPutAwayZone = this.add.zone(0, 0, CTX_BTN_WIDTH, CTX_BTN_HEIGHT);
     this.ctxPutAwayZone.on(
       Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
       (
@@ -4937,6 +4904,24 @@ export class FarmScene extends Phaser.Scene {
       },
     );
 
+    this.ctxPlaceBg = this.add.graphics();
+    this.drawCtxButton(this.ctxPlaceBg);
+    // Label text is set per-frame ("Place xN") in updateContextualToolbar.
+    this.ctxPlaceLabel = this.add.text(0, 0, 'Place', CTX_LABEL_STYLE).setOrigin(0.5);
+    this.ctxPlaceZone = this.add.zone(0, 0, CTX_BTN_WIDTH, CTX_BTN_HEIGHT);
+    this.ctxPlaceZone.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        this.placeNextForSelection();
+      },
+    );
+
     this.ctxToolbar.add([
       this.ctxFlipBg,
       this.ctxFlipLabel,
@@ -4944,19 +4929,35 @@ export class FarmScene extends Phaser.Scene {
       this.ctxPutAwayBg,
       this.ctxPutAwayLabel,
       this.ctxPutAwayZone,
+      this.ctxPlaceBg,
+      this.ctxPlaceLabel,
+      this.ctxPlaceZone,
     ]);
     // Closed toolbar carries no live hitboxes (the hidden-hygiene rule).
     this.ctxFlipZone.disableInteractive();
     this.ctxPutAwayZone.disableInteractive();
+    this.ctxPlaceZone.disableInteractive();
   }
 
   /** Draw one contextual-toolbar button (parchment fill + brown rounded stroke). */
-  private drawCtxButton(g: Phaser.GameObjects.Graphics, width: number): void {
+  private drawCtxButton(g: Phaser.GameObjects.Graphics): void {
     g.clear();
     g.fillStyle(CTX_BTN_FILL, 1);
-    g.fillRoundedRect(-width / 2, -CTX_BTN_HEIGHT / 2, width, CTX_BTN_HEIGHT, CTX_BTN_RADIUS);
+    g.fillRoundedRect(
+      -CTX_BTN_WIDTH / 2,
+      -CTX_BTN_HEIGHT / 2,
+      CTX_BTN_WIDTH,
+      CTX_BTN_HEIGHT,
+      CTX_BTN_RADIUS,
+    );
     g.lineStyle(CTX_BTN_STROKE_W, CTX_STROKE_BROWN, 1);
-    g.strokeRoundedRect(-width / 2, -CTX_BTN_HEIGHT / 2, width, CTX_BTN_HEIGHT, CTX_BTN_RADIUS);
+    g.strokeRoundedRect(
+      -CTX_BTN_WIDTH / 2,
+      -CTX_BTN_HEIGHT / 2,
+      CTX_BTN_WIDTH,
+      CTX_BTN_HEIGHT,
+      CTX_BTN_RADIUS,
+    );
   }
 
   /**
@@ -4984,13 +4985,6 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeShedBadge.setVisible(visible);
     // Cancel always starts disarmed when the bar is shown or hidden.
     if (!visible) this.disarmCancel();
-    // The Place Next button (T3.3a-r) is session-owned: hidden with the bar
-    // here, but only `updatePlaceNextButton` ever shows it.
-    if (!visible) {
-      this.arrangePlaceNextButton.setVisible(false);
-      this.arrangePlaceNextText.setVisible(false);
-      this.arrangePlaceNextButton.disableInteractive();
-    }
   }
 
   /**
@@ -5107,7 +5101,6 @@ export class FarmScene extends Phaser.Scene {
     // Plots: reposition tiles + crops from state.
     this.refreshCrops();
     this.refreshArrangePlotInteractivity();
-    this.updatePlaceNextButton();
   }
 
   /**
@@ -5130,12 +5123,14 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Re-derive the contextual toolbar every arrange frame (U3b): hidden with no
-   * live hitboxes unless the selection has actions, otherwise floated just
-   * above the selected/lifted asset with exactly its valid buttons. Flip shows
-   * for a flippable asset (decor; buildings; farmhouse - `isFlippableMovable`
-   * is the authority); Put away shows for a DECORATION only (U3b-r1 exempts
-   * buildings). Plots and the notice board have no actions, so the toolbar hides.
+   * Re-derive the contextual toolbar every arrange frame (U3b; a vertical column
+   * since U3b-r2): hidden with no live hitboxes unless the selection has actions,
+   * otherwise floated just above the selected/lifted asset as a stack of exactly
+   * its valid buttons (top-to-bottom: Flip, Put away, Place). Flip shows for a
+   * flippable asset (decor; buildings; farmhouse - `isFlippableMovable`); Put
+   * away for a DECORATION only (U3b-r1 exempts buildings); Place when more of the
+   * selection can come out of storage (see `contextualTarget`). A selection with
+   * zero valid buttons (a plot with no unplaced plots, the notice board) hides.
    */
   private updateContextualToolbar(): void {
     // Hide (and drop hitboxes) when not arranging, or when a modal is open over
@@ -5151,40 +5146,60 @@ export class FarmScene extends Phaser.Scene {
       this.hideContextualToolbar();
       return;
     }
-    const { obj, showFlip, showPutAway } = target;
-    // Centre the visible button(s) as one row in the toolbar's local space.
-    const buttons: { isFlip: boolean; width: number }[] = [];
-    if (showFlip) buttons.push({ isFlip: true, width: CTX_FLIP_WIDTH });
-    if (showPutAway) buttons.push({ isFlip: false, width: CTX_PUT_AWAY_WIDTH });
-    const total = buttons.reduce((sum, b) => sum + b.width, 0) + CTX_BTN_GAP * (buttons.length - 1);
-    let cursor = -total / 2;
-    let flipX = 0;
-    let putAwayX = 0;
-    for (const b of buttons) {
-      const centre = cursor + b.width / 2;
-      if (b.isFlip) flipX = centre;
-      else putAwayX = centre;
-      cursor += b.width + CTX_BTN_GAP;
-    }
-    // Float above the asset's visible top edge (world coords - the toolbar is a
-    // world-layer object, so it tracks the asset with no camera maths).
+    const { obj, showFlip, showPutAway, showPlace, placeCount } = target;
+
+    // Stack the visible buttons top-to-bottom in the toolbar's local space, with
+    // the column's BOTTOM edge floated CTX_TOOLBAR_GAP above the asset's top.
+    const shownCount = (showFlip ? 1 : 0) + (showPutAway ? 1 : 0) + (showPlace ? 1 : 0);
+    const columnHeight = shownCount * CTX_BTN_HEIGHT + Math.max(0, shownCount - 1) * CTX_BTN_VGAP;
     const topY = obj.y - obj.displayOriginY;
-    this.ctxToolbar
-      .setPosition(obj.x, topY - CTX_TOOLBAR_GAP - CTX_BTN_HEIGHT / 2)
-      .setVisible(true);
+    this.ctxToolbar.setPosition(obj.x, topY - CTX_TOOLBAR_GAP - columnHeight).setVisible(true);
 
-    this.ctxFlipBg.setPosition(flipX, 0).setVisible(showFlip);
-    this.ctxFlipLabel.setPosition(flipX, 0).setVisible(showFlip);
-    this.ctxFlipZone.setPosition(flipX, 0);
-    if (showFlip) this.ctxFlipZone.setInteractive({ useHandCursor: true });
-    else this.ctxFlipZone.disableInteractive();
+    // Assign each shown button the next slot Y, top-to-bottom (local y = 0 at the
+    // column's top edge).
+    let slot = 0;
+    const nextSlotY = (): number => {
+      const y = CTX_BTN_HEIGHT / 2 + slot * (CTX_BTN_HEIGHT + CTX_BTN_VGAP);
+      slot += 1;
+      return y;
+    };
+    this.positionCtxButton(
+      this.ctxFlipBg,
+      this.ctxFlipLabel,
+      this.ctxFlipZone,
+      showFlip,
+      showFlip ? nextSlotY() : 0,
+    );
+    this.positionCtxButton(
+      this.ctxPutAwayBg,
+      this.ctxPutAwayLabel,
+      this.ctxPutAwayZone,
+      showPutAway,
+      showPutAway ? nextSlotY() : 0,
+    );
+    if (showPlace) this.ctxPlaceLabel.setText(`Place x${placeCount}`);
+    this.positionCtxButton(
+      this.ctxPlaceBg,
+      this.ctxPlaceLabel,
+      this.ctxPlaceZone,
+      showPlace,
+      showPlace ? nextSlotY() : 0,
+    );
+  }
 
-    // Put away shows for a decoration only (U3b-r1), always enabled when shown.
-    this.ctxPutAwayBg.setPosition(putAwayX, 0).setVisible(showPutAway).setAlpha(1);
-    this.ctxPutAwayLabel.setPosition(putAwayX, 0).setVisible(showPutAway).setAlpha(1);
-    this.ctxPutAwayZone.setPosition(putAwayX, 0);
-    if (showPutAway) this.ctxPutAwayZone.setInteractive({ useHandCursor: true });
-    else this.ctxPutAwayZone.disableInteractive();
+  /** Position one contextual-toolbar button in the column and toggle its hitbox. */
+  private positionCtxButton(
+    bg: Phaser.GameObjects.Graphics,
+    label: Phaser.GameObjects.Text,
+    zone: Phaser.GameObjects.Zone,
+    show: boolean,
+    y: number,
+  ): void {
+    bg.setPosition(0, y).setVisible(show).setAlpha(1);
+    label.setPosition(0, y).setVisible(show).setAlpha(1);
+    zone.setPosition(0, y);
+    if (show) zone.setInteractive({ useHandCursor: true });
+    else zone.disableInteractive();
   }
 
   /** Hide the contextual toolbar and drop its live hitboxes (U3b). */
@@ -5192,33 +5207,49 @@ export class FarmScene extends Phaser.Scene {
     this.ctxToolbar.setVisible(false);
     this.ctxFlipZone.disableInteractive();
     this.ctxPutAwayZone.disableInteractive();
+    this.ctxPlaceZone.disableInteractive();
   }
 
   /**
    * The asset the contextual toolbar attaches to, plus which of its buttons are
-   * valid, or null when nothing actionable is selected. Decor: Flip + Put away.
-   * Building: Flip ONLY (U3b-r1 owner override - buildings are never put away
-   * from the UI; putAwayToShed survives only as the undo/Cancel inverse).
-   * Farmhouse: Flip only. Notice board and plots: no actions -> hidden.
+   * valid, or null when nothing actionable is selected. Decor: Flip + Put away,
+   * plus Place when its frame has shed stock. Building: Flip ONLY (U3b-r1 owner
+   * override - buildings are never put away from the UI; putAwayToShed survives
+   * only as the undo/Cancel inverse). Farmhouse: Flip only. Plot: Place ONLY, and
+   * only while unplaced plots remain (else null). Notice board: null.
    */
   private contextualTarget(): {
     obj: Phaser.GameObjects.Image;
     showFlip: boolean;
     showPutAway: boolean;
+    showPlace: boolean;
+    placeCount: number;
   } | null {
+    const state = gameState.getState();
     if (this.selectedDecorationIndex !== null) {
       const obj = this.decorationSprites[this.selectedDecorationIndex];
       if (obj === undefined) return null;
-      return { obj, showFlip: true, showPutAway: true };
+      // Place shows when more of THIS decoration's frame waits in the shed.
+      const frame = state.decorations[this.selectedDecorationIndex]?.frame;
+      const shed = frame === undefined ? 0 : (state.shedInventory[frame] ?? 0);
+      return { obj, showFlip: true, showPutAway: true, showPlace: shed > 0, placeCount: shed };
+    }
+    if (this.selectedPlotIndex !== null) {
+      const obj = this.plotTileSprites[this.selectedPlotIndex];
+      if (obj === undefined) return null;
+      const count = state.unplacedPlots;
+      // A plot offers Place only; nothing to place -> no toolbar.
+      if (count <= 0) return null;
+      return { obj, showFlip: false, showPutAway: false, showPlace: true, placeCount: count };
     }
     const ref = this.selectedStructureId;
     if (ref !== null) {
       const obj = this.structureImage(ref);
       if (obj === null) return null;
       const showFlip = isFlippableMovable(ref);
-      // No building/structure ever offers Put away from the UI (U3b-r1).
+      // No building/structure ever offers Put away or Place from the UI (U3b-r1).
       if (!showFlip) return null;
-      return { obj, showFlip, showPutAway: false };
+      return { obj, showFlip, showPutAway: false, showPlace: false, placeCount: 0 };
     }
     return null;
   }
@@ -5235,6 +5266,34 @@ export class FarmScene extends Phaser.Scene {
    *  buildings) - stores the selection and plays the fly-to-Shed flight. */
   private putAwaySelected(): void {
     if (this.selectedDecorationIndex !== null) this.storeSelectedDecoration();
+  }
+
+  /**
+   * Contextual-toolbar Place (U3b-r2): pull the next copy of the SELECTION out of
+   * the shed, in hand - the same chain-placement flow the retired floating "Place
+   * Next" button drove (`handlePlaceNext`), now scoped to whatever is selected.
+   * For a decoration, scope the chain to the selected copy (its frame + position)
+   * so the new copy lands beside it and becomes the selection; for a plot, seed a
+   * plot session on the selected tile when none is active so an arbitrary plot
+   * chains from itself, then keep an ongoing session's direction history.
+   * `handlePlaceNext` selects the new item, and the toolbar re-derives from it.
+   */
+  private placeNextForSelection(): void {
+    if (this.selectedDecorationIndex !== null) {
+      const decoration = gameState.getState().decorations[this.selectedDecorationIndex];
+      if (decoration === undefined) return;
+      this.placementSession = { kind: 'decor', frame: decoration.frame };
+      this.lastPlacedDecorIndex = this.selectedDecorationIndex;
+      this.handlePlaceNext();
+      return;
+    }
+    if (this.selectedPlotIndex !== null) {
+      if (this.placementSession === null || this.placementSession.kind !== 'plot') {
+        this.placementSession = { kind: 'plot' };
+        this.sessionPlotIndices = [this.selectedPlotIndex];
+      }
+      this.handlePlaceNext();
+    }
   }
 
   /**
@@ -5447,7 +5506,6 @@ export class FarmScene extends Phaser.Scene {
     this.setArrangeControlsVisible(true);
     this.updateEditBarState();
     this.updateContextualToolbar();
-    this.updatePlaceNextButton();
     this.setOtherHitboxesEnabled(
       false,
       this.arrangeExemptObjects(),
@@ -5579,7 +5637,6 @@ export class FarmScene extends Phaser.Scene {
       // (T3.3a) - the sweep must neither disable nor, crucially, RESTORE
       // them (see exitArrangeMode's comment).
       ...this.plotTileSprites,
-      this.arrangePlaceNextButton,
       this.arrangeShedButton,
       this.arrangeShopButton,
       this.arrangeUndoButton,
@@ -5590,6 +5647,7 @@ export class FarmScene extends Phaser.Scene {
       // so they are exempt here belt-and-braces.
       this.ctxFlipZone,
       this.ctxPutAwayZone,
+      this.ctxPlaceZone,
       this.hud.getArrangeToggleButton(),
       // T3.4b: camera gestures stay active while arranging, so recentering
       // must too (its own visibility logic still hides it at the default view).
@@ -6448,7 +6506,8 @@ export class FarmScene extends Phaser.Scene {
    * The grant popup's Place Now path (T3.3a): straight into arrange mode
    * with one plot auto-taken from the shed, spawned committed, selected,
    * and liftable - and a chain-placement session started (T3.3a-r), so the
-   * remaining grants place via "Place Next" without a Shed round trip. With
+   * remaining grants place via the toolbar's Place button without a Shed round
+   * trip (U3b-r2). With
    * no free placeable tile (only reachable via dev over-granting), it still
    * enters arrange mode - the plot stays in the shed and the Edit Layout
    * flash resumes on exit.
@@ -6456,10 +6515,7 @@ export class FarmScene extends Phaser.Scene {
   private handlePlaceNow(): void {
     if (!this.arrangeModeActive) this.enterArrangeMode();
     const placed = this.placePlotAtBestTile();
-    if (placed === false) {
-      this.updatePlaceNextButton();
-      return;
-    }
+    if (placed === false) return;
     this.recordSessionPlotPlacement(placed);
     this.setPlotSelection(placed);
     this.refreshArrangePlotInteractivity();
@@ -6484,13 +6540,13 @@ export class FarmScene extends Phaser.Scene {
 
   /**
    * THE one bookkeeping path for plot placements (T3.3a-r2f2): every entry
-   * point - the popup's Place Now, the Shed's Place, and Place Next's own
+   * point - the popup's Place Now, the Shed's Place, and the toolbar Place's own
    * spawns - records the placed index here, IMMEDIATELY after the store
    * commit and before any juice (sfx, panels, selection). Root-cause
    * hardening: a user-action callback that throws mid-handler has happened
    * live before (a half-loaded page with its audio missing - see
    * `onFieldPointerUp`'s comment), and bookkeeping that ran after such a
-   * throw was lost - an empty history then sent the next Place Next to the
+   * throw was lost - an empty history then sent the next Place to the
    * batch-start search, which can legally pick a tile far from the plot it
    * should have chained from. Seeds a fresh plot session when none is
    * active; extends the current one otherwise, so a Shed round trip
@@ -6502,17 +6558,18 @@ export class FarmScene extends Phaser.Scene {
       this.sessionPlotIndices = [];
     }
     this.sessionPlotIndices.push(placedIndex);
-    this.updatePlaceNextButton();
   }
 
   /**
-   * "Place Next xN" (T3.3a-r): spawn the session's next item adjacent to the
+   * The chain-placement spawn (T3.3a-r; driven by the contextual toolbar's Place
+   * button since U3b-r2): spawn the session's next item adjacent to the
    * last-placed one, already committed. Plots follow the decided preference
    * order (same column row+1, else same row col+1, else nearest free
    * placeable tile - `nextChainPlotTile`; if the anchor is gone, e.g. after
    * a dev import, fall back to the center-of-mass spawn). Decor spawns
    * offset a little beside the last-placed decor, free-form, through the
-   * store's own clamps.
+   * store's own clamps. On success it selects the new item, so the toolbar
+   * re-derives its Place count from the new selection next frame.
    */
   private handlePlaceNext(): void {
     const session = this.placementSession;
@@ -6538,10 +6595,7 @@ export class FarmScene extends Phaser.Scene {
         // plots array mid-session): recover with the batch-start search.
         placed = this.placePlotAtBestTile();
       }
-      if (placed === false) {
-        this.updatePlaceNextButton();
-        return;
-      }
+      if (placed === false) return;
       // Bookkeeping FIRST (T3.3a-r2f2) - juice may throw, history may not be lost.
       this.recordSessionPlotPlacement(placed);
       this.audio.sfx('tap');
@@ -6553,10 +6607,7 @@ export class FarmScene extends Phaser.Scene {
       // stable, but the fresh entry must not anchor on itself.
       const previous = gameState.getState().decorations[this.lastPlacedDecorIndex];
       const newIndex = gameState.placeFromShed(session.frame);
-      if (newIndex === false) {
-        this.updatePlaceNextButton();
-        return;
-      }
+      if (newIndex === false) return;
       // Bookkeeping first here too (T3.3a-r2f2), same throwing-juice hardening.
       this.lastPlacedDecorIndex = newIndex;
       this.audio.sfx('tap');
@@ -6570,47 +6621,6 @@ export class FarmScene extends Phaser.Scene {
         );
       }
       this.spawnPlacedDecorationSprite(newIndex);
-    }
-    this.updatePlaceNextButton();
-  }
-
-  /**
-   * Re-derive the Place Next button (T3.3a-r) from the live session and shed
-   * counts: hidden outside a session or once the session item's count hits
-   * zero; "Place Next xN" while items remain; dimmed-but-visible (the Store
-   * button convention) when items remain but there is nowhere to put one -
-   * only reachable for plots (every placeable tile blocked), since decor is
-   * free-form and always has somewhere to go.
-   */
-  private updatePlaceNextButton(): void {
-    const session = this.placementSession;
-    const state = gameState.getState();
-    const count =
-      session === null
-        ? 0
-        : session.kind === 'plot'
-          ? state.unplacedPlots
-          : (state.shedInventory[session.frame] ?? 0);
-    const visible = this.arrangeModeActive && count > 0;
-    this.arrangePlaceNextButton.setVisible(visible);
-    this.arrangePlaceNextText.setVisible(visible);
-    if (!visible) {
-      this.arrangePlaceNextButton.disableInteractive();
-      return;
-    }
-    this.arrangePlaceNextText.setText(`Place Next x${count}`);
-    const enabled =
-      session!.kind === 'decor' ||
-      placeablePlotTiles(state.regionsUnlocked).some((tile) =>
-        isPlotTileFree(state, tile.col, tile.row),
-      );
-    this.arrangePlaceNextButton.setAlpha(
-      enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA,
-    );
-    if (enabled) {
-      this.arrangePlaceNextButton.setInteractive({ useHandCursor: true });
-    } else {
-      this.arrangePlaceNextButton.disableInteractive();
     }
   }
 
@@ -6755,7 +6765,6 @@ export class FarmScene extends Phaser.Scene {
     if (newIndex === false) return;
     this.placementSession = { kind: 'decor', frame };
     this.lastPlacedDecorIndex = newIndex;
-    this.updatePlaceNextButton();
     this.audio.sfx('tap');
     this.hideShedPanel();
     this.spawnPlacedDecorationSprite(newIndex);
