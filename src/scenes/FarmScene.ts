@@ -110,7 +110,6 @@ import { now } from '../systems/time';
 import { ChestCeremony } from '../ui/ChestCeremony';
 import { CoinArc } from '../ui/CoinArc';
 import { cropToInfoDef, CropInfoCard } from '../ui/CropInfoCard';
-import { DecorShop } from '../ui/DecorShop';
 import { ExpandSign } from '../ui/ExpandSign';
 import { FloatingText, type FloatingTextOptions } from '../ui/FloatingText';
 import { GoalsPanel } from '../ui/GoalsPanel';
@@ -1272,7 +1271,6 @@ export class FarmScene extends Phaser.Scene {
    *  repositions only on change (so it never fights a live drag, whose
    *  moves are sprite-only until the commit). */
   private lastStructureAnchorsJson = '';
-  private decorShop!: DecorShop;
   private restorePanel!: RestorePanel;
   private questBoard!: QuestBoard;
   private goalsPanel!: GoalsPanel;
@@ -1645,15 +1643,6 @@ export class FarmScene extends Phaser.Scene {
     this.coinArc = this.inUiLayer(() => new CoinArc(this));
     this.moondustArc = this.inUiLayer(() => new MoondustArc(this));
     this.cropInfoCard = this.inUiLayer(() => new CropInfoCard(this, this.audio));
-    this.decorShop = this.inUiLayer(
-      () =>
-        new DecorShop(
-          this,
-          this.audio,
-          () => this.enterArrangeMode(),
-          () => this.openRestorePanel(),
-        ),
-    );
     this.restorePanel = this.inUiLayer(
       () => new RestorePanel(this, this.audio, () => this.playRestorationCelebration()),
     );
@@ -3990,9 +3979,9 @@ export class FarmScene extends Phaser.Scene {
       return;
     }
     this.audio.sfx('tap');
-    this.hud.closePanels();
-    this.decorShop.setElevated(false);
-    this.decorShop.toggle(gameState.getState());
+    // The unified Shop on its Decor tab (U2b), un-elevated - the Hud method
+    // closes the other HUD panels and toggles it, replacing the old DecorShop.
+    this.hud.toggleShopDecor(false);
   }
 
   /**
@@ -4008,8 +3997,9 @@ export class FarmScene extends Phaser.Scene {
   private openDecorShopFromArrange(): void {
     this.audio.sfx('tap');
     this.hideWarehousePanel();
-    this.decorShop.setElevated(true);
-    this.decorShop.toggle(gameState.getState());
+    // The unified Shop on its Decor tab (U2b), elevated above the arrange
+    // control row. The shed panel is closed above; the Hud method toggles it.
+    this.hud.toggleShopDecor(true);
   }
 
   /**

@@ -36,6 +36,7 @@ import {
   fenceOwnedCount,
   MAX_DECOR_ITEMS,
   MAX_FENCES,
+  PURCHASABLE_FRAMES,
   WAREHOUSE_PLACE_X,
   WAREHOUSE_PLACE_Y,
 } from '../data/decor';
@@ -690,6 +691,14 @@ export interface GameStateData {
    * future goal does not re-badge the icon for everyone.
    */
   goalsSeen: boolean;
+  /**
+   * Whether the one-time Shed tooltip (U2b, schema v31) has been shown - shown
+   * once on the FIRST successful "Add to shed" in the unified Shop, then never
+   * again, across sessions. Defaults false (fresh and migrated saves). Set by
+   * `markShedTipSeen`, exactly the `goalsSeen`/`twoFingerHintShown` one-way-flag
+   * convention.
+   */
+  shedTipSeen: boolean;
   /** Quest system state (T3.10). */
   quests: QuestsState;
   onboarding: OnboardingState;
@@ -1268,6 +1277,15 @@ const v29ToV30: Migration = (raw) => {
   return merged;
 };
 
+/**
+ * v30 -> v31: the one-time Shed tooltip flag (U2b). ADDITIVE - every existing
+ * save gains `shedTipSeen: false`, exactly like a fresh one, so a veteran sees
+ * the "your items live in the Shed" tooltip once on their first Add to shed too.
+ * No existing field changes shape or value - the `v20ToV21`/`v27ToV28` precedent
+ * for a bare additive flag.
+ */
+const v30ToV31: Migration = (raw) => ({ ...raw, shedTipSeen: false });
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1299,6 +1317,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v27ToV28,
   v28ToV29,
   v29ToV30,
+  v30ToV31,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1330,6 +1349,7 @@ export function createDefaultState(version: number): GameStateData {
     regionsUnlocked: [],
     twoFingerHintShown: false,
     goalsSeen: false,
+    shedTipSeen: false,
     quests: createDefaultQuestsState(now),
     onboarding: { completed: false, step: 0, progress: 0, progressB: 0 },
     settings: {
@@ -2424,6 +2444,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isRegionsUnlocked(raw.regionsUnlocked) &&
     typeof raw.twoFingerHintShown === 'boolean' &&
     typeof raw.goalsSeen === 'boolean' &&
+    typeof raw.shedTipSeen === 'boolean' &&
     // Total plot entitlement (placed + shed): at least the base grant, at
     // most the region-aware cap (T3.3b - EXPANDED_PLOT_COUNT plus every
     // unlocked region's entitlementIncrease; regionsUnlocked proven above).
@@ -3288,34 +3309,24 @@ export class GameStateStore {
 
   /**
    * Purchase a decoration (T3.9, reworked into the warehouse in T3.9b, cut over
-   * to the shed in U2a): deducts its price from the right currency and
-   * increments its SHED count - nothing is placed on the lawn. Returns false
-   * without mutating anything if `itemFrame` is not a known `DECOR_ITEMS` frame,
-   * the item's OWN placed+stored budget is already full (split budgets, T3.3a2:
-   * fences against MAX_FENCES, everything else against MAX_DECOR_ITEMS;
-   * trophies exempt, T3.17), the balance is insufficient, or onboarding is
-   * still active (the tutorial has no shop step).
+   * to the shed in U2a; a pure delegate since U2b): deducts its price from the
+   * right currency and increments its SHED count - nothing is placed on the
+   * lawn. Returns false without mutating anything if `itemFrame` is not a known
+   * `DECOR_ITEMS` frame, or onboarding is still active (the tutorial has no shop
+   * step).
    *
    * The DECOR_ITEMS lookup stays out front of the delegation rather than
    * leaning on the catalog: it is what keeps a TROPHY (a catalog item since
    * U2a, at price 0) from being bought here for free. Everything after it - the
-   * balance check, the charge, the bank - is `buyToShed`, so the purchase has
-   * exactly one implementation. Its level gate is inert for decor
+   * split-budget cap (moved into `buyToShed` in U2b so it lives in one place),
+   * the balance check, the charge, the bank - is `buyToShed`, so the purchase
+   * has exactly one implementation. Its level gate is inert for decor
    * (`unlockLevel` 0 for every decoration), so nothing shifted.
    */
   buyDecoration(itemFrame: string): boolean {
     if (!this.railsAllow('decor-shop')) return false;
     const item = DECOR_ITEMS.find((candidate) => candidate.frame === itemFrame);
     if (item === undefined) return false;
-    if (item.frame === FENCE_FRAME) {
-      if (fenceOwnedCount(this.state.decorations, this.state.shedInventory) >= MAX_FENCES) {
-        return false;
-      }
-    } else if (
-      decorOwnedCount(this.state.decorations, this.state.shedInventory) >= MAX_DECOR_ITEMS
-    ) {
-      return false;
-    }
     return this.buyToShed(item.frame);
   }
 
@@ -3473,6 +3484,26 @@ export class GameStateStore {
     if (item === undefined) return false;
     if (!Number.isInteger(qty) || qty <= 0) return false;
     if (this.state.level < item.unlockLevel) return false;
+    // Split decor budgets (T3.3a2), moved here from `buyDecoration` in U2b so
+    // the cap lives in exactly one place - THE shop's one purchase path. Refuses
+    // - mutating nothing - a whole-quantity buy that would push (placed + shed +
+    // qty) past the budget; there is no partial buy. Fences cap against
+    // MAX_FENCES, other purchasable decor against MAX_DECOR_ITEMS; trophies (not
+    // in PURCHASABLE_FRAMES) and non-decor items (buildings, paths) are exempt.
+    if (item.category === 'decor') {
+      if (item.frame === FENCE_FRAME) {
+        if (fenceOwnedCount(this.state.decorations, this.state.shedInventory) + qty > MAX_FENCES) {
+          return false;
+        }
+      } else if (PURCHASABLE_FRAMES.has(item.frame)) {
+        if (
+          decorOwnedCount(this.state.decorations, this.state.shedInventory) + qty >
+          MAX_DECOR_ITEMS
+        ) {
+          return false;
+        }
+      }
+    }
     const cost = item.price * qty;
     const balance = item.currency === 'coins' ? this.state.coins : this.state.moondust;
     if (balance < cost) return false;
@@ -3986,6 +4017,18 @@ export class GameStateStore {
   markGoalsSeen(): void {
     if (this.state.goalsSeen) return;
     this.state.goalsSeen = true;
+    this.save();
+  }
+
+  /**
+   * Mark the one-time Shed tooltip seen (U2b) - permanent, never flips back.
+   * Called by the unified Shop the first time an "Add to shed" succeeds; the
+   * tooltip then never shows again, across sessions. A no-op (no save) once
+   * already seen, exactly like `markGoalsSeen`.
+   */
+  markShedTipSeen(): void {
+    if (this.state.shedTipSeen) return;
+    this.state.shedTipSeen = true;
     this.save();
   }
 

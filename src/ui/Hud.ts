@@ -26,13 +26,13 @@ import { CurrencyInfoCard } from './CurrencyInfoCard';
 import { FloatingText } from './FloatingText';
 import type { GoalsPanel } from './GoalsPanel';
 import type { MillPanel } from './MillPanel';
-import { BuildingShop } from './BuildingShop';
 import { InventoryPanel, type SellableRef } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
 import { PathsPanel } from './PathsPanel';
 import type { QuestBoard } from './QuestBoard';
 import { SettingsPanel } from './SettingsPanel';
+import { ShopPanel } from './ShopPanel';
 
 /**
  * Themed top HUD: a full-width wooden banner carrying the level crest, the xp
@@ -433,9 +433,9 @@ export class Hud {
   private questBoard: QuestBoard | null = null;
   private readonly cropArc: CropArc;
   private readonly inventoryPanel: InventoryPanel;
-  /** The Building Shop the Shop button opens (T4.2d) - Hud-owned, like the bag. */
-  private readonly buildingShop: BuildingShop;
-  /** The Paths panel the Building Shop's "Paths" button opens (T4.12). */
+  /** The unified Shop the Shop button opens (U2b) - Hud-owned, like the bag. */
+  private readonly shopPanel: ShopPanel;
+  /** The Paths panel the Shop's "Paths" stopgap button opens (T4.12, U4 retires it). */
   private readonly pathsPanel: PathsPanel;
   /** Paint-mode bar (T4.12), hidden outside the mode - see PATH_BAR_Y. */
   private readonly pathBarContainer: Phaser.GameObjects.Container;
@@ -595,7 +595,7 @@ export class Hud {
       this.questBoard?.hide();
       this.goalsPanel?.hide();
       this.millPanel?.hide();
-      this.buildingShop.hide();
+      this.shopPanel.hide();
       this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
@@ -690,7 +690,10 @@ export class Hud {
     this.shopButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.closePanels();
-      this.buildingShop.show(gameState.getState());
+      // The HUD button always opens on the Buildings tab, un-elevated (an
+      // arrange-mode Decor entry may have left the panel elevated).
+      this.shopPanel.setElevated(false);
+      this.shopPanel.openTo('building', gameState.getState());
     });
 
     // Bag/orders: bare icons (no button_slot backing), each the container's
@@ -708,7 +711,7 @@ export class Hud {
       this.questBoard?.hide();
       this.goalsPanel?.hide();
       this.millPanel?.hide();
-      this.buildingShop.hide();
+      this.shopPanel.hide();
       this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
@@ -783,7 +786,7 @@ export class Hud {
       this.settingsPanel.hide();
       this.questBoard?.hide();
       this.millPanel?.hide();
-      this.buildingShop.hide();
+      this.shopPanel.hide();
       this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       // Deliberately does NOT hide itself first (unlike the other panels this
@@ -830,7 +833,7 @@ export class Hud {
     this.pathsPanel = new PathsPanel(this.scene, this.audio, (tier) => {
       this.onEnterPathMode(tier);
     });
-    this.buildingShop = new BuildingShop(this.scene, this.audio, () => {
+    this.shopPanel = new ShopPanel(this.scene, this.audio, () => {
       this.pathsPanel.show(gameState.getState());
     });
 
@@ -937,7 +940,7 @@ export class Hud {
     this.questBoard?.hide();
     this.goalsPanel?.hide();
     this.millPanel?.hide();
-    this.buildingShop.hide();
+    this.shopPanel.hide();
     this.pathsPanel.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
@@ -957,9 +960,29 @@ export class Hud {
     this.questBoard?.hide();
     this.goalsPanel?.hide();
     this.millPanel?.hide();
-    this.buildingShop.hide();
+    this.shopPanel.hide();
     this.pathsPanel.hide();
     this.currencyInfoCard.hide();
+  }
+
+  /**
+   * Toggle the unified Shop on its Decor tab (U2b) - the entry `FarmScene`'s
+   * farmhouse tap and arrange-mode Shop button reach, replacing the old
+   * DecorShop toggle. `elevated` raises the panel above the arrange control row
+   * (see ShopPanel's ELEVATED_* constants) exactly as the old Decor Shop did.
+   * When opening, the other exclusive HUD panels close first (via
+   * `closePanels`, which no-ops on the already-hidden shop); when the shop is
+   * already open, this closes it. The caller owns closing any non-HUD panel
+   * exclusive with it (the shed panel in arrange mode), matching the old flow.
+   */
+  toggleShopDecor(elevated: boolean): void {
+    if (this.shopPanel.isVisible()) {
+      this.shopPanel.hide();
+      return;
+    }
+    this.closePanels();
+    this.shopPanel.setElevated(elevated);
+    this.shopPanel.openTo('decor', gameState.getState());
   }
 
   /**
@@ -1128,7 +1151,7 @@ export class Hud {
     if (this.millPanel?.isVisible() === true) this.millPanel.refresh(state);
     // Only while visible, like the mill panel: this keeps the Buy button live
     // as coins and level change under an open shop.
-    if (this.buildingShop.isVisible()) this.buildingShop.refresh(state);
+    if (this.shopPanel.isVisible()) this.shopPanel.refresh(state);
     // Same "only while visible" rule: keeps the tier rows' affordability
     // dimming live as coins change under an open panel.
     if (this.pathsPanel.isVisible()) this.pathsPanel.refresh(state);

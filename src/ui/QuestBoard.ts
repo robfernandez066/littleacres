@@ -30,7 +30,7 @@ import { ModalBackdrop } from './ModalBackdrop';
  * (already drained on `FarmScene`'s tick - claiming needs no extra wiring
  * here), moondust flies to the HUD counter via the `hud` dependency (mirrors
  * `ChestCeremony`'s own use of `Hud`'s public fly methods), and a trophy
- * flashes "In your Warehouse!" briefly on its row.
+ * flashes "In your Shed!" briefly on its row.
  */
 
 const PANEL_WIDTH = 900;
@@ -121,7 +121,7 @@ const CHEST_BADGE_OFFSET = 20;
 const CLAIM_ENABLED_ALPHA = 1;
 const CLAIM_CLAIMED_ALPHA = 0.6;
 
-/** The "In your Warehouse!" flash: quick scale-in, brief hold, fade - mirrors OrderBoard's "Done!" stamp. */
+/** The "In your Shed!" flash: quick scale-in, brief hold, fade - mirrors OrderBoard's "Done!" stamp. */
 const FLASH_IN_MS = 150;
 const FLASH_HOLD_MS = 500;
 const FLASH_FADE_MS = 300;
@@ -618,7 +618,7 @@ export class QuestBoard {
     // text it briefly covers - live-verified (T3.10a) the name-aligned
     // version visibly collided with "500/500" on claim.
     const flashText = this.scene.add
-      .text(0, y, 'In your Warehouse!', FLASH_STYLE)
+      .text(0, y, 'In your Shed!', FLASH_STYLE)
       .setOrigin(0.5)
       .setVisible(false);
 
