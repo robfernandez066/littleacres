@@ -10,6 +10,7 @@
 
 ## Queued next
 
+- **U3b-r3 (next after V33):** edit-bar button taps leak through to the field handler - the SEED BAR appears when clicking bottom-bar buttons in edit mode (owner report 2026-07-23). Input-swallow fix, same class as U2b-r3.
 - **U3c long-press edit entry + occluded-asset selection** (gesture-classifier changes, isolated by design; covers the owner's bakery-stuck-between-sprites report) -> **U4** (see spec's PM sequencing header).
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
@@ -54,6 +55,8 @@
 - docs/tasks/progress.md is at ~11 reports - archive the pre-U3b entries to private/to_delete/ on the next healthy-workspace session (byte-exact copy needs the VM; do not hand-reconstruct).
 
 ## Watch items
+
+- **RESOLVED same day - /clear mid-loop:** the "unattributed" V33 tree was an owner /clear cutting off the prior coder between verification and the report/diff steps. Preflight caught it; the successor session audits-and-adopts. OWNER RULE going forward: don't /clear a coder session until its done-line is on screen AND the report sentinel (`=== END REPORT <id> ===`) exists in docs/tasks/progress.md.
 
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.

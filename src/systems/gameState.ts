@@ -14,7 +14,12 @@ import {
   type MillingRecipe,
   recipeInputHeld,
 } from '../data/buildings';
-import { CATALOG_IDS, type CatalogItem, findCatalogItem } from '../data/catalog';
+import {
+  CATALOG_IDS,
+  catalogItemsInCategory,
+  type CatalogItem,
+  findCatalogItem,
+} from '../data/catalog';
 import {
   CHEST_COINS_MAX,
   CHEST_COINS_MIN,
@@ -1336,6 +1341,82 @@ const v31ToV32: Migration = (raw) => {
   return { ...raw, buildings, buildingSlotUnlocks };
 };
 
+/**
+ * Every unique (non-`allowMultiple`) catalog building - the set `v32ToV33`
+ * normalizes. DERIVED from the catalog at module load, so a new building joins
+ * automatically. Every 'building' category item is one-per-type today
+ * (`buildingToCatalogItem` hardcodes `allowMultiple: false`); the filter is kept
+ * explicit so the migration still means "unique buildings" if that ever changes.
+ */
+const UNIQUE_BUILDING_ITEMS: readonly CatalogItem[] = catalogItemsInCategory('building').filter(
+  (item) => !item.allowMultiple,
+);
+
+/**
+ * v32 -> v33: heal the pre-U3b-r1 dupe-buy hole (V33). Before U3b-r1 closed it,
+ * a save could own MORE THAN ONE copy of a unique building - one placed plus one
+ * stranded in the shed that could never be placed. This one-shot remediation
+ * normalizes every unique building to at most ONE owned copy and REFUNDS the
+ * full purchase price for each dropped extra.
+ *
+ * For each catalog building with `allowMultiple` false: owned = placed count +
+ * shed count. Extras are removed from the SHED ONLY (a placement is never
+ * touched) and the building's registry price is refunded per removed copy in the
+ * item's own currency. One placement already satisfies "at most one owned", so
+ * with anything placed every shed copy is an extra; with nothing placed a single
+ * shed copy is kept. If the placements alone exceed one (defensive - the hole
+ * only ever stranded copies in the shed, never double-placed), they are left as
+ * they are and nothing is refunded for them.
+ *
+ * The refund is at the CURRENT registry price, which IS the price paid: building
+ * prices have not changed across the life of the hole. This is REMEDIATION of
+ * our own bug, not a gameplay refund path - the no-refund pipeline rule stands
+ * everywhere else and nothing here loosens it. Coins is the only building
+ * currency today, but the credit is written off the catalog item's own currency
+ * so a moondust building would refund in moondust with no code change.
+ *
+ * Shed keys land on the delete-at-zero convention (no zero entries left behind).
+ * Defensive per the migration convention: a missing/non-record shed passes
+ * through untouched, a malformed shed count is skipped (no refund, no change),
+ * and a refund is credited only to a balance that is actually a number - the
+ * validator judges anything odd that survives.
+ */
+const v32ToV33: Migration = (raw) => {
+  if (!isRecord(raw.shedInventory)) return raw;
+  const shed: Record<string, unknown> = { ...raw.shedInventory };
+
+  // Placed count per building type, from the buildings list.
+  const placedCounts: Record<string, number> = {};
+  if (Array.isArray(raw.buildings)) {
+    for (const b of raw.buildings) {
+      if (isRecord(b) && typeof b.type === 'string') {
+        placedCounts[b.type] = (placedCounts[b.type] ?? 0) + 1;
+      }
+    }
+  }
+
+  const refunds: Record<string, number> = {};
+  for (const item of UNIQUE_BUILDING_ITEMS) {
+    const shedCount = shed[item.id];
+    // Defensive malformed-value skip: a non-positive-integer shed count is not a
+    // real owned copy, so it is neither refunded nor rewritten.
+    if (!isFiniteNumber(shedCount) || !Number.isInteger(shedCount) || shedCount <= 0) continue;
+    const keepInShed = (placedCounts[item.id] ?? 0) >= 1 ? 0 : 1;
+    const removed = shedCount - keepInShed;
+    if (removed <= 0) continue;
+    if (keepInShed === 0) delete shed[item.id];
+    else shed[item.id] = keepInShed;
+    refunds[item.currency] = (refunds[item.currency] ?? 0) + removed * item.price;
+  }
+
+  const next: Record<string, unknown> = { ...raw, shedInventory: shed };
+  for (const [currency, amount] of Object.entries(refunds)) {
+    const balance = raw[currency];
+    if (isFiniteNumber(balance)) next[currency] = balance + amount;
+  }
+  return next;
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1369,6 +1450,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v29ToV30,
   v30ToV31,
   v31ToV32,
+  v32ToV33,
 ];
 
 export function createDefaultState(version: number): GameStateData {
