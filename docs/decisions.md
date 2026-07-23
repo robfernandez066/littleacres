@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - V33 shipped: dupe refund; /clear-mid-loop incident resolved
+**Context:** The one-shot remediation for the pre-U3b-r1 dupe-buy hole. Its coder session was accidentally /cleared mid-loop; the successor session's preflight caught the "unattributed" tree, and an audit-and-adopt pass found the inherited work complete AND its report already appended - only the commit was missing.
+**Decision/verdict:** COMMIT 06540cf (schema v33, tests 834; owner verified live pre-commit: coins refunded, shed deduped). Migration: unique buildings normalize to one owned copy, shed-only removal, refund per copy in the item's own currency at registry price; explicit not-a-gameplay-refund doc comment. Process hardening: task-file "clean tree" claims now scope to src/ (pm-rules); owner rule - never /clear a coder session before its report sentinel exists in progress.md. New owner directive queued into U3b-r3: unique buildings display owned-of-max ("1/1"), not "x1"; stackables keep "xN".
+**Trigger:** V33 report + audit session + owner live check.
+
 ## 2026-07-23 - U3b-r2 shipped: calm shop cards + toolbar column; occlusion gap -> U3c
 **Context:** Owner-directed refinements after the U3b ship: Decor tab tap-to-expand (variant B of PM mocks), contextual toolbar as a Flip/Put away/Place column absorbing the floating Place Next button.
 **Decision/verdict:** COMMIT a4b4e29 (tests 828; owner device pass). Card geometry went top-anchored variable-height with a pure, unit-tested reflow helper (shopDecorLayout.ts); Buildings tab pixel-identical; collapsed cards carry zero live hitboxes. NEW GAP from owner play: a fast-path building can land where neighboring sprites' rectangular hit areas occlude it entirely (unmovable bakery between mill + farmhouse on mobile) - occluded-asset selection (nearest-base / tap-cycle among overlapping movables) FOLDED INTO U3c alongside long-press. Workaround meanwhile: zoom in or move the neighbors.
