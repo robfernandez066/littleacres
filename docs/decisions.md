@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U2b-r4 shipped (shop polish); U3b sliced again (long-press -> U3c)
+**Context:** Owner found two live shop defects post-commit: the one-time tooltip rendered behind the cards, and the fly-to-Shed animation hitched on device.
+**Decision/verdict:** COMMIT 6e24017 (tests 818). Root cause of the lag: the 250ms Hud tick re-tessellated every pill's WebGL Graphics each refresh, colliding with the flight tween; fixed by memoizing pill redraws (geometry is a pure function of the memo key). Tooltip fixed with bring-to-top on show. Slicing ruling: the spec's long-press-to-edit entrance moves OUT of U3b into its own U3c - it modifies the gesture classifier, and classifier changes ship isolated with a real-phone regression pass (standing lesson from the gesture wars).
+**Trigger:** owner device report; U2b-r4 report.
+
 ## 2026-07-23 - U3a shipped: per-TYPE slots + undo stack (model)
 **Context:** Store foundations for U3b's edit-scene UI; resolves the U1 building-capacity blocker.
 **Decision/verdict:** COMMIT 5d061cb (schema v32, tests 818; owner human check: nothing visible changed, confirmed). `buildingSlotUnlocks` map replaces per-placement `unlockedSlots` (max-and-strip migration; `unlockedSlotsFor` is the one reader) - a put-away building keeps its paid capacity with or without undo. In-memory edit-session undo stack instruments placeFromShed/putAwayToShed/setDecorationTransform/moveBuilding/moveStructure/flipBuilding/flipStructure (object-reference targeting, graceful discard on refused inverse); plot moves deliberately NOT instrumented (not in spec - U3b may revisit); paint strokes wait for U4. Dormant in live play until U3b calls beginEditSession. SYNC FLAGS delivered: BuildingPlacement lost unlockedSlots; new buildingSlotUnlocks field.

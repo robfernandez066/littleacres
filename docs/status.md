@@ -6,17 +6,18 @@
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1, U2a, U2b, U3a SHIPPED (latest 5d061cb). **U2b-r4 (shop fix: occluded buy popup + laggy fly-to-Shed, routine) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Then U3b edit scene UI -> U4 paths tab + paint-from-inventory.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1, U2a, U2b(+r4), U3a SHIPPED (latest 6e24017). **U3b (edit-scene UI rework: bottom bar + contextual toolbar + in-hand + undo wiring + naming sweep, complex) is ACTIVE - run the coder loop.** Then U3c long-press entry (gesture classifier, isolated) -> U4 paths tab + paint-from-inventory.
 
 ## Queued next
 
-- **U3b / U4** of the U-wave (see spec's PM sequencing header).
+- **U3c long-press edit entry** (gesture-classifier change, isolated by design) -> **U4** (see spec's PM sequencing header).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 
 ## Completed (newest first)
 
+- U2b-r4 shop tooltip depth + memoized pill redraws (smooth fly-to-Shed) - 6e24017
 - U3a per-TYPE building slot unlocks (v32; shelved buildings keep paid capacity) + edit-session undo stack (model, dormant until U3b) - 5d061cb, tests 818
 - U2b unified Shop (tabs, vector chrome, stepper + fly-to-Shed, one-time tip v31; caps into buyToShed; old shops deleted; 3 fix rounds) - a220404, tests 805; owner device pass
 - U2a warehouse retired into the Shed (trophies -> catalog purchasable:false, v30 overwrite-merge, delegate reducers) - 3987082, tests 795; owner live-tested the migration
@@ -64,6 +65,7 @@
 - MAX-level order cards still advertise xp at the cap - de-emphasize.
 - Reduced-motion toggle - ride a settings task.
 - Dev-only cosmetics: 'Edit dressing' toggle full-width; dev.ts comment re-attachment.
+- ShopPanel.ts DEV-seam comment references a nonexistent tools/shop-capture.mjs - fix when U3b touches the file.
 
 ## Open validations (real-device evidence still needed)
 
