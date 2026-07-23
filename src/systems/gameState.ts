@@ -241,13 +241,6 @@ export interface ShedPlaceOptions {
   scale?: number;
   /** Mirror - a decoration's `flip` or a building's `flipped`. Defaults false. */
   flip?: boolean;
-  /**
-   * Paid-for production slots to restore on a building (U1). Defaults to the 1
-   * a freshly bought building is born with; clamped to the recipe's own slot
-   * count by the same rule the validator applies. Only an undo/re-place of a
-   * building that HAD slots unlocked should pass this - see `putAwayToShed`.
-   */
-  unlockedSlots?: number;
 }
 
 /**
@@ -309,14 +302,6 @@ export interface BuildingPlacement {
    */
   batches: MillBatch[];
   /**
-   * How many of the building's `milling.slots` the player has PAID FOR
-   * (T4.2b-r1, schema v25). A building is born with 1 and buys the rest with
-   * coins (`unlockMillSlot`); `startMilling` caps on this, not on the def's
-   * slot count, so capacity is progression rather than a given. A building
-   * with no recipe carries 1 and never uses it.
-   */
-  unlockedSlots: number;
-  /**
    * Horizontal mirror (T4.8, schema v27) - the building twin of
    * `StructureAnchor.flipped` and of a decoration's `flip`. Visual only:
    * `setFlipX` mirrors around the sprite's own origin, so anchor, footprint,
@@ -373,10 +358,17 @@ export type MillSlotView =
  * rule. Slot i holds batch i (batches are stored oldest-first and never
  * sparse), and every index past the batch list is an empty slot.
  *
- * Slots at or past `placement.unlockedSlots` are LOCKED (T4.2b-r1), carrying
- * the coin cost that would open them. The list is still `recipe.slots` long
- * whatever is unlocked, so the panel draws the full mill and the player can
- * see what they are working toward. The field indicator ignores locked slots.
+ * Slots at or past `unlockedSlots` are LOCKED (T4.2b-r1), carrying the coin
+ * cost that would open them. The list is still `recipe.slots` long whatever is
+ * unlocked, so the panel draws the full mill and the player can see what they
+ * are working toward. The field indicator ignores locked slots.
+ *
+ * `unlockedSlots` is the building TYPE's paid capacity (U3a, schema v32) - it
+ * moved off the placement into a per-type map (`buildingSlotUnlocks`), so a
+ * caller reads it via `unlockedSlotsFor(state, type)` and passes it in. It
+ * defaults to `recipe.slots` (the whole mill unlocked) for the one caller that
+ * omits it: the field indicator, which reads only the ready/milling kinds and
+ * so is indifferent to the locked/empty split.
  *
  * Pure: takes the clock as `nowMs` (callers pass the game clock's `now()`, the
  * same clock the store's own readiness checks use) and mutates nothing, so the
@@ -386,10 +378,11 @@ export function millSlots(
   placement: BuildingPlacement,
   recipe: MillingRecipe,
   nowMs: number,
+  unlockedSlots: number = recipe.slots,
 ): MillSlotView[] {
   const views: MillSlotView[] = [];
   for (let index = 0; index < recipe.slots; index++) {
-    if (index >= placement.unlockedSlots) {
+    if (index >= unlockedSlots) {
       // Slot 2 (index 1) is priced by slotUnlockCosts[0] - the list prices the
       // slots PAST the first, so the index shifts down by one.
       views.push({ kind: 'locked', cost: recipe.slotUnlockCosts[index - 1] ?? 0 });
@@ -405,6 +398,16 @@ export function millSlots(
     }
   }
   return views;
+}
+
+/**
+ * The paid production capacity of a building TYPE (U3a, schema v32): its entry
+ * in `buildingSlotUnlocks`, or 1 (the born-with slot) when it has bought none.
+ * THE reader of the map, so the "absent key = 1 slot" rule lives in exactly one
+ * place - the store reducers, the mill panel, and the tests all go through it.
+ */
+export function unlockedSlotsFor(state: GameStateData, type: string): number {
+  return state.buildingSlotUnlocks[type] ?? 1;
 }
 
 /**
@@ -661,6 +664,20 @@ export interface GameStateData {
    * `batches`), so a building instance is always one object.
    */
   buildings: BuildingPlacement[];
+  /**
+   * Paid production capacity PER BUILDING TYPE (U3a, schema v32): building id
+   * -> how many of its `milling.slots` the player has bought. Moved OFF the
+   * placement (was `BuildingPlacement.unlockedSlots`, v25) so capacity is a
+   * property of the type, not the instance - a building put away into the shed
+   * and re-placed keeps its paid slots, and a one-per-type building has exactly
+   * one capacity to track.
+   *
+   * A key ABSENT means the born-with 1 slot (read everywhere via
+   * `unlockedSlotsFor`); keys exist only for types that bought a slot, and
+   * their values are integers in [2, that type's `milling.slots`] - a value of
+   * 1 is redundant and is never written. Empty on a fresh save.
+   */
+  buildingSlotUnlocks: Record<string, number>;
   /**
    * Player-painted path tiles (T4.12, schema v28), at most one per (col, row).
    * A COSMETIC ground layer: nothing here participates in placement legality,
@@ -1286,6 +1303,40 @@ const v29ToV30: Migration = (raw) => {
  */
 const v30ToV31: Migration = (raw) => ({ ...raw, shedTipSeen: false });
 
+/**
+ * v31 -> v32: paid production slots move OFF each placement (`unlockedSlots`)
+ * and onto a per-TYPE map, `buildingSlotUnlocks` (U3a). For every placed
+ * building whose `unlockedSlots` was 2 or more, the type records that count
+ * (max across placements - one-per-type means at most one placement, but the
+ * max is the defensive read); a 1 is the born-with default and is left OUT of
+ * the map, which is why the map starts empty here. The `unlockedSlots` field is
+ * then stripped from every placement, so the building shape matches v32.
+ *
+ * No currency moves and nothing player-visible changes: the capacity a
+ * placement carried becomes the type's, and `unlockedSlotsFor` reads it back
+ * exactly as `placement.unlockedSlots` did. Defensive per the migration
+ * convention - a non-record placement or a missing `buildings` list passes
+ * through untouched, and a bad `unlockedSlots` value simply contributes no key.
+ */
+const v31ToV32: Migration = (raw) => {
+  const rawBuildings = Array.isArray(raw.buildings) ? raw.buildings : [];
+  const buildingSlotUnlocks: Record<string, number> = {};
+  const buildings = rawBuildings.map((b) => {
+    if (!isRecord(b)) return b;
+    const { unlockedSlots, ...rest } = b;
+    if (
+      typeof b.type === 'string' &&
+      typeof unlockedSlots === 'number' &&
+      Number.isInteger(unlockedSlots) &&
+      unlockedSlots >= 2
+    ) {
+      buildingSlotUnlocks[b.type] = Math.max(buildingSlotUnlocks[b.type] ?? 0, unlockedSlots);
+    }
+    return rest;
+  });
+  return { ...raw, buildings, buildingSlotUnlocks };
+};
+
 /** The real migration list. */
 export const MIGRATIONS: readonly Migration[] = [
   v1ToV2,
@@ -1318,6 +1369,7 @@ export const MIGRATIONS: readonly Migration[] = [
   v28ToV29,
   v29ToV30,
   v30ToV31,
+  v31ToV32,
 ];
 
 export function createDefaultState(version: number): GameStateData {
@@ -1344,6 +1396,7 @@ export function createDefaultState(version: number): GameStateData {
     shedInventory: {},
     structures: createDefaultStructures(),
     buildings: [],
+    buildingSlotUnlocks: {},
     paths: [],
     restoration: { farmhouse: 0 },
     regionsUnlocked: [],
@@ -2370,22 +2423,39 @@ function isBuildingPlacement(value: unknown): value is BuildingPlacement {
   // Batches are capped by the building's OWN slot count (T4.2a) - a save
   // claiming more concurrent batches than the def allows is a save this build
   // cannot honour, exactly like an unknown type. A building with no milling
-  // recipe allows zero, so its list must be empty.
-  // Unlocked slots (T4.2b-r1) are bounded by the def the same way: at least
-  // the one every building is born with, never more than it declares. A
-  // recipe-less building carries exactly 1 (it has no slots to open).
-  if (
-    !Number.isInteger(value.unlockedSlots) ||
-    (value.unlockedSlots as number) < 1 ||
-    (value.unlockedSlots as number) > (building.milling?.slots ?? 1)
-  ) {
-    return false;
-  }
+  // recipe allows zero, so its list must be empty. Paid capacity is no longer a
+  // per-placement field (U3a) - it lives in `buildingSlotUnlocks`, validated by
+  // `isBuildingSlotUnlocks`.
   return (
     Array.isArray(value.batches) &&
     value.batches.length <= (building.milling?.slots ?? 0) &&
     value.batches.every(isMillBatch)
   );
+}
+
+/**
+ * `buildingSlotUnlocks` (U3a, schema v32): a map from KNOWN building id to that
+ * type's paid slot count. Every key must be a real `BUILDINGS` type, and every
+ * value an integer in [2, that type's `milling.slots`] - a 1 is the born-with
+ * default that is never written (it is read as the absent-key fallback by
+ * `unlockedSlotsFor`), and a recipe-less type has no slots to buy, so no key.
+ * An empty map is valid (nobody has bought a slot).
+ */
+function isBuildingSlotUnlocks(value: unknown): value is Record<string, number> {
+  if (!isRecord(value)) return false;
+  for (const [type, count] of Object.entries(value)) {
+    const building = findBuilding(type);
+    if (building === undefined) return false;
+    if (
+      typeof count !== 'number' ||
+      !Number.isInteger(count) ||
+      count < 2 ||
+      count > (building.milling?.slots ?? 1)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** One in-flight batch (T4.2a): a finite `startedAt` and nothing else stored. */
@@ -2472,6 +2542,7 @@ export function isValidState(raw: unknown, expectedVersion: number): raw is Game
     isStructuresState(raw.structures) &&
     Array.isArray(raw.buildings) &&
     raw.buildings.every(isBuildingPlacement) &&
+    isBuildingSlotUnlocks(raw.buildingSlotUnlocks) &&
     Array.isArray(raw.paths) &&
     raw.paths.every(isPathTile) &&
     // Entries are shape-proven above, so their col/row are safe to read here.
@@ -2557,6 +2628,25 @@ export class GameStateStore {
    * mid-review just restarts the read, which is fine.
    */
   private stepEnteredAt = 0;
+  /**
+   * Edit-session UNDO stack (U3a) - in-memory ONLY, never serialized, never
+   * part of `GameStateData`, cleared on `endEditSession`. Each entry is the
+   * INVERSE of one committed arrange action, a thunk that reapplies it and
+   * returns whether it succeeded (LIFO). Empty and inert until U3b's edit scene
+   * calls `beginEditSession`, so the whole mechanism is dormant in the live game
+   * today - which is what keeps this task's change player-invisible.
+   */
+  private editUndoStack: (() => boolean)[] = [];
+  /** Whether an edit session is active (U3a): arrange reducers record their
+   *  inverse ONLY while this is true. */
+  private editSessionActive = false;
+  /** >0 while an undo inverse is being applied (U3a) - suppresses re-recording,
+   *  so applying an inverse never pushes its own inverse back onto the stack. */
+  private undoApplyDepth = 0;
+  /** True while an instrumented reducer runs a nested instrumented reducer
+   *  (only `placeFromShed` -> `setDecorationTransform`), so the compound action
+   *  records exactly ONE inverse rather than two (U3a). */
+  private undoRecordSuppressed = false;
 
   constructor(options: GameStateStoreOptions = {}) {
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
@@ -3060,9 +3150,13 @@ export class GameStateStore {
   moveStructure(id: StructureId, col: number, row: number): boolean {
     if (!isStructureAnchorFree(this.state, id, col, row)) return false;
     const anchor = this.state.structures[id];
+    const priorCol = anchor.col;
+    const priorRow = anchor.row;
     anchor.col = col;
     anchor.row = row;
     this.save();
+    // Inverse (U3a): move the structure back to its prior anchor (keyed by id).
+    this.recordUndo(() => this.moveStructure(id, priorCol, priorRow));
     return true;
   }
 
@@ -3120,9 +3214,8 @@ export class GameStateStore {
       col: defaultAnchor.col,
       row: defaultAnchor.row,
       batches: [],
-      // One usable slot to start (T4.2b-r1); the rest are bought.
-      unlockedSlots: 1,
-      // Unmirrored until the player flips it in arrange mode (T4.8).
+      // Unmirrored until the player flips it in arrange mode (T4.8). Paid slot
+      // capacity lives per-TYPE in `buildingSlotUnlocks` now (U3a), born at 1.
       flipped: false,
     });
   }
@@ -3142,14 +3235,16 @@ export class GameStateStore {
     if (placement === undefined) return false;
     const recipe = BUILDINGS[placement.type].milling;
     if (recipe === undefined) return false;
-    if (placement.unlockedSlots >= recipe.slots) return false;
+    // Capacity is now a property of the TYPE (U3a), read/written via the map.
+    const current = unlockedSlotsFor(this.state, placement.type);
+    if (current >= recipe.slots) return false;
     // The costs list prices the slots PAST the first, so the slot being bought
-    // (the one at index `unlockedSlots`) is priced at `unlockedSlots - 1`.
-    const cost = recipe.slotUnlockCosts[placement.unlockedSlots - 1];
+    // (the one at index `current`) is priced at `current - 1`.
+    const cost = recipe.slotUnlockCosts[current - 1];
     if (cost === undefined) return false;
     if (this.state.coins < cost) return false;
     this.state.coins -= cost;
-    placement.unlockedSlots += 1;
+    this.state.buildingSlotUnlocks[placement.type] = current + 1;
     this.save();
     return true;
   }
@@ -3165,8 +3260,9 @@ export class GameStateStore {
     if (placement === undefined) return false;
     const recipe = BUILDINGS[placement.type].milling;
     if (recipe === undefined) return false;
-    if (placement.unlockedSlots >= recipe.slots) return false;
-    placement.unlockedSlots += 1;
+    const current = unlockedSlotsFor(this.state, placement.type);
+    if (current >= recipe.slots) return false;
+    this.state.buildingSlotUnlocks[placement.type] = current + 1;
     this.save();
     return true;
   }
@@ -3187,8 +3283,8 @@ export class GameStateStore {
     const recipe = BUILDINGS[placement.type].milling;
     if (recipe === undefined) return false;
     // Capacity is what the player has PAID FOR (T4.2b-r1), not what the def
-    // declares - a locked slot is not a slot you can load.
-    if (placement.batches.length >= placement.unlockedSlots) return false;
+    // declares - a locked slot is not a slot you can load. Read per-TYPE (U3a).
+    if (placement.batches.length >= unlockedSlotsFor(this.state, placement.type)) return false;
     // Per kind (T4.4): a crop input is paid out of `inventory`, a good input
     // out of `goods` - the bakery eats the flour the mill made. Held is read
     // through the shared accessor so this gate and the panel's Mill button can
@@ -3264,9 +3360,17 @@ export class GameStateStore {
     const placement = this.state.buildings[index];
     if (placement === undefined) return false;
     if (!isBuildingAnchorFree(this.state, placement.type, col, row, index)) return false;
+    const priorCol = placement.col;
+    const priorRow = placement.row;
     placement.col = col;
     placement.row = row;
     this.save();
+    // Inverse (U3a): move back to the prior anchor, targeting the placement by
+    // reference so an intervening put-away's index shift cannot mis-address it.
+    this.recordUndo(() => {
+      const i = this.state.buildings.indexOf(placement);
+      return i >= 0 && this.moveBuilding(i, priorCol, priorRow);
+    });
     return true;
   }
 
@@ -3286,6 +3390,11 @@ export class GameStateStore {
     if (placement === undefined) return false;
     placement.flipped = !placement.flipped;
     this.save();
+    // Inverse (U3a): flip back (by reference, so an index shift cannot misfire).
+    this.recordUndo(() => {
+      const i = this.state.buildings.indexOf(placement);
+      return i >= 0 && this.flipBuilding(i);
+    });
     return true;
   }
 
@@ -3304,6 +3413,8 @@ export class GameStateStore {
     if (anchor === undefined) return false;
     anchor.flipped = !anchor.flipped;
     this.save();
+    // Inverse (U3a): flip back (keyed by id).
+    this.recordUndo(() => this.flipStructure(id));
     return true;
   }
 
@@ -3547,13 +3658,60 @@ export class GameStateStore {
     const item = findCatalogItem(itemId);
     if (item === undefined) return false;
     if (this.shedCount(itemId) <= 0) return false;
+    const index =
+      item.category === 'building'
+        ? this.placeBuildingFromShed(item, options)
+        : item.category === 'decor'
+          ? this.placeDecorFromShed(item, options)
+          : this.placePathFromShed(item, options);
+    // Inverse (U3a): put the just-placed instance back. Recorded here at the
+    // ONE public entry point, so `placeFromWarehouse` (a delegate) records
+    // through it exactly once and the nested `setDecorationTransform` inside the
+    // decor path never adds a second entry (it is suppressed there).
+    if (index !== false) this.recordPlaceUndo(item, options, index);
+    return index;
+  }
+
+  /**
+   * Record the inverse of a successful `placeFromShed` (U3a): a put-away that
+   * targets the just-placed instance by OBJECT REFERENCE (buildings/decor) or
+   * tile key (paths), never by the raw index - a later put-away can splice the
+   * arrays and shift indices, but the reference still finds the instance (or,
+   * once it is gone, cleanly refuses so the stack cannot jam).
+   */
+  private recordPlaceUndo(item: CatalogItem, options: ShedPlaceOptions, index: number): void {
     switch (item.category) {
-      case 'building':
-        return this.placeBuildingFromShed(item, options);
-      case 'decor':
-        return this.placeDecorFromShed(item, options);
-      case 'path':
-        return this.placePathFromShed(item, options);
+      case 'building': {
+        const placed = this.state.buildings[index];
+        if (placed === undefined) return;
+        this.recordUndo(() => {
+          const i = this.state.buildings.indexOf(placed);
+          return i >= 0 && this.putAwayToShed({ category: 'building', index: i }) !== null;
+        });
+        return;
+      }
+      case 'decor': {
+        const placed = this.state.decorations[index];
+        if (placed === undefined) return;
+        this.recordUndo(() => {
+          const i = this.state.decorations.indexOf(placed);
+          return i >= 0 && this.putAwayToShed({ category: 'decor', index: i }) !== null;
+        });
+        return;
+      }
+      case 'path': {
+        const { col, row } = options;
+        if (col === undefined || row === undefined) return;
+        const tier = item.id;
+        this.recordUndo(() => {
+          const tile = this.state.paths.find((p) => p.col === col && p.row === row);
+          // Only put away if OUR tier is still there - a repaint may have
+          // replaced it, in which case this undo cleanly refuses.
+          if (tile?.tier !== tier) return false;
+          return this.putAwayToShed({ category: 'path', col, row }) !== null;
+        });
+        return;
+      }
     }
   }
 
@@ -3569,16 +3727,15 @@ export class GameStateStore {
     const col = options.col ?? building.defaultAnchor.col;
     const row = options.row ?? building.defaultAnchor.row;
     if (explicit && !isBuildingAnchorFree(this.state, building.id, col, row)) return false;
-    const maxSlots = building.milling?.slots ?? 1;
-    const requested = options.unlockedSlots ?? 1;
-    if (!Number.isInteger(requested)) return false;
     this.takeOneFromShed(item.id);
+    // Paid slot capacity is per-TYPE now (U3a): it lives in `buildingSlotUnlocks`
+    // and is untouched by put-away, so a re-placed building keeps its slots with
+    // nothing to carry on the placement itself.
     this.state.buildings.push({
       type: building.id,
       col,
       row,
       batches: [],
-      unlockedSlots: Math.min(maxSlots, Math.max(1, requested)),
       flipped: options.flip ?? false,
     });
     this.save();
@@ -3603,14 +3760,21 @@ export class GameStateStore {
     if (wantsTransform) {
       const placed = this.state.decorations[index]!;
       // Through the clamp authority, never around it. A refusal leaves the
-      // decoration at its spawn point (see this method's doc).
-      this.setDecorationTransform(
-        index,
-        options.x ?? placed.x,
-        options.y ?? placed.y,
-        options.scale ?? placed.scale,
-        options.flip ?? placed.flip,
-      );
+      // decoration at its spawn point (see this method's doc). Recording is
+      // SUPPRESSED for this nested transform (U3a): the enclosing
+      // `placeFromShed` records the single place-inverse for the whole action.
+      this.undoRecordSuppressed = true;
+      try {
+        this.setDecorationTransform(
+          index,
+          options.x ?? placed.x,
+          options.y ?? placed.y,
+          options.scale ?? placed.scale,
+          options.flip ?? placed.flip,
+        );
+      } finally {
+        this.undoRecordSuppressed = false;
+      }
     }
     this.save();
     return index;
@@ -3649,23 +3813,38 @@ export class GameStateStore {
    * That last refusal is the honest handling of a shape limit: `shedInventory`
    * counts items and cannot hold per-instance production state, so putting away
    * a milling building would silently destroy paid-for, in-flight batches. It
-   * refuses instead. Paid slot unlocks survive only via the returned
-   * `unlockedSlots` - see BLOCKERS in this task's report.
+   * refuses instead. Paid slot CAPACITY, by contrast, survives freely now (U3a):
+   * it is a per-TYPE property (`buildingSlotUnlocks`) that put-away never
+   * touches, so a re-place keeps it with nothing carried on the options.
    *
    * NO REFUND, in either direction: nothing here touches coins or moondust.
    */
   putAwayToShed(ref: PlacedItemRef): PutAwayResult | null {
+    const result = this.putAwayToShedInner(ref);
+    if (result !== null) {
+      // Inverse (U3a): place the instance back exactly where it was - the
+      // returned options carry its full transform. During an undo this call is
+      // itself suppressed from recording (see `recordUndo`).
+      const { itemId, options } = result;
+      this.recordUndo(() => this.placeFromShed(itemId, options) !== false);
+    }
+    return result;
+  }
+
+  private putAwayToShedInner(ref: PlacedItemRef): PutAwayResult | null {
     switch (ref.category) {
       case 'building': {
         const placement = this.state.buildings[ref.index];
         if (placement === undefined) return null;
         if (findCatalogItem(placement.type) === undefined) return null;
         if (placement.batches.length > 0) return null;
+        // No `unlockedSlots` to carry (U3a): the type's paid capacity stays in
+        // `buildingSlotUnlocks`, so a re-place lands with the full capacity for
+        // free - no per-instance restore, and no undo needed to keep it.
         const options: ShedPlaceOptions = {
           col: placement.col,
           row: placement.row,
           flip: placement.flipped,
-          unlockedSlots: placement.unlockedSlots,
         };
         this.state.buildings.splice(ref.index, 1);
         this.addToShed(placement.type, 1);
@@ -3755,6 +3934,16 @@ export class GameStateStore {
     if (decoration === undefined) return false;
     if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(scale)) return false;
     if (typeof flip !== 'boolean') return false;
+    // Prior transform for the undo inverse (U3a), captured before any mutation
+    // and only after the early-return guards, so a refused commit records
+    // nothing. These are already-clamped committed values, so re-applying them
+    // through this same clamp is a no-op restore (byte-identical).
+    const prior = {
+      x: decoration.x,
+      y: decoration.y,
+      scale: decoration.scale,
+      flip: decoration.flip,
+    };
     const bounds = decorClampBounds(this.state.regionsUnlocked);
     const clampedX = Math.min(bounds.maxX, Math.max(bounds.minX, x));
     const clampedY = Math.min(bounds.maxY, Math.max(bounds.minY, y));
@@ -3768,7 +3957,77 @@ export class GameStateStore {
         : Math.min(ceiling, Math.max(DECOR_SCALE_MIN, scale));
     decoration.flip = flip;
     this.save();
+    // Inverse (U3a): restore the prior transform, targeting the decoration by
+    // reference. One entry per committed transform (a drag commits once).
+    this.recordUndo(() => {
+      const i = this.state.decorations.indexOf(decoration);
+      return i >= 0 && this.setDecorationTransform(i, prior.x, prior.y, prior.scale, prior.flip);
+    });
     return true;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Edit-session Undo stack (U3a). In-memory only; the model foundation U3b's
+  // arrange scene wires to an Undo button. Nothing opens a session in the live
+  // game yet, so `recordUndo` is inert during normal play - the dev hooks and
+  // tests are its only drivers this task.
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Begin an edit session (U3a): from here, arrange reducers record their
+   * inverse on the undo stack. Starts from a CLEAN stack so a new session never
+   * inherits a previous one's actions.
+   */
+  beginEditSession(): void {
+    this.editSessionActive = true;
+    this.editUndoStack.length = 0;
+  }
+
+  /**
+   * End the edit session (U3a): stop recording and DISCARD the whole stack -
+   * undo is a within-session affordance, and leaving arrange mode commits the
+   * steps. No state mutation, no save.
+   */
+  endEditSession(): void {
+    this.editSessionActive = false;
+    this.editUndoStack.length = 0;
+  }
+
+  /** How many undoable actions the current session holds (U3a) - U3b's Undo
+   *  button reads this for its enabled state. */
+  editUndoDepth(): number {
+    return this.editUndoStack.length;
+  }
+
+  /**
+   * Undo the most recent recorded action (U3a): pop its inverse and apply it,
+   * returning true on success. Returns false - mutating nothing - on an empty
+   * stack. A refused inverse (the current state no longer admits it) also
+   * returns false, and the popped entry is DISCARDED either way, so a stuck
+   * action can never jam the stack and the next undo proceeds. `undoApplyDepth`
+   * keeps the applied inverse from recording itself back onto the stack.
+   */
+  undoEditAction(): boolean {
+    const inverse = this.editUndoStack.pop();
+    if (inverse === undefined) return false;
+    this.undoApplyDepth++;
+    try {
+      return inverse();
+    } finally {
+      this.undoApplyDepth--;
+    }
+  }
+
+  /**
+   * Push `inverse` onto the undo stack when a top-level arrange reducer succeeds
+   * inside an active session (U3a). A no-op unless a session is active, and also
+   * while an undo is being applied (`undoApplyDepth`) or a compound reducer has
+   * suppressed nested recording (`undoRecordSuppressed`) - the three guards that
+   * keep exactly one stack entry per player action.
+   */
+  private recordUndo(inverse: () => boolean): void {
+    if (!this.editSessionActive || this.undoApplyDepth > 0 || this.undoRecordSuppressed) return;
+    this.editUndoStack.push(inverse);
   }
 
   /**

@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - Platform end-goal set + P-wave (pipeline hardening) queued after the U-wave
+**Context:** Owner: the end goal is native MOBILE (stores), PWA was never the point; and content scaling worries him - buildings cost fit/shadow rounds, and he wants decor shadows simplified.
+**Decision:** Engine stays Phaser; the store path is a Capacitor wrap (native storage kills the save-eviction risk; push/haptics via plugins). Migration rejected: the costly limits are web-platform or taste, not engine. P-wave queued AFTER the U-wave: P1 per-category ART CONTRACT templates (footprint diamond + base-contact box baked into generation masters - kills the farmhouse/mill/bakery refit class); P2 ONE soft-ellipse shadow generator, light top-right/cast lower-left - replaces decor's pack-time cast silhouettes (owner: "small ovals, same light direction as buildings") AND becomes the default starting point for building shadows (authored stays for hero cases); owner picks the look from rendered captures before rollout. P3 Capacitor wrap spike on the owner's phone.
+**Trigger:** owner scaling/shadow direction, platform question.
+
 ## 2026-07-23 - U2b shipped: the unified Shop (3 fix rounds); U3 sliced into U3a/U3b
 **Context:** One tabbed catalog-driven Shop replaces Building Shop + Decor Shop. Fix rounds: r1 vector chrome (owner: sprite frames read wrong), r2 slot-based card layout (elements overlapped; screenshots now MANDATORY for visual tasks - DEV-only window.__shop capture seam adopted), r3 modal input hygiene (inside-taps closed the elevated shop).
 **Decision/verdict:** COMMIT a220404 (schema v31 shedTipSeen, tests 805; owner device pass). Rulings on record: split-budget caps live INSIDE buyToShed (one seam); Shed chip is a drawn "Shed N" pill (chest icon collided with premium-order chests); the Restore entry lives in the Goals hub only. NEW INCIDENT CLASS: a panel left interactive while hidden gets swept by arrange mode's hitbox sweep and never revived - a closed modal must hold zero live hitboxes (ShopPanel complies; U3b must comply for anything it makes arrange-reachable). U3 split: U3a store work (per-TYPE slots v32 + undo stack), U3b edit-scene UI.

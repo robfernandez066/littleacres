@@ -9,7 +9,13 @@ import {
 } from '../data/buildings';
 import { GOODS } from '../data/goods';
 import type { AudioManager } from '../systems/audio';
-import { gameState, type GameStateData, millSlots, type MillSlotView } from '../systems/gameState';
+import {
+  gameState,
+  type GameStateData,
+  millSlots,
+  type MillSlotView,
+  unlockedSlotsFor,
+} from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
 import { now } from '../systems/time';
 import { ModalBackdrop } from './ModalBackdrop';
@@ -481,7 +487,9 @@ export class MillPanel {
     // Per kind (T4.4): the mill counts its Sunwheat out of the bag, the bakery
     // counts its Sunflour out of the goods map.
     const held = recipeInputHeld(recipe, state.inventory, state.goods);
-    const views = millSlots(placement, recipe, now());
+    // Paid slot capacity moved off the placement into a per-type map (U3a), so
+    // the panel reads it via the store helper and hands it to `millSlots`.
+    const views = millSlots(placement, recipe, now(), unlockedSlotsFor(state, placement.type));
     this.autoDisarm(views, state.coins);
 
     this.ensureRows(views.length);

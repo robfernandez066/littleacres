@@ -11,6 +11,7 @@
 ## Queued next
 
 - **U3b / U4** of the U-wave (see spec's PM sequencing header).
+- **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
 - Phase 4A creatures (coop + moonhen) and animated windmill blades - art staged in tools/art-staging.
 

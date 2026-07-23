@@ -106,6 +106,17 @@ export interface DevTools {
    */
   putAwayToShed(ref: PlacedItemRef): PutAwayResult | null;
   /**
+   * Edit-session undo stack (U3a, model only). `beginEditSession` starts
+   * recording arrange actions' inverses; `undo` reverts the most recent one
+   * (false on an empty stack or a refused inverse); `undoDepth` is the current
+   * stack size; `endEditSession` stops recording and clears the stack. Nothing
+   * wires these in the live game yet (U3b does) - they exist for the transcript.
+   */
+  beginEditSession(): void;
+  endEditSession(): void;
+  undo(): boolean;
+  undoDepth(): number;
+  /**
    * Dev-only restoration toggle (T3.25): a straight pipe to
    * `gameState.devSetFarmhouseRestored` - flips the farmhouse between its
    * current and restored look (and the Homestead luck perk with it) for free,
@@ -260,6 +271,10 @@ export function installDevTools(store: GameStateStore): void {
     grantToShed: (itemId, qty) => store.devGrantToShed(itemId, qty),
     placeFromShed: (itemId, options) => store.placeFromShed(itemId, options),
     putAwayToShed: (ref) => store.putAwayToShed(ref),
+    beginEditSession: () => store.beginEditSession(),
+    endEditSession: () => store.endEditSession(),
+    undo: () => store.undoEditAction(),
+    undoDepth: () => store.editUndoDepth(),
     setFarmhouseRestored: (restored) => store.devSetFarmhouseRestored(restored),
     fillBoardPremium: () => store.devFillBoardPremium(),
   };
