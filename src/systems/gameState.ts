@@ -37,8 +37,8 @@ import {
   MAX_DECOR_ITEMS,
   MAX_FENCES,
   PURCHASABLE_FRAMES,
-  WAREHOUSE_PLACE_X,
-  WAREHOUSE_PLACE_Y,
+  SHED_PLACE_X,
+  SHED_PLACE_Y,
 } from '../data/decor';
 import {
   BASE_PLOT_COUNT,
@@ -234,7 +234,7 @@ export interface ShedPlaceOptions {
    */
   col?: number;
   row?: number;
-  /** Screen position - decor only. Defaults to the WAREHOUSE_PLACE_X/Y spawn point. */
+  /** Screen position - decor only. Defaults to the SHED_PLACE_X/Y spawn point. */
   x?: number;
   y?: number;
   /** Display scale - decor only. Defaults to the item's own `decorSpawnScale`. */
@@ -628,7 +628,7 @@ export interface GameStateData {
   orders: OrderSlot[];
   /** Skip-cooldown escalation streak (see `skipOrder`). */
   orderSkips: OrderSkipsState;
-  /** Placed decorations (T3.9); purchasable placed+warehoused within the split budgets (MAX_DECOR_ITEMS / MAX_FENCES, T3.3a2), trophies exempt (T3.17). */
+  /** Placed decorations (T3.9); purchasable placed + shed-held within the split budgets (MAX_DECOR_ITEMS / MAX_FENCES, T3.3a2), trophies exempt (T3.17). */
   decorations: DecorationPlacement[];
   /**
    * The SHED (U1, schema v29): catalog item id -> count of that item owned but
@@ -639,12 +639,11 @@ export interface GameStateData {
    * save, and no movement in either direction touches currency.
    *
    * Keys are catalog ids (`CATALOG_IDS`) and values are POSITIVE integers - a
-   * key is deleted the moment its count reaches 0 rather than left at 0,
-   * exactly the `warehouse` convention it generalized.
+   * key is deleted the moment its count reaches 0 rather than left at 0.
    *
    * THE ONE unplaced-decor store since U2a (schema v30): the decoration
-   * `warehouse` (T3.9b) merged into here and was deleted from the save, so
-   * `buyDecoration`, `placeFromWarehouse` and `storeDecoration` are now thin
+   * warehouse (T3.9b, a historical save field) merged into here and was deleted
+   * from the save, so `buyDecoration` and `storeDecoration` are now thin
    * delegates onto the shed reducers and there is exactly one implementation of
    * each move. `buyBuilding` and `paintPath` are still their own purchase paths
    * (a later task cuts them over).
@@ -1261,7 +1260,7 @@ const v28ToV29: Migration = (raw) => {
  * carrying two records of the same thing.
  *
  * v29 left both maps live with `warehouse` STILL AUTHORITATIVE for decor (the
- * decor shop bought into it, `placeFromWarehouse`/`storeDecoration` moved units
+ * decor shop bought into it, `placeFromShed`/`storeDecoration` moved units
  * through it), while the shed held a one-time mirror taken at migration time.
  * Any purchase or placement since then moved the warehouse and not the mirror,
  * so the shed's decor counts are potentially STALE. The merge therefore
@@ -3098,7 +3097,7 @@ export class GameStateStore {
    * Place one shed plot onto (col, row) (T3.3a): consumes an unplaced plot
    * into a new empty plot at that tile. Returns the new plot's index (always
    * `plots.length - 1`, placements only ever append - the same contract as
-   * `placeFromWarehouse`) so the caller can select it, or false without
+   * `placeFromShed`) so the caller can select it, or false without
    * mutating anything if the shed is empty or the tile is not free
    * (`isPlotTileFree` - placeable, unoccupied, clear of structure footprints
    * and decor anchors; T3.3a-r). Autosaves.
@@ -3130,9 +3129,15 @@ export class GameStateStore {
       return true;
     }
     if (!isPlotTileFree(this.state, col, row, index)) return false;
+    const priorCol = plot.col;
+    const priorRow = plot.row;
     plot.col = col;
     plot.row = row;
     this.save();
+    // Inverse (U3b): move the plot back to its prior tile. Keyed by INDEX, which
+    // is stable within an edit session - during arrange plots are only ever
+    // appended (`placePlot`), never spliced, so no shift can invalidate it.
+    this.recordUndo(() => this.movePlot(index, priorCol, priorRow));
     return true;
   }
 
@@ -3179,7 +3184,12 @@ export class GameStateStore {
   buyBuilding(type: BuildingId): boolean {
     const building = findBuilding(type);
     if (building === undefined) return false;
+    // One-per-type counts SHED + PLACED (U3b-r1 dupe-buy fix): a unit sitting in
+    // the shed (put away by an undo/Cancel) still counts as owned, so it can
+    // never be bought a second time and re-created. `placeFromShed` keeps its
+    // own placed-only check - placing the shed copy is the same unit coming out.
     if (this.state.buildings.some((placed) => placed.type === type)) return false;
+    if (this.shedCount(type) > 0) return false;
     if (this.state.level < building.unlockLevel) return false;
     if (this.state.coins < building.price) return false;
     this.state.coins -= building.price;
@@ -3442,24 +3452,6 @@ export class GameStateStore {
   }
 
   /**
-   * Place one stored unit of `frame` onto the lawn (T3.9b), at screen center
-   * and its per-item spawn scale (WAREHOUSE_PLACE_X/Y, `decorSpawnScale` -
-   * showcase size for DECOR_SIZING items, T3.3a2) so a placed item is
-   * immediately visible and ready to drag - shrunk to taste from there via
-   * arrange mode. Returns the new placement's index (always
-   * `decorations.length - 1`, since placements only ever append) so the caller
-   * can select it, or false if none are owned.
-   *
-   * A thin delegate onto `placeFromShed` since U2a - the option-less decor path
-   * through it spawns at exactly these coordinates and scale, so the placement
-   * is byte-identical to the one this used to write itself. Kept under its own
-   * name because the arrange-mode call sites read in terms of decorations.
-   */
-  placeFromWarehouse(frame: string): number | false {
-    return this.placeFromShed(frame);
-  }
-
-  /**
    * Paint one path tile (T4.12) - THE authority on whether a tile lays and
    * what it costs. Deducts the tier's `costCoins` and places (or REPLACES, so
    * a repaint switches tier in place rather than stacking) the tile at
@@ -3564,7 +3556,7 @@ export class GameStateStore {
   }
 
   /** Remove ONE from the shed, deleting the key at 0 so no 0 entry is ever
-   *  left behind (the `placeFromWarehouse` convention the validator enforces). */
+   *  left behind (the `placeFromShed` convention the validator enforces). */
   private takeOneFromShed(itemId: string): void {
     const owned = this.shedCount(itemId);
     if (owned <= 1) delete this.state.shedInventory[itemId];
@@ -3643,12 +3635,12 @@ export class GameStateStore {
    *   anchor must pass `isBuildingAnchorFree`; with none it lands on the
    *   building's `defaultAnchor` UNCHECKED, which is `buyBuilding`'s own
    *   deliberate "place, then arrange" contract rather than an omission here.
-   * - DECOR: spawns at the warehouse spawn point and the item's spawn scale,
-   *   like `placeFromWarehouse`, then applies any x/y/scale/flip through
+   * - DECOR: spawns at the shed spawn point (SHED_PLACE_X/Y) and the item's
+   *   spawn scale, then applies any x/y/scale/flip through
    *   `setDecorationTransform`. If that clamp REFUSES the requested spot (it
    *   lands on a permanent footprint), the decoration still places - it just
-   *   stays at the spawn point, exactly where an ordinary warehouse placement
-   *   would have left it for the player to drag.
+   *   stays at the spawn point, exactly where an ordinary option-less shed
+   *   placement would have left it for the player to drag.
    * - PATH: needs col/row. Refused if that tile already holds this very tier
    *   (nothing to do, and it would burn a count). A tile holding a DIFFERENT
    *   tier is replaced and the displaced tier is banked back into the shed, so
@@ -3665,9 +3657,9 @@ export class GameStateStore {
           ? this.placeDecorFromShed(item, options)
           : this.placePathFromShed(item, options);
     // Inverse (U3a): put the just-placed instance back. Recorded here at the
-    // ONE public entry point, so `placeFromWarehouse` (a delegate) records
-    // through it exactly once and the nested `setDecorationTransform` inside the
-    // decor path never adds a second entry (it is suppressed there).
+    // ONE public entry point, so a placement records exactly one entry and the
+    // nested `setDecorationTransform` inside the decor path never adds a second
+    // (it is suppressed there).
     if (index !== false) this.recordPlaceUndo(item, options, index);
     return index;
   }
@@ -3746,8 +3738,8 @@ export class GameStateStore {
     this.takeOneFromShed(item.id);
     this.state.decorations.push({
       frame: item.frame,
-      x: WAREHOUSE_PLACE_X,
-      y: WAREHOUSE_PLACE_Y,
+      x: SHED_PLACE_X,
+      y: SHED_PLACE_Y,
       scale: decorSpawnScale(item.frame),
       flip: false,
     });

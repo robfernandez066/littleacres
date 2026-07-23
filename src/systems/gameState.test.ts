@@ -67,8 +67,8 @@ import {
   MAX_FENCES,
   TROPHY_FRAMES,
   TROPHY_ITEMS,
-  WAREHOUSE_PLACE_X,
-  WAREHOUSE_PLACE_Y,
+  SHED_PLACE_X,
+  SHED_PLACE_Y,
 } from '../data/decor';
 import { findCatalogItem } from '../data/catalog';
 import { BUILDINGS } from '../data/buildings';
@@ -1174,7 +1174,7 @@ describe('buyDecoration', () => {
     completeOnboarding(store);
     store.addCoins(1_000_000);
     for (let i = 0; i < 50; i++) store.buyDecoration('decor_bench');
-    for (let i = 0; i < 20; i++) store.placeFromWarehouse('decor_bench');
+    for (let i = 0; i < 20; i++) store.placeFromShed('decor_bench');
     expect(store.getState().decorations).toHaveLength(20);
     expect(store.getState().shedInventory).toEqual({ decor_bench: 30 });
     const snapshot = JSON.parse(store.exportSave()) as unknown;
@@ -1192,7 +1192,7 @@ describe('buyDecoration', () => {
   });
 });
 
-describe('placeFromWarehouse', () => {
+describe('placeFromShed (decor by frame)', () => {
   it('decrements the shed count, appends a centered spawn-scale unmirrored placement, and returns the new index', () => {
     const storage = makeStorage();
     const store = new GameStateStore({ storage });
@@ -1202,7 +1202,7 @@ describe('placeFromWarehouse', () => {
     store.buyDecoration('decor_bench');
     expect(store.getState().shedInventory).toEqual({ decor_bench: 2 });
 
-    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    expect(store.placeFromShed('decor_bench')).toBe(0);
     const state = store.getState();
     expect(state.shedInventory).toEqual({ decor_bench: 1 });
     expect(state.decorations).toEqual([
@@ -1220,7 +1220,7 @@ describe('placeFromWarehouse', () => {
     completeOnboarding(store);
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
-    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    expect(store.placeFromShed('decor_bench')).toBe(0);
     expect(store.getState().shedInventory).toEqual({});
   });
 
@@ -1228,7 +1228,7 @@ describe('placeFromWarehouse', () => {
     const store = new GameStateStore({ storage: null });
     completeOnboarding(store);
     const snapshot = JSON.parse(store.exportSave()) as unknown;
-    expect(store.placeFromWarehouse('decor_bench')).toBe(false);
+    expect(store.placeFromShed('decor_bench')).toBe(false);
     expect(JSON.parse(store.exportSave())).toEqual(snapshot);
   });
 
@@ -1238,8 +1238,8 @@ describe('placeFromWarehouse', () => {
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_fence');
-    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
-    expect(store.placeFromWarehouse('decor_fence')).toBe(1);
+    expect(store.placeFromShed('decor_bench')).toBe(0);
+    expect(store.placeFromShed('decor_fence')).toBe(1);
     expect(store.getState().decorations.map((d) => d.frame)).toEqual([
       'decor_bench',
       'decor_fence',
@@ -1252,8 +1252,8 @@ describe('placeFromWarehouse', () => {
     store.addCoins(10_000);
     store.buyDecoration('decor_well');
     store.buyDecoration('decor_fence');
-    store.placeFromWarehouse('decor_well');
-    store.placeFromWarehouse('decor_fence');
+    store.placeFromShed('decor_well');
+    store.placeFromShed('decor_fence');
     expect(store.getState().decorations.map((d) => d.scale)).toEqual([1.15, 1.2]);
   });
 });
@@ -1265,7 +1265,7 @@ describe('storeDecoration', () => {
     completeOnboarding(store);
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
     expect(store.storeDecoration(0)).toBe(true);
     const state = store.getState();
     expect(state.decorations).toEqual([]);
@@ -1283,8 +1283,8 @@ describe('storeDecoration', () => {
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
+    store.placeFromShed('decor_bench');
     expect(store.getState().decorations).toHaveLength(2);
     expect(store.getState().shedInventory).toEqual({});
 
@@ -1292,7 +1292,7 @@ describe('storeDecoration', () => {
     expect(store.getState().decorations).toHaveLength(1);
     expect(store.getState().shedInventory).toEqual({ decor_bench: 1 });
 
-    expect(store.placeFromWarehouse('decor_bench')).toBe(1);
+    expect(store.placeFromShed('decor_bench')).toBe(1);
     expect(store.getState().decorations).toHaveLength(2);
     expect(store.getState().shedInventory).toEqual({});
   });
@@ -1309,14 +1309,14 @@ describe('storeDecoration', () => {
       const store = new GameStateStore({ storage: null });
       completeOnboarding(store);
       store.getState().shedInventory[frame] = 1;
-      expect(store.placeFromWarehouse(frame)).toBe(0);
+      expect(store.placeFromShed(frame)).toBe(0);
       const placed = { ...store.getState().decorations[0]! };
 
       expect(store.storeDecoration(0)).toBe(true);
       expect(store.getState().decorations).toEqual([]);
       expect(store.getState().shedInventory).toEqual({ [frame]: 1 });
 
-      expect(store.placeFromWarehouse(frame)).toBe(0);
+      expect(store.placeFromShed(frame)).toBe(0);
       expect(store.getState().decorations[0]).toEqual(placed);
       expect(store.getState().shedInventory).toEqual({});
     },
@@ -1327,7 +1327,7 @@ describe('storeDecoration', () => {
     completeOnboarding(store);
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
     const snapshot = JSON.parse(store.exportSave()) as unknown;
     expect(store.storeDecoration(1)).toBe(false);
     expect(store.storeDecoration(-1)).toBe(false);
@@ -1340,8 +1340,8 @@ describe('storeDecoration', () => {
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
+    store.placeFromShed('decor_bench');
     expect(store.storeDecoration(0)).toBe(true);
     // The second placement shifted down to index 0 when the first was removed.
     expect(store.storeDecoration(0)).toBe(true);
@@ -1356,7 +1356,7 @@ describe('setDecorationTransform', () => {
     completeOnboarding(store);
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
     return store;
   }
 
@@ -1366,7 +1366,7 @@ describe('setDecorationTransform', () => {
     completeOnboarding(store);
     store.addCoins(2000); // RE-PIN (Balance Pass v2): decor_bench 400 -> 600, so two no longer fit in 1000.
     store.buyDecoration('decor_bench');
-    store.placeFromWarehouse('decor_bench');
+    store.placeFromShed('decor_bench');
     expect(store.setDecorationTransform(0, 600, 900, 0.7, true)).toBe(true);
     expect(store.getState().decorations[0]).toEqual({
       frame: 'decor_bench',
@@ -1452,7 +1452,7 @@ describe('setDecorationTransform', () => {
     completeOnboarding(store);
     store.addCoins(10_000);
     store.buyDecoration('decor_well');
-    store.placeFromWarehouse('decor_well');
+    store.placeFromShed('decor_well');
     expect(store.setDecorationTransform(0, 600, 900, 5, false)).toBe(true);
     expect(store.getState().decorations[0]?.scale).toBe(1.15);
     expect(store.setDecorationTransform(0, 600, 900, 0, false)).toBe(true);
@@ -1464,7 +1464,7 @@ describe('setDecorationTransform', () => {
     completeOnboarding(store);
     store.addCoins(10_000);
     store.buyDecoration('decor_fence');
-    store.placeFromWarehouse('decor_fence');
+    store.placeFromShed('decor_fence');
     expect(store.getState().decorations[0]?.scale).toBe(1.2);
     expect(store.setDecorationTransform(0, 600, 900, 0.5, true, 3.0)).toBe(true);
     expect(store.getState().decorations[0]).toEqual({
@@ -6724,6 +6724,35 @@ describe('buildings (T4.1, schema v23)', () => {
       expect(store.getState().coins).toBe(afterFirst);
     });
 
+    it('refuses a buy when a copy sits in the SHED, not just placed (U3b-r1 dupe guard)', () => {
+      const store = millReadyStore();
+      store.addCoins(MILL.price);
+      // A shed copy with NOTHING placed - the dupe-buy hole the r1 fix closes.
+      store.devGrantToShed('flour_mill', 1);
+      expect(store.getState().buildings).toHaveLength(0);
+      const before = store.getState().coins;
+      expect(store.buyBuilding('flour_mill')).toBe(false);
+      expect(store.shedCount('flour_mill')).toBe(1);
+      expect(store.getState().coins).toBe(before);
+    });
+
+    it('putting away the ONLY building empties the list and re-placing restores it (U3b-r1 stale-sprite seam)', () => {
+      const store = millReadyStore();
+      store.addCoins(MILL.price);
+      expect(store.buyBuilding('flour_mill')).toBe(true);
+      expect(store.getState().buildings).toHaveLength(1);
+      // The removal empties the list -> buildingPositionsKey === "" (the value
+      // that collided with the scene's old '' force sentinel and left a stale
+      // sprite; FarmScene.refreshBuildings now takes a `force` flag instead).
+      expect(store.putAwayToShed({ category: 'building', index: 0 })).not.toBeNull();
+      expect(store.getState().buildings).toHaveLength(0);
+      expect(store.shedCount('flour_mill')).toBe(1);
+      // Re-place from the shed (no placed copy exists, so it is legal).
+      expect(store.placeFromShed('flour_mill')).toBe(0);
+      expect(store.getState().buildings).toHaveLength(1);
+      expect(store.shedCount('flour_mill')).toBe(0);
+    });
+
     it('on success deducts the price, appends at the default anchor, and saves', () => {
       const storage = makeStorage();
       const store = new GameStateStore({ storage });
@@ -8823,7 +8852,7 @@ describe('the Shed (U1, schema v29; warehouse cutover U2a, schema v30)', () => {
       const legacyStore = makeShedStore();
       legacyStore.addCoins(10_000);
       expect(legacyStore.buyDecoration('decor_bench')).toBe(true);
-      expect(legacyStore.placeFromWarehouse('decor_bench')).toBe(0);
+      expect(legacyStore.placeFromShed('decor_bench')).toBe(0);
 
       expect(shedStore.getState().decorations).toEqual(legacyStore.getState().decorations);
       expect(shedStore.shedCount('decor_bench')).toBe(0);
@@ -9002,13 +9031,13 @@ describe('the Shed (U1, schema v29; warehouse cutover U2a, schema v30)', () => {
       // catalog items now, so the refusal is gone and a trophy puts away like
       // any other decoration.
       store.getState().shedInventory.trophy_moonwell = 1;
-      expect(store.placeFromWarehouse('trophy_moonwell')).toBe(0);
+      expect(store.placeFromShed('trophy_moonwell')).toBe(0);
       expect(store.getState().shedInventory).toEqual({});
       expect(store.putAwayToShed({ category: 'decor', index: 0 })).toEqual({
         itemId: 'trophy_moonwell',
         options: {
-          x: WAREHOUSE_PLACE_X,
-          y: WAREHOUSE_PLACE_Y,
+          x: SHED_PLACE_X,
+          y: SHED_PLACE_Y,
           scale: decorSpawnScale('trophy_moonwell'),
           flip: false,
         },
@@ -9195,6 +9224,36 @@ describe('edit-session undo stack (U3a, model only)', () => {
     expect(store.getState().buildings[0]!.row).toBe(anchor.row);
   });
 
+  it('records a movePlot and undoes it back to the prior tile (U3b)', () => {
+    // The proven expanded-store scenario: plot 5 relocates to the free (1, 3)
+    // (mirrors the movePlot happy-path test above).
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
+    completeOnboarding(store);
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    store.consumePlotGrantEvents();
+    const before = { ...tileOf(5) };
+    store.beginEditSession();
+    expect(store.movePlot(5, 1, 3)).toBe(true);
+    expect(store.editUndoDepth()).toBe(1);
+    expect(store.undoEditAction()).toBe(true);
+    const plot = store.getState().plots[5]!;
+    expect({ col: plot.col, row: plot.row }).toEqual(before);
+    expect(store.editUndoDepth()).toBe(0);
+  });
+
+  it('a no-op movePlot onto its own tile records nothing (U3b)', () => {
+    const store = new GameStateStore({ storage: null, rng: () => 1 });
+    completeOnboarding(store);
+    store.addCoins(EXPANSION_COST);
+    expect(store.expandFarm()).toBe(true);
+    store.consumePlotGrantEvents();
+    const { col, row } = tileOf(5);
+    store.beginEditSession();
+    expect(store.movePlot(5, col, row)).toBe(true);
+    expect(store.editUndoDepth()).toBe(0);
+  });
+
   it('records one entry each for structure move + flip and undoes them', () => {
     const store = arrangeStore();
     const fh = { ...store.getState().structures.farmhouse };
@@ -9228,8 +9287,8 @@ describe('edit-session undo stack (U3a, model only)', () => {
   it('delegates and compound places record exactly ONE entry each, never two', () => {
     const store = arrangeStore();
     store.beginEditSession();
-    // placeFromWarehouse delegates to placeFromShed - one entry, not two.
-    expect(store.placeFromWarehouse('decor_bench')).toBe(0);
+    // A frame place through placeFromShed records exactly one entry, not two.
+    expect(store.placeFromShed('decor_bench')).toBe(0);
     expect(store.editUndoDepth()).toBe(1);
     // storeDecoration delegates to putAwayToShed - one more, not two.
     expect(store.storeDecoration(0)).toBe(true);
@@ -9246,7 +9305,11 @@ describe('edit-session undo stack (U3a, model only)', () => {
     store.addCoins(100_000);
     store.beginEditSession();
     expect(store.buyToShed('decor_bench', 1)).toBe(true);
-    expect(store.buyBuilding('flour_mill')).toBe(true);
+    // RE-PIN (U3b-r1): the dupe guard now refuses a mill buy because
+    // `arrangeStore()` already grants one flour_mill into the shed. Buy a bakery
+    // instead (level 5 clears its L4 gate, none in the shed) - the point is
+    // unchanged: a purchase records nothing on the undo stack.
+    expect(store.buyBuilding('bakery')).toBe(true);
     expect(store.editUndoDepth()).toBe(0);
   });
 

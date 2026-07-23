@@ -10,6 +10,7 @@ import {
   PANEL_SLICE,
   QUEST_ICON_POSITION,
 } from '../config';
+import type { BuildingId } from '../data/buildings';
 import { CROPS, type CropId } from '../data/crops';
 import { CURRENCY_INFO, type CurrencyId } from '../data/currencyInfo';
 import { formatCurrency } from '../data/format';
@@ -19,6 +20,7 @@ import type { AudioManager } from '../systems/audio';
 import type { PathTierId } from '../data/paths';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
+import { isModalOpen } from '../systems/modalPanels';
 import { registerPulseTarget } from '../systems/pulseTargets';
 import { CoinArc, MAX_COINS_PER_FLY } from './CoinArc';
 import { CropArc } from './CropArc';
@@ -441,6 +443,12 @@ export class Hud {
   private readonly pathBarContainer: Phaser.GameObjects.Container;
   private readonly pathEraseButton: Phaser.GameObjects.NineSlice;
   private readonly pathEraseText: Phaser.GameObjects.Text;
+  /** The paint bar's interactive buttons (Erase, Done), toggled with its
+   *  visibility so a hidden bar holds no live hitboxes (U3b-r1). */
+  private readonly pathBarButtons: Phaser.GameObjects.NineSlice[] = [];
+  /** Whether path paint mode is active (U3b-r1) - the bar shows only when this
+   *  is true AND no modal is open over it (`applyPathBarVisibility`). */
+  private pathModeActive = false;
   /** Whether paint mode's Erase toggle is on - read by `FarmScene` per paint. */
   private pathEraseActive = false;
   private readonly orderBoard: OrderBoard;
@@ -500,6 +508,11 @@ export class Hud {
     private readonly onEnterPathMode: (tier: PathTierId) => void,
     /** Leave path paint mode - the bar's Done button (T4.12). */
     private readonly onExitPathMode: () => void,
+    /**
+     * A building was just bought in the Shop (U3b): the scene enters arrange
+     * mode with it selected "in hand". Threaded straight through to `ShopPanel`.
+     */
+    private readonly onBuildingBought: (buildingId: BuildingId) => void,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
     this.moondustDisplay.value = gameState.getState().moondust;
@@ -833,9 +846,14 @@ export class Hud {
     this.pathsPanel = new PathsPanel(this.scene, this.audio, (tier) => {
       this.onEnterPathMode(tier);
     });
-    this.shopPanel = new ShopPanel(this.scene, this.audio, () => {
-      this.pathsPanel.show(gameState.getState());
-    });
+    this.shopPanel = new ShopPanel(
+      this.scene,
+      this.audio,
+      () => {
+        this.pathsPanel.show(gameState.getState());
+      },
+      this.onBuildingBought,
+    );
 
     this.orderBoard = new OrderBoard(
       this.scene,
@@ -861,6 +879,7 @@ export class Hud {
       .text(PATH_BAR_X_DONE, PATH_BAR_Y, 'Done', PATH_BAR_STYLE)
       .setOrigin(0.5);
     this.pathBarContainer.add([this.pathEraseButton, this.pathEraseText, doneButton, doneText]);
+    this.pathBarButtons.push(this.pathEraseButton, doneButton);
 
     this.pathEraseButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
@@ -870,6 +889,8 @@ export class Hud {
       this.audio.sfx('tap');
       this.onExitPathMode();
     });
+    // Built hidden with no live hitboxes (U3b-r1 hygiene).
+    this.applyPathBarVisibility();
 
     this.refresh();
   }
@@ -898,9 +919,27 @@ export class Hud {
    * Erase toggle, so re-entering paint mode never starts in erase.
    */
   setPathModeActive(active: boolean): void {
-    this.pathBarContainer.setVisible(active);
+    this.pathModeActive = active;
     if (!active) this.setPathEraseActive(false);
     else this.setPathEraseActive(this.pathEraseActive);
+    this.applyPathBarVisibility();
+  }
+
+  /**
+   * Re-derive the paint bar's visibility AND its live hitboxes (U3b-r1): it
+   * shows only while paint mode is active AND no modal is open over it - opening
+   * the shop (or any panel) while painting must not leave the Erase/Done buttons
+   * floating above the modal, and a hidden bar holds ZERO live hitboxes
+   * (U2b-r3 hygiene). Re-run on the periodic `refresh` tick so it reacts to a
+   * modal opening or closing.
+   */
+  private applyPathBarVisibility(): void {
+    const show = this.pathModeActive && !isModalOpen();
+    this.pathBarContainer.setVisible(show);
+    for (const button of this.pathBarButtons) {
+      if (show) button.setInteractive({ useHandCursor: true });
+      else button.disableInteractive();
+    }
   }
 
   /** Whether paint mode's Erase toggle is on - `FarmScene` reads this per tile. */
@@ -1135,6 +1174,10 @@ export class Hud {
   /** Re-derive every HUD element from state; called on the scene's refresh tick. */
   refresh(): void {
     const state = gameState.getState();
+
+    // Keep the paint bar hidden + hitbox-dead whenever a modal is open over it
+    // (U3b-r1) - reacts to a modal opening or closing on the periodic tick.
+    this.applyPathBarVisibility();
 
     this.updateLevelText(state.level);
     this.updateXpBar(state.level, state.xp);

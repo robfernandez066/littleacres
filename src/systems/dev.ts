@@ -182,15 +182,6 @@ export interface DevTools {
     recenterVisible: boolean;
   };
   /**
-   * T3.27 dev-only decor sizing probe: while ON, the arrange-mode Scale +/-
-   * buttons may take the SELECTED decoration past the normal cap up to a dev
-   * ceiling, and every scale change/selection logs the frame, scale factor,
-   * and rendered px size to the console. Off by default; no behavior change
-   * while off. Turning it off (or scene boot) logs any decoration currently
-   * left above the normal cap. Registered by FarmScene.
-   */
-  decorSizing?(enabled: boolean): void;
-  /**
    * T3.3s-r2 dev restrictions overlay: toggles a persistent overlay of ALL
    * blocked tiles - both structures' footprints at their LIVE anchors (red
    * diamonds, tracking moves as they commit), the expand sign's while it
@@ -339,14 +330,6 @@ export function registerSceneLayersProbe(
   probe: () => { root: string[]; worldChildren: number; uiChildren: number },
 ): void {
   if (window.dev !== undefined) window.dev.sceneLayers = probe;
-}
-
-/**
- * Late-bind `dev.decorSizing` once the Farm scene exists, same pattern as
- * `registerCoinArcTest`.
- */
-export function registerDecorSizingToggle(toggle: (enabled: boolean) => void): void {
-  if (window.dev !== undefined) window.dev.decorSizing = toggle;
 }
 
 /**

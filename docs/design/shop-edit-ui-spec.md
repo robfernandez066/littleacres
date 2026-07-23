@@ -30,11 +30,17 @@ task file when it goes ACTIVE):**
   today. The PATHS TAB is deferred to U4 so shop-bought tiles never
   coexist with T4.13's paint-time charging.
 - **U3 - Edit scene rework**: contextual Flip/Put-away toolbar, persistent
-  bottom bar (Shed/Shop/Undo/Done), long-press entry, building in-hand
-  placement, resize buttons REMOVED. RULINGS: existing scaled decor keeps
-  its saved scale - only the resize UI goes; building slot unlocks move
-  to per-TYPE state (schema bump) so a shelved mill keeps its paid
-  capacity - put-away of a building with batches in flight stays refused.
+  bottom bar (Shed/Shop/Undo/Cancel/Save - owner renamed Done to Save,
+  2026-07-23), long-press entry (U3c), building
+  in-hand placement, resize buttons REMOVED. RULINGS: existing scaled decor
+  keeps its saved scale - only the resize UI goes; building slot unlocks
+  are per-TYPE state (v32). **OWNER OVERRIDE 2026-07-23: BUILDINGS ARE
+  EXEMPT FROM PUT-AWAY** - once placed they move/flip only; the shed holds
+  a building only transiently via undo/Cancel, surfaced by shed-panel
+  building rows; one-per-type counts shed + placed. CANCEL button added to
+  the bottom bar: two-tap confirm, unwinds the whole edit session (LIFO)
+  and exits; purchases are not refunded by Cancel. "Remove all decor to
+  Shed" promoted from out-of-scope to QUEUED (post-U4).
 - **U4 - Paths tab + painting from inventory**: the shop's Paths tab
   ships here; paint draws from Shed counts, erase refunds, gentle
   zero-stop; the T4.13 paint-time coin charge RETIRES (the shop stepper

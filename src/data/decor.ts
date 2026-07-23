@@ -45,7 +45,7 @@ export interface TrophyDef {
 /**
  * The 5 trophies: not purchasable in the shop, granted by the quest system
  * (T3.10). Named so the Shed can give each a display row (T3.18) once it
- * lands in the warehouse.
+ * lands in the shed.
  */
 export const TROPHY_ITEMS: readonly TrophyDef[] = [
   { frame: 'trophy_goldscarecrow', name: 'Golden Scarecrow' },
@@ -74,42 +74,42 @@ export function findDecorItem(frame: string): DecorItemDef | undefined {
 }
 
 /**
- * Owned PURCHASABLE NON-FENCE decorations: placed entries plus warehouse
- * counts whose frame is in PURCHASABLE_FRAMES, excluding the fence (it has
+ * Owned PURCHASABLE NON-FENCE decorations: placed entries plus shed counts
+ * whose frame is in PURCHASABLE_FRAMES, excluding the fence (it has
  * its own budget, T3.3a2). Trophy frames never count. Save validation,
  * `buyDecoration`, and the Decor Shop all share this one count, so the cap
  * can never disagree with the trophy grant path (T3.17).
  */
 export function decorOwnedCount(
   placed: readonly { frame: string }[],
-  warehouse: Record<string, number>,
+  shed: Record<string, number>,
 ): number {
   let count = 0;
   for (const placement of placed) {
     if (PURCHASABLE_FRAMES.has(placement.frame) && placement.frame !== FENCE_FRAME) count++;
   }
-  for (const [frame, owned] of Object.entries(warehouse)) {
+  for (const [frame, owned] of Object.entries(shed)) {
     if (PURCHASABLE_FRAMES.has(frame) && frame !== FENCE_FRAME) count += owned;
   }
   return count;
 }
 
-/** Owned fences, placed + warehoused - the domain of MAX_FENCES (T3.3a2). */
+/** Owned fences, placed + shed-held - the domain of MAX_FENCES (T3.3a2). */
 export function fenceOwnedCount(
   placed: readonly { frame: string }[],
-  warehouse: Record<string, number>,
+  shed: Record<string, number>,
 ): number {
   let count = 0;
   for (const placement of placed) {
     if (placement.frame === FENCE_FRAME) count++;
   }
-  return count + (warehouse[FENCE_FRAME] ?? 0);
+  return count + (shed[FENCE_FRAME] ?? 0);
 }
 
 /**
  * Split placement budgets (T3.3a2, owner decision, supersedes the single
  * MAX_DECORATIONS=30 cap): non-fence purchasables and fences each have their
- * own cap, placed and warehoused (T3.9b) COMBINED, checked at purchase -
+ * own cap, placed and shed-held (T3.9b) COMBINED, checked at purchase -
  * neither budget consumes the other. Trophy frames are exempt (T3.17): quest
  * trophies are one-time rewards, not purchases, so they never consume shop
  * capacity and never count toward either cap.
@@ -176,7 +176,7 @@ export const DECOR_SCALE_MIN = 0.35;
  */
 export const DECOR_SCALE_MAX = 0.85;
 /**
- * `placeFromWarehouse`'s spawn scale for items WITHOUT a DECOR_SIZING entry
+ * `placeFromShed`'s spawn scale for items WITHOUT a DECOR_SIZING entry
  * (T3.3a2) - table items spawn at their own defaultScale instead.
  */
 export const DECOR_SPAWN_SCALE = 0.7;
@@ -306,7 +306,7 @@ export function fenceEdgeSnapDeltas(
 
 /**
  * Per-item arrange sizing (T3.3a2, owner-authored): `defaultScale` is the
- * `placeFromWarehouse` spawn scale, `maxScale` the arrange Scale-up ceiling.
+ * `placeFromShed` spawn scale, `maxScale` the arrange Scale-up ceiling.
  * They are equal by design - items spawn at showcase size and players shrink
  * to taste (the global DECOR_SCALE_MIN floor is unchanged). Catalog items
  * NOT listed here keep DECOR_SPAWN_SCALE/DECOR_SCALE_MAX. The fence is
@@ -335,7 +335,7 @@ export const DECOR_SIZING: Readonly<Record<string, DecorSizing>> = {
   [FENCE_FRAME]: { defaultScale: FENCE_FIXED_SCALE, maxScale: FENCE_FIXED_SCALE },
 };
 
-/** `placeFromWarehouse`'s spawn scale for `frame` (T3.3a2). */
+/** `placeFromShed`'s spawn scale for `frame` (T3.3a2). */
 export function decorSpawnScale(frame: string): number {
   return DECOR_SIZING[frame]?.defaultScale ?? DECOR_SPAWN_SCALE;
 }
@@ -346,8 +346,8 @@ export function decorMaxScale(frame: string): number {
 }
 
 /**
- * `placeFromWarehouse`'s spawn position (T3.9b): screen center, so a newly
+ * `placeFromShed`'s spawn position (T3.9b): screen center, so a newly
  * placed item is immediately visible and ready to drag.
  */
-export const WAREHOUSE_PLACE_X = 540;
-export const WAREHOUSE_PLACE_Y = 900;
+export const SHED_PLACE_X = 540;
+export const SHED_PLACE_Y = 900;

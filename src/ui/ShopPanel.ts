@@ -416,6 +416,11 @@ export class ShopPanel {
     private readonly audio: AudioManager,
     /** Close this panel and open the Paths panel (stopgap until U4). */
     private readonly onOpenPaths: () => void,
+    /**
+     * A building was just bought (U3b): the scene closes the shop, enters
+     * arrange mode, and selects the new building "in hand".
+     */
+    private readonly onBuildingBought: (buildingId: BuildingId) => void,
   ) {
     this.backdrop = new ModalBackdrop(scene, () => {
       this.audio.sfx('tap');
@@ -550,8 +555,8 @@ export class ShopPanel {
     // button's enabled/disabled state on top of this.
     this.setInteractivesEnabled(false);
 
-    // DEV-only capture seam (U2b-r2): expose the single panel so a headless
-    // Playwright capture (tools/shop-capture.mjs) can open it to a given tab and
+    // DEV-only capture seam (U2b-r2): expose the single panel on the
+    // `window.__shop` seam so a headless capture can open it to a given tab and
     // screenshot the real render without first completing onboarding. Mirrors
     // main.ts's `window.__shadowLab` route; `import.meta.env.DEV` folds this out
     // of production builds entirely.
@@ -832,7 +837,10 @@ export class ShopPanel {
   /** Building tap: buy through the store (which decides), then close on success. */
   private onBuildingTap(card: Card): void {
     const state = gameState.getState();
-    const owned = state.buildings.some((placed) => placed.type === card.item.id);
+    // Owned counts SHED + PLACED (U3b-r1): a stranded shed copy is still owned.
+    const owned =
+      state.buildings.some((placed) => placed.type === card.item.id) ||
+      (state.shedInventory[card.item.id] ?? 0) > 0;
     const unlocked = state.level >= card.item.unlockLevel;
     if (owned || !unlocked) {
       // Inert card - a locked one wiggles, an owned one does nothing.
@@ -841,10 +849,13 @@ export class ShopPanel {
     }
     // A building-category catalog id IS a BuildingId (see catalog.ts); the
     // store re-validates it against BUILDINGS regardless.
-    if (!gameState.buyBuilding(card.item.id as BuildingId)) return;
+    const buildingId = card.item.id as BuildingId;
+    if (!gameState.buyBuilding(buildingId)) return;
     this.audio.coin();
-    // The building lands at its default anchor; FarmScene's tick renders it.
+    // Fast path (U3b): close the shop, then hand the scene the new building so
+    // it drops the player into arrange mode with it selected "in hand".
     this.hide();
+    this.onBuildingBought(buildingId);
   }
 
   /** Decor Add: charge qty * price into the shed, animate, keep the shop open. */
@@ -1007,7 +1018,10 @@ export class ShopPanel {
   }
 
   private refreshBuildingCard(card: Card, state: GameStateData): void {
-    const owned = state.buildings.some((placed) => placed.type === card.item.id);
+    // Owned counts SHED + PLACED (U3b-r1): a stranded shed copy reads Owned.
+    const owned =
+      state.buildings.some((placed) => placed.type === card.item.id) ||
+      (state.shedInventory[card.item.id] ?? 0) > 0;
     const unlocked = state.level >= card.item.unlockLevel;
     const affordable = state.coins >= card.item.price;
     const buyable = unlocked && !owned;

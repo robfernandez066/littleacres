@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - Owner overrides: buildings exempt from put-away; Cancel button; remove-all-decor queued
+**Context:** U3b human check found buildings put-away-able with a stale sprite left behind, and duplicate-buy holes (one-per-type guard counts only placements, so a shed-held building allows a rebuy - owner screenshot: mill buyable at x2, bakery Owned x2).
+**Decision:** Owner rulings: (1) buildings are EXEMPT from put-away - placed buildings move/flip only; putAwayToShed for buildings survives ONLY as the undo/Cancel inverse, and shed-held buildings (transient, via undo) get shed-panel rows so nothing strands; one-per-type counts shed + placed everywhere (guard + shop card). (2) Bottom bar gains CANCEL: two-tap confirm, full LIFO session unwind, then exit; purchases are never refunded. (3) "Remove all decor to Shed" leaves out-of-scope and joins the queue post-U4. Spec header amended. U3b-r1 carries these plus the stale-sprite and paint-bar-over-shop fixes.
+**Trigger:** owner U3b human check + PM Item/Options.
+
 ## 2026-07-23 - U2b-r4 shipped (shop polish); U3b sliced again (long-press -> U3c)
 **Context:** Owner found two live shop defects post-commit: the one-time tooltip rendered behind the cards, and the fly-to-Shed animation hitched on device.
 **Decision/verdict:** COMMIT 6e24017 (tests 818). Root cause of the lag: the 250ms Hud tick re-tessellated every pill's WebGL Graphics each refresh, colliding with the flight tween; fixed by memoizing pill redraws (geometry is a pure function of the memo key). Tooltip fixed with bring-to-top on show. Slicing ruling: the spec's long-press-to-edit entrance moves OUT of U3b into its own U3c - it modifies the gesture classifier, and classifier changes ship isolated with a real-phone regression pass (standing lesson from the gesture wars).
