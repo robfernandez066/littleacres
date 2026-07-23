@@ -355,6 +355,15 @@ interface Card {
   statusText: Phaser.GameObjects.Text;
   ownedPill: Phaser.GameObjects.Graphics;
   ownedBadge: Phaser.GameObjects.Text;
+  /**
+   * Last owned-count and status label whose pill geometry was drawn. A pill is a
+   * WebGL Graphics whose rounded-rect must be re-tessellated on a redraw; refresh
+   * runs on the 250ms Hud tick while the shop is open, so redrawing every pill
+   * each call hitches the fly/bounce animation. Guard the redraw on these keys so
+   * a pill only re-tessellates when its content actually changed (U2b-r4).
+   */
+  ownedCount: number;
+  statusKey: string;
   /** Card-center in main-container space, for the fly-to-chip start point. */
   centerX: number;
   centerY: number;
@@ -380,6 +389,13 @@ export class ShopPanel {
 
   private readonly tooltipText: Phaser.GameObjects.Text;
   private tooltipTween: Phaser.Tweens.Tween | null = null;
+
+  /**
+   * Last shed total whose pill geometry was drawn (-1 forces the first draw).
+   * See Card.ownedCount: guards the shed pill's re-tessellation so the 250ms
+   * refresh does not redraw it every tick during the fly/bounce (U2b-r4).
+   */
+  private lastShedTotal = -1;
 
   private readonly cards: Card[] = [];
 
@@ -698,6 +714,8 @@ export class ShopPanel {
       statusText,
       ownedPill,
       ownedBadge,
+      ownedCount: -1,
+      statusKey: '',
       centerX,
       centerY,
       wiggle: null,
@@ -911,6 +929,11 @@ export class ShopPanel {
   private showTooltip(): void {
     this.tooltipTween?.stop();
     this.tooltipText.setAlpha(1).setVisible(true);
+    // The tooltip is added to the container BEFORE the cards, so it renders
+    // BEHIND them and its lower band is occluded by the top card row. Move it to
+    // the top of the container on show so it sits above every card, pill, and
+    // button (U2b-r4 defect 1).
+    this.container.bringToTop(this.tooltipText);
     this.tooltipTween = this.scene.tweens.add({
       targets: this.tooltipText,
       alpha: 0,
@@ -930,7 +953,18 @@ export class ShopPanel {
     this.moondustText.setText(String(state.moondust));
     const shedTotal = Object.values(state.shedInventory).reduce((sum, n) => sum + n, 0);
     this.shedChipText.setText(`Shed ${shedTotal}`);
-    this.drawPill(this.shedPill, this.shedChipText.width, SHED_PILL_HALF_H, PILL_PAD_X, PILL_FILL);
+    // Only re-tessellate the pill when the count (hence its width) changed - the
+    // periodic refresh must stay text-only so it never hitches the fly/bounce.
+    if (shedTotal !== this.lastShedTotal) {
+      this.drawPill(
+        this.shedPill,
+        this.shedChipText.width,
+        SHED_PILL_HALF_H,
+        PILL_PAD_X,
+        PILL_FILL,
+      );
+      this.lastShedTotal = shedTotal;
+    }
 
     const buildingActive = this.activeTab === 'building';
     this.buildingTabBg.setAlpha(buildingActive ? TAB_ACTIVE_ALPHA : TAB_INACTIVE_ALPHA);
@@ -958,7 +992,9 @@ export class ShopPanel {
     const show = count > 0;
     card.ownedBadge.setText(`x${count}`).setVisible(show);
     card.ownedPill.setVisible(show);
-    if (show) {
+    // Redraw the pill only when the count (hence badge width) changed, so a
+    // no-op refresh tick re-tessellates nothing (U2b-r4).
+    if (show && count !== card.ownedCount) {
       this.drawPill(
         card.ownedPill,
         card.ownedBadge.width,
@@ -967,6 +1003,7 @@ export class ShopPanel {
         PILL_FILL,
       );
     }
+    card.ownedCount = count;
   }
 
   private refreshBuildingCard(card: Card, state: GameStateData): void {
@@ -997,8 +1034,13 @@ export class ShopPanel {
       card.priceIcon.setAlpha(alpha);
       card.priceText.setAlpha(alpha);
     } else {
-      card.statusText.setText(owned ? 'Owned' : `Level ${card.item.unlockLevel}`);
-      this.drawPill(card.statusPill, card.statusText.width, PILL_HALF_H, PILL_PAD_X, PILL_FILL);
+      const statusLabel = owned ? 'Owned' : `Level ${card.item.unlockLevel}`;
+      card.statusText.setText(statusLabel);
+      // Redraw the status pill only when its label changed (U2b-r4).
+      if (statusLabel !== card.statusKey) {
+        this.drawPill(card.statusPill, card.statusText.width, PILL_HALF_H, PILL_PAD_X, PILL_FILL);
+        card.statusKey = statusLabel;
+      }
     }
   }
 
