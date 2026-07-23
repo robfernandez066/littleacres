@@ -10,6 +10,7 @@ import {
   MAX_DECOR_ITEMS,
   MAX_FENCES,
 } from '../data/decor';
+import { ownedBadgeLabel } from '../data/format';
 import type { AudioManager } from '../systems/audio';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { setPanelOpen } from '../systems/modalPanels';
@@ -1136,10 +1137,14 @@ export class ShopPanel {
     }
   }
 
-  /** Set the "xN" owned badge + its pill, sized to the count, or hide both. */
+  /**
+   * Set the owned badge + its pill, sized to the count, or hide both. A unique
+   * item (`allowMultiple` false - a building) reads "1/1"; a stackable reads
+   * "xN" (U3b-r3). The label is derived from `allowMultiple`, never category.
+   */
   private setOwnedBadge(card: Card, count: number): void {
     const show = count > 0;
-    card.ownedBadge.setText(`x${count}`).setVisible(show);
+    card.ownedBadge.setText(ownedBadgeLabel(count, card.item.allowMultiple)).setVisible(show);
     card.ownedPill.setVisible(show);
     // Redraw the pill only when the count (hence badge width) changed, so a
     // no-op refresh tick re-tessellates nothing (U2b-r4).

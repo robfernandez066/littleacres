@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { formatAwayDuration, formatCurrency } from './format';
+import { formatAwayDuration, formatCurrency, ownedBadgeLabel } from './format';
 
 describe('formatCurrency', () => {
   it('renders plain below 1000', () => {
@@ -33,6 +33,17 @@ describe('formatCurrency', () => {
     expect(formatCurrency(100_000)).toBe('100K');
     expect(formatCurrency(999_999)).toBe('999K');
     expect(formatCurrency(1_000_000)).toBe('1M');
+  });
+});
+
+describe('ownedBadgeLabel', () => {
+  it('reads owned-of-max for a unique item (allowMultiple false)', () => {
+    expect(ownedBadgeLabel(1, false)).toBe('1/1');
+  });
+
+  it('reads "xN" for a stackable item (allowMultiple true)', () => {
+    expect(ownedBadgeLabel(1, true)).toBe('x1');
+    expect(ownedBadgeLabel(9, true)).toBe('x9');
   });
 });
 

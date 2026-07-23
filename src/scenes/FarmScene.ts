@@ -33,6 +33,8 @@ import {
 } from '../config';
 import { BUILDING_IDS, BUILDINGS, type BuildingDef, type BuildingId } from '../data/buildings';
 import { CROP_BASELINE_Y, CROP_FRAME_SIZE, CROPS, type CropDef, type CropId } from '../data/crops';
+import { findCatalogItem } from '../data/catalog';
+import { ownedBadgeLabel } from '../data/format';
 import { GOODS } from '../data/goods';
 import {
   DECOR_ITEMS,
@@ -2262,6 +2264,14 @@ export class FarmScene extends Phaser.Scene {
 
   /** The legacy field-gesture down, byte-identical to the pre-T3.4b handler. */
   private beginFarmGesture(pointer: Phaser.Input.Pointer): void {
+    // Suspenders (U3b-r3): the whole farm path - harvest, PLANT, and the seed
+    // bar's plant feedback - is unreachable while arranging. `handlePlotEntered`
+    // already early-returns on `arrangeModeActive`; this guards the tracker and
+    // countdown side effects too, so a modal-open bar tap that reaches the
+    // legacy branch (`!cameraGesturesAllowed`) can never touch the field. The
+    // seed bar itself is `setVisible(false)` for the whole mode and only re-shown
+    // by `exitArrangeMode`, so it structurally cannot appear until arrange ends.
+    if (this.arrangeModeActive) return;
     this.gestureMode = null;
     const world = this.fieldPointerWorld(pointer);
     const plotIndex = this.plotTracker.begin(world.x, world.y, gameState.getState().plots);
@@ -4781,7 +4791,14 @@ export class FarmScene extends Phaser.Scene {
   private createArrangeControls(): void {
     this.arrangeShedButton = this.buildArrangeBarButton(ARRANGE_SHED_X, ARRANGE_SHED_WIDTH);
     this.arrangeShedText = this.buildArrangeBarLabel(ARRANGE_SHED_X, 'Shed');
-    this.arrangeShedButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    // Every bar-button tap is TERMINAL (U3b-r3): it stops propagation so the
+    // scene's field pointer classifier (`onFieldPointerDown`, a scene-level
+    // listener that also fires on this same down) never re-processes the tap -
+    // the same pointer-consuming convention the contextual-toolbar zones and the
+    // shop's body blocker already follow. Without it the classifier ran on every
+    // bar tap; the arrange/modal guards downstream caught it, but a consumed tap
+    // is the correct, defence-in-depth behaviour.
+    this.onArrangeBarTap(this.arrangeShedButton, () => {
       this.disarmCancel();
       this.audio.sfx('tap');
       this.toggleShedPanel();
@@ -4800,31 +4817,53 @@ export class FarmScene extends Phaser.Scene {
 
     this.arrangeShopButton = this.buildArrangeBarButton(ARRANGE_SHOP_X, ARRANGE_SHOP_WIDTH);
     this.arrangeShopText = this.buildArrangeBarLabel(ARRANGE_SHOP_X, 'Shop');
-    this.arrangeShopButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.onArrangeBarTap(this.arrangeShopButton, () => {
       this.disarmCancel();
       this.openDecorShopFromArrange();
     });
 
     this.arrangeUndoButton = this.buildArrangeBarButton(ARRANGE_UNDO_X, ARRANGE_UNDO_WIDTH);
     this.arrangeUndoText = this.buildArrangeBarLabel(ARRANGE_UNDO_X, 'Undo');
-    this.arrangeUndoButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.onArrangeBarTap(this.arrangeUndoButton, () => {
       this.handleUndo();
     });
 
     this.arrangeCancelButton = this.buildArrangeBarButton(ARRANGE_CANCEL_X, ARRANGE_CANCEL_WIDTH);
     this.arrangeCancelText = this.buildArrangeBarLabel(ARRANGE_CANCEL_X, ARRANGE_CANCEL_LABEL);
-    this.arrangeCancelButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.onArrangeBarTap(this.arrangeCancelButton, () => {
       this.handleCancelTap();
     });
 
     this.arrangeSaveButton = this.buildArrangeBarButton(ARRANGE_SAVE_X, ARRANGE_SAVE_WIDTH);
     this.arrangeSaveText = this.buildArrangeBarLabel(ARRANGE_SAVE_X, 'Save');
-    this.arrangeSaveButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.onArrangeBarTap(this.arrangeSaveButton, () => {
       this.audio.sfx('tap');
       this.exitArrangeMode();
     });
 
     this.createShedPanel();
+  }
+
+  /**
+   * Wire a bottom-bar button's pointer-down so the tap is consumed BEFORE the
+   * scene's field classifier can also see it (U3b-r3 - see the Shed button's
+   * comment). `event.stopPropagation()` aborts Phaser's `processDownEvents`
+   * loop, so the plugin-level `POINTER_DOWN` that `onFieldPointerDown` listens
+   * on never fires for this press.
+   */
+  private onArrangeBarTap(button: Phaser.GameObjects.NineSlice, action: () => void): void {
+    button.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        action();
+      },
+    );
   }
 
   /** One bottom-bar `panel` nineslice button (U3b), hidden until shown. */
@@ -6914,7 +6953,14 @@ export class FarmScene extends Phaser.Scene {
       if (has) anyOwned = true;
       row.icon.setVisible(has);
       row.nameText.setVisible(has);
-      row.countText.setVisible(has).setText(`x${owned}`);
+      // A unique row (a building - `allowMultiple` false) reads "1/1"; a
+      // stackable (decor, trophy) reads "xN" (U3b-r3). `row.frame` is the
+      // catalog id (id === frame for buildings and decor); a frame with no
+      // catalog entry falls back to "xN", the stackable default.
+      const catalogItem = findCatalogItem(row.frame);
+      row.countText
+        .setVisible(has)
+        .setText(ownedBadgeLabel(owned, catalogItem?.allowMultiple ?? true));
       row.placeText.setVisible(has);
       row.placeButton.setVisible(has);
       if (has) {

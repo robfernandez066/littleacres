@@ -32,6 +32,16 @@ function trimmedDecimal(n: number): string {
   return Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
 }
 
+/**
+ * Owned-count badge label (U3b-r3): a UNIQUE item (`allowMultiple` false - a
+ * building today) reads owned-of-max, "1/1", since one is the whole allowance;
+ * a stackable (decor, paths, plots) reads "xN". Derived from `allowMultiple`,
+ * never from category, so a future unique decoration behaves the same.
+ */
+export function ownedBadgeLabel(count: number, allowMultiple: boolean): string {
+  return allowMultiple ? `x${count}` : `${count}/1`;
+}
+
 /** Friendly away duration: largest two units, minutes floored (never rounded up). */
 export function formatAwayDuration(elapsedMs: number): string {
   const totalMinutes = Math.floor(elapsedMs / 60_000);
