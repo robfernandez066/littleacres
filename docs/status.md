@@ -2,11 +2,11 @@
 
 **Updated:** 2026-07-22
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v31 · **Tests:** 805 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v32 · **Tests:** 818 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1, U2a, U2b SHIPPED (latest a220404). U3 sliced into U3a model / U3b UI. **U3a (per-TYPE building slots v32 + edit-session Undo stack, complex) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Then U3b edit scene UI -> U4 paths tab + paint-from-inventory.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1, U2a, U2b, U3a SHIPPED (latest 5d061cb). **U2b-r4 (shop fix: occluded buy popup + laggy fly-to-Shed, routine) is ACTIVE in docs/tasks/currenttask.md - run the coder loop.** Then U3b edit scene UI -> U4 paths tab + paint-from-inventory.
 
 ## Queued next
 
@@ -17,6 +17,7 @@
 
 ## Completed (newest first)
 
+- U3a per-TYPE building slot unlocks (v32; shelved buildings keep paid capacity) + edit-session undo stack (model, dormant until U3b) - 5d061cb, tests 818
 - U2b unified Shop (tabs, vector chrome, stepper + fly-to-Shed, one-time tip v31; caps into buyToShed; old shops deleted; 3 fix rounds) - a220404, tests 805; owner device pass
 - U2a warehouse retired into the Shed (trophies -> catalog purchasable:false, v30 overwrite-merge, delegate reducers) - 3987082, tests 795; owner live-tested the migration
 - U1 Shed pipeline model (derived catalog, shedInventory schema v29, buy/place/put-away reducers, warehouse mirrored) - c8d061e, tests 788
@@ -49,7 +50,7 @@
 - Save durability stays open (T3.17 was corruption-recovery only): browser eviction + cross-device loss wait for the T7.4 save era.
 - T4.11 lowered several XP thresholds (L2 900->30, all levels shifted down): loads are RAISE-only (reconcileLevelSilently), so an existing save can only be bumped UP a level, never demoted - confirmed safe, no migration.
 - **Hidden-panel sweep class (U2b-r3 finding):** any panel left interactive while hidden gets its hitboxes disabled by arrange mode's sweep and never re-enabled. ShopPanel now holds zero live hitboxes while closed; Goals/Paths/Restore are safe only because they are not reachable from arrange - apply the same hygiene to any panel U3b makes arrange-reachable.
-- U3a owes the per-TYPE slot-unlock change (shelved mill keeps paid capacity; put-away with batches in flight stays refused). U4 will retire the T4.13 paint-time coin charge (sink moves to shop buy time) - re-check the balance mirror's paths row when U4 ships. Stale "warehouse" naming (FarmScene WAREHOUSE_* constants, 'decor-warehouse' panel key, decor.ts param names) - sweep in U3.
+- U4 will retire the T4.13 paint-time coin charge (sink moves to shop buy time) - re-check the balance mirror's paths row when U4 ships. Stale "warehouse" naming (FarmScene WAREHOUSE_* constants, 'decor-warehouse' panel key, decor.ts param names) - sweep in U3.
 
 ## Backlog nits (fold into convenient tasks)
 

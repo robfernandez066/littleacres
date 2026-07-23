@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U3a shipped: per-TYPE slots + undo stack (model)
+**Context:** Store foundations for U3b's edit-scene UI; resolves the U1 building-capacity blocker.
+**Decision/verdict:** COMMIT 5d061cb (schema v32, tests 818; owner human check: nothing visible changed, confirmed). `buildingSlotUnlocks` map replaces per-placement `unlockedSlots` (max-and-strip migration; `unlockedSlotsFor` is the one reader) - a put-away building keeps its paid capacity with or without undo. In-memory edit-session undo stack instruments placeFromShed/putAwayToShed/setDecorationTransform/moveBuilding/moveStructure/flipBuilding/flipStructure (object-reference targeting, graceful discard on refused inverse); plot moves deliberately NOT instrumented (not in spec - U3b may revisit); paint strokes wait for U4. Dormant in live play until U3b calls beginEditSession. SYNC FLAGS delivered: BuildingPlacement lost unlockedSlots; new buildingSlotUnlocks field.
+**Trigger:** U3a report.
+
 ## 2026-07-23 - Platform end-goal set + P-wave (pipeline hardening) queued after the U-wave
 **Context:** Owner: the end goal is native MOBILE (stores), PWA was never the point; and content scaling worries him - buildings cost fit/shadow rounds, and he wants decor shadows simplified.
 **Decision:** Engine stays Phaser; the store path is a Capacitor wrap (native storage kills the save-eviction risk; push/haptics via plugins). Migration rejected: the costly limits are web-platform or taste, not engine. P-wave queued AFTER the U-wave: P1 per-category ART CONTRACT templates (footprint diamond + base-contact box baked into generation masters - kills the farmhouse/mill/bakery refit class); P2 ONE soft-ellipse shadow generator, light top-right/cast lower-left - replaces decor's pack-time cast silhouettes (owner: "small ovals, same light direction as buildings") AND becomes the default starting point for building shadows (authored stays for hero cases); owner picks the look from rendered captures before rollout. P3 Capacitor wrap spike on the owner's phone.
