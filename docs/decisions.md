@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U3b(+r1) shipped: the edit-scene rework; next refinements owner-picked
+**Context:** The wave's biggest slice: contextual toolbar, Shed/Shop/Undo/Cancel/Save bar, in-hand placement + building fast path, resize removal, warehouse->shed sweep - then r1's rulings (building exemption, dupe guard, Cancel, Save rename, paint-bar leak, stale-sprite root cause: the '' force sentinel collided with the empty-buildings key).
+**Decision/verdict:** USER TEST passed -> COMMIT 6c65836 (tests 822). Rulings closed: buy+Undo does NOT unwind a purchase (purchases are not edit actions - consistent with the exemption); owner's stranded dupes get a v33 normalize+refund mini-migration (queued, owner may veto). New owner directives for U3b-r2: Decor tab goes tap-to-expand (variant B of the PM mocks); the contextual toolbar becomes a vertical column Flip/Put away/Place, absorbing and retiring the floating Place Next button. movePlot IS undo-instrumented (U3b bonus). Art Studio SYNC flags delivered in both reports (extensive - see progress.md U3b/r1).
+**Trigger:** U3b + r1 reports; owner test pass + directives.
+
 ## 2026-07-23 - Owner overrides: buildings exempt from put-away; Cancel button; remove-all-decor queued
 **Context:** U3b human check found buildings put-away-able with a stale sprite left behind, and duplicate-buy holes (one-per-type guard counts only placements, so a shed-held building allows a rebuy - owner screenshot: mill buyable at x2, bakery Owned x2).
 **Decision:** Owner rulings: (1) buildings are EXEMPT from put-away - placed buildings move/flip only; putAwayToShed for buildings survives ONLY as the undo/Cancel inverse, and shed-held buildings (transient, via undo) get shed-panel rows so nothing strands; one-per-type counts shed + placed everywhere (guard + shop card). (2) Bottom bar gains CANCEL: two-tap confirm, full LIFO session unwind, then exit; purchases are never refunded. (3) "Remove all decor to Shed" leaves out-of-scope and joins the queue post-U4. Spec header amended. U3b-r1 carries these plus the stale-sprite and paint-bar-over-shop fixes.
