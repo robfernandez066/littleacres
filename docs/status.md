@@ -2,15 +2,15 @@
 
 **Updated:** 2026-07-22
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v33 · **Tests:** 834 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v33 · **Tests:** 836 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through V33 SHIPPED (latest 06540cf). **U3b-r3 (seed-bar leak in edit mode + unique-building "1/1" badge, routine) is ACTIVE - run the coder loop.** Then U3c (long-press + occluded-asset selection) -> U4 paths tab + paint-from-inventory.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3b-r3 SHIPPED (latest 56adff5). **U3c (long-press edit entry + occluded-asset selection, gesture classifier, complex) is ACTIVE - run the coder loop; real-phone pass is the commit gate.** Then U4 paths tab + paint-from-inventory closes the wave.
 
 ## Queued next
 
-- **U3c long-press edit entry + occluded-asset selection** (gesture-classifier changes, isolated by design; covers the owner's bakery-stuck-between-sprites report) -> **U4** (see spec's PM sequencing header).
+- **U4** paths tab + paint-from-inventory (see spec's PM sequencing header) - closes the U-wave.
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
@@ -18,6 +18,7 @@
 
 ## Completed (newest first)
 
+- U3b-r3 edit-bar tap consumption (seed-bar leak) + arrange guard + unique-building 1/1 badges - 56adff5, tests 836; owner device pass
 - V33 dupe-building normalize + refund migration (schema v33; owner refunded + shed deduped, verified live pre-commit) - 06540cf, tests 834
 - U3b-r2 shop tap-to-expand decor cards + contextual toolbar column (Flip/Put away/Place; floating Place Next retired) - a4b4e29, tests 828; owner device pass
 - U3b(+r1) edit-scene rework: contextual toolbar, Shed/Shop/Undo/Cancel/Save bar, in-hand + building fast path, building put-away exemption, dupe-buy guard, stale-sprite fix, paint-bar leak fix, shed naming sweep - 6c65836, tests 822; owner device pass

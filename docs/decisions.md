@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U3b-r3 shipped: bar-tap consumption + 1/1 badges
+**Context:** Owner's seed-bar-in-edit-mode report plus the owned-of-max badge directive.
+**Decision/verdict:** COMMIT 56adff5 (tests 836; owner device pass). Root cause: the five edit-bar handlers were the only arrange interactives NOT consuming the pointer, so the scene field classifier re-processed every bar tap; fixed via one onArrangeBarTap seam (stopPropagation) plus a beginFarmGesture arrange guard as depth-defense. The coder could not reproduce the exact device sighting - the structural seed-bar guard held in every driven state - so the sighting stays open-but-defended; owner re-reports with button+state if seen again. Badges: one tested helper (ownedBadgeLabel) derives "1/1" vs "xN" from allowMultiple everywhere.
+**Trigger:** U3b-r3 report + owner pass.
+
 ## 2026-07-23 - V33 shipped: dupe refund; /clear-mid-loop incident resolved
 **Context:** The one-shot remediation for the pre-U3b-r1 dupe-buy hole. Its coder session was accidentally /cleared mid-loop; the successor session's preflight caught the "unattributed" tree, and an audit-and-adopt pass found the inherited work complete AND its report already appended - only the commit was missing.
 **Decision/verdict:** COMMIT 06540cf (schema v33, tests 834; owner verified live pre-commit: coins refunded, shed deduped). Migration: unique buildings normalize to one owned copy, shed-only removal, refund per copy in the item's own currency at registry price; explicit not-a-gameplay-refund doc comment. Process hardening: task-file "clean tree" claims now scope to src/ (pm-rules); owner rule - never /clear a coder session before its report sentinel exists in progress.md. New owner directive queued into U3b-r3: unique buildings display owned-of-max ("1/1"), not "x1"; stackables keep "xN".
