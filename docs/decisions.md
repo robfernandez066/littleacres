@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U2b shipped: the unified Shop (3 fix rounds); U3 sliced into U3a/U3b
+**Context:** One tabbed catalog-driven Shop replaces Building Shop + Decor Shop. Fix rounds: r1 vector chrome (owner: sprite frames read wrong), r2 slot-based card layout (elements overlapped; screenshots now MANDATORY for visual tasks - DEV-only window.__shop capture seam adopted), r3 modal input hygiene (inside-taps closed the elevated shop).
+**Decision/verdict:** COMMIT a220404 (schema v31 shedTipSeen, tests 805; owner device pass). Rulings on record: split-budget caps live INSIDE buyToShed (one seam); Shed chip is a drawn "Shed N" pill (chest icon collided with premium-order chests); the Restore entry lives in the Goals hub only. NEW INCIDENT CLASS: a panel left interactive while hidden gets swept by arrange mode's hitbox sweep and never revived - a closed modal must hold zero live hitboxes (ShopPanel complies; U3b must comply for anything it makes arrange-reachable). U3 split: U3a store work (per-TYPE slots v32 + undo stack), U3b edit-scene UI.
+**Trigger:** U2b + r1-r3 reports, owner device pass.
+
 ## 2026-07-22 - U2a shipped: the warehouse retired into the Shed
 **Context:** Ends U1's mirror duplication; second U-wave task.
 **Decision/verdict:** USER TEST passed (owner migrated his real save live, all steps green) -> COMMIT 3987082 (schema v30, tests 795). Trophies joined the catalog as purchasable:false decor; v30 OVERWRITE-merges warehouse into shedInventory and deletes the field; buyDecoration/placeFromWarehouse/storeDecoration are thin delegates onto the shed reducers with the budget caps and DECOR_ITEMS gate kept in front (closes the price-0 free-trophy hole). Carry-forwards: buyToShed alone does NOT enforce decor budget caps - U2b moves cap enforcement into it (qty-aware); stale "warehouse" naming + QuestBoard's "In your Warehouse!" copy noted (copy fix rides U2b, naming sweep U3).
