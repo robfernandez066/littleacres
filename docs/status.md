@@ -2,16 +2,15 @@
 
 **Updated:** 2026-07-22
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v32 · **Tests:** 822 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v32 · **Tests:** 828 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3b(+r1) SHIPPED (latest 6c65836). **U3b-r2 (shop tap-to-expand cards + contextual toolbar column with Place, complex) is ACTIVE - run the coder loop.** Then the dupe-refund mini-migration (v33) -> U3c long-press entry -> U4 paths tab + paint-from-inventory.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3b-r2 SHIPPED (latest a4b4e29). **V33 (dupe normalize + refund migration, routine) is ACTIVE - run the coder loop.** Then U3c (long-press entry + occluded-asset selection - the owner's unmovable-bakery report folds in) -> U4 paths tab + paint-from-inventory.
 
 ## Queued next
 
-- **Dupe-refund migration (v33, TRIVIAL-ish):** normalize non-allowMultiple buildings to one owned copy, refund the price per dropped extra (owner's stranded shed mill+bakery = 2,500 coins back). Owner may veto.
-- **U3c long-press edit entry** (gesture-classifier change, isolated by design) -> **U4** (see spec's PM sequencing header).
+- **U3c long-press edit entry + occluded-asset selection** (gesture-classifier changes, isolated by design; covers the owner's bakery-stuck-between-sprites report) -> **U4** (see spec's PM sequencing header).
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
@@ -19,6 +18,7 @@
 
 ## Completed (newest first)
 
+- U3b-r2 shop tap-to-expand decor cards + contextual toolbar column (Flip/Put away/Place; floating Place Next retired) - a4b4e29, tests 828; owner device pass
 - U3b(+r1) edit-scene rework: contextual toolbar, Shed/Shop/Undo/Cancel/Save bar, in-hand + building fast path, building put-away exemption, dupe-buy guard, stale-sprite fix, paint-bar leak fix, shed naming sweep - 6c65836, tests 822; owner device pass
 - U2b-r4 shop tooltip depth + memoized pill redraws (smooth fly-to-Shed) - 6e24017
 - U3a per-TYPE building slot unlocks (v32; shelved buildings keep paid capacity) + edit-session undo stack (model, dormant until U3b) - 5d061cb, tests 818

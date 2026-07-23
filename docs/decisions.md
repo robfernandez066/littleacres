@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-23 - U3b-r2 shipped: calm shop cards + toolbar column; occlusion gap -> U3c
+**Context:** Owner-directed refinements after the U3b ship: Decor tab tap-to-expand (variant B of PM mocks), contextual toolbar as a Flip/Put away/Place column absorbing the floating Place Next button.
+**Decision/verdict:** COMMIT a4b4e29 (tests 828; owner device pass). Card geometry went top-anchored variable-height with a pure, unit-tested reflow helper (shopDecorLayout.ts); Buildings tab pixel-identical; collapsed cards carry zero live hitboxes. NEW GAP from owner play: a fast-path building can land where neighboring sprites' rectangular hit areas occlude it entirely (unmovable bakery between mill + farmhouse on mobile) - occluded-asset selection (nearest-base / tap-cycle among overlapping movables) FOLDED INTO U3c alongside long-press. Workaround meanwhile: zoom in or move the neighbors.
+**Trigger:** U3b-r2 report + owner device pass and bakery report.
+
 ## 2026-07-23 - U3b(+r1) shipped: the edit-scene rework; next refinements owner-picked
 **Context:** The wave's biggest slice: contextual toolbar, Shed/Shop/Undo/Cancel/Save bar, in-hand placement + building fast path, resize removal, warehouse->shed sweep - then r1's rulings (building exemption, dupe guard, Cancel, Save rename, paint-bar leak, stale-sprite root cause: the '' force sentinel collided with the empty-buildings key).
 **Decision/verdict:** USER TEST passed -> COMMIT 6c65836 (tests 822). Rulings closed: buy+Undo does NOT unwind a purchase (purchases are not edit actions - consistent with the exemption); owner's stranded dupes get a v33 normalize+refund mini-migration (queued, owner may veto). New owner directives for U3b-r2: Decor tab goes tap-to-expand (variant B of the PM mocks); the contextual toolbar becomes a vertical column Flip/Put away/Place, absorbing and retiring the floating Place Next button. movePlot IS undo-instrumented (U3b bonus). Art Studio SYNC flags delivered in both reports (extensive - see progress.md U3b/r1).
