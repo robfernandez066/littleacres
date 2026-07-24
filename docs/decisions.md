@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-24 - U5(+r1) shipped: bulk store/clear + path-tile long-press + one-touch fresh drags
+**Context:** Owner-requested post-wave extension; r1 relocated both bulk buttons per owner direction (edit-layout secondary row, exact labels "Store All Decorations"/"Clear All Paths"), added path-tile long-press (enters paint mode on that tier; movables keep priority), and fixed the fresh-from-shed drag feel (freshPlacement flag bypasses the overlap hold-to-grab for the just-placed selection only).
+**Decision/verdict:** COMMIT 1371d4a (tests 861; owner device pass). Each bulk action = one undo group over the existing putAwayToShed seam (no new store method); only one arrange confirm (Cancel/Store/Clear) can be armed at once; the U5 shed-panel button and paint-bar Clear-all were fully backed out (Hud.ts zero diff vs U4). Next: U5-r2 - the shop header Shed pill becomes a button reusing the edit-bar Shed button style (owner screenshot), tap = close shop -> edit mode -> Shed panel.
+**Trigger:** U5 + r1 reports; owner passes and directives.
+
 ## 2026-07-24 - U4 shipped: THE U-WAVE IS COMPLETE
 **Context:** The wave closer: Paths tab in the unified Shop, painting spends the Shed, stroke undo. One fix round (r1: vector tier chips - contained art, three distinct states, paint confirm renamed Save; chip chrome shared FROM ShopPanel's exported primitive).
 **Decision/verdict:** COMMIT 09fb2d0 (tests 859; owner device pass). paintPath/erasePath RETIRED - paint = placeFromShed, erase = putAwayToShed (erase now refunds the TILE, superseding T4.12's no-refund ruling per spec); the paths coin sink moved to shop buy time (balance mirror currencies.csv row updated in this doc pass); undo grouping (beginUndoGroup/endUndoGroup) makes one stroke one undo entry; paint mode now runs inside an edit session; PathsPanel deleted, tier bar lives in Hud. Accepted deviation: paint entry = "Paint" footer button on the Paths tab. The whole shop-edit-ui spec is now SHIPPED (header flipped); remaining extension U5 (remove-all buttons) is owner-requested beyond spec. Coder-flagged nits queued into U5: stale comments in paths.ts/paintGesture.ts/gameState session banner; shed panel row capacity tightness noted.
