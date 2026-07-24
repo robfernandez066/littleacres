@@ -34,12 +34,16 @@ import { decorCardTops } from './shopDecorLayout';
  *     lands at its default anchor (FarmScene's tick renders it) and the shop
  *     CLOSES. A unique building already owned is an inert "Owned" card; a locked
  *     one (level < unlockLevel) dims and reads "Level N", its tap only wiggling.
- *   - DECOR: a quantity stepper (1-99) plus an "Add to shed" button. Add charges
- *     `qty * price` once via `buyToShed`, the count lands in the shed, the shop
- *     STAYS OPEN, the card's icon flies into the header's Shed chip, the chip
- *     bounces and its count ticks up. The button renders disabled (dimmed, never
- *     red) when the balance cannot cover the buy or it would breach a split
- *     budget cap - the same cap `buyToShed` itself enforces.
+ *   - DECOR and PATHS (U4): a quantity stepper (1-99) plus an "Add to shed"
+ *     button. Add charges `qty * price` once via `buyToShed`, the count lands in
+ *     the shed, the shop STAYS OPEN, the card's icon flies into the header's
+ *     Shed chip, the chip bounces and its count ticks up. The button renders
+ *     disabled (dimmed, never red) when the balance cannot cover the buy or it
+ *     would breach a split budget cap - the same cap `buyToShed` itself
+ *     enforces (decor-only; paths are uncapped and dirt is free). A path card's
+ *     price pill reads per tile ("15 ea"; dirt "Free") and its owned badge is
+ *     the SHED count. The Paths tab also carries the "Paint" footer entry into
+ *     the persistent paint mode, replacing the pre-U4 stopgap footer button.
  *
  * The first successful Add ever shows a one-time tooltip, backed by the
  * `shedTipSeen` save flag (schema v31). Mirrors `DecorShop`'s elevated-depth
@@ -47,8 +51,8 @@ import { decorCardTops } from './shopDecorLayout';
  * control row.
  */
 
-/** The two tabs the unified Shop ships this task (Paths joins in U4). */
-type ShopTab = 'building' | 'decor';
+/** The three tabs (U4): Buildings | Paths | Decor, in row order. */
+type ShopTab = 'building' | 'path' | 'decor';
 
 const PANEL_WIDTH = 940;
 const PANEL_HEIGHT = 1780;
@@ -88,12 +92,13 @@ const BALANCE_ICON_SCALE = BALANCE_ICON_DISPLAY / BALANCE_ICON_NATIVE;
 const SHED_PILL_X = 250;
 const SHED_PILL_HALF_H = 24;
 
-/** Tab row. */
+/** Tab row: three tabs since U4 (Buildings | Paths | Decor), evenly spread. */
 const TAB_Y = -HALF_H + 190;
-const TAB_WIDTH = 300;
+const TAB_WIDTH = 280;
 const TAB_HEIGHT = 84;
-const TAB_BUILDING_X = -160;
-const TAB_DECOR_X = 160;
+const TAB_BUILDING_X = -300;
+const TAB_PATH_X = 0;
+const TAB_DECOR_X = 300;
 const TAB_ACTIVE_ALPHA = 1;
 const TAB_INACTIVE_ALPHA = 0.45;
 
@@ -151,6 +156,13 @@ const ADD_Y = ROW_ADD_TOP + ROW_ADD_H / 2;
 const BUILDING_ICON_NATIVE = 256;
 const DECOR_ICON_NATIVE = 128;
 const CARD_ICON_DISPLAY = 74;
+/**
+ * A path card's art is a 256x128 TILE DIAMOND (U4), never a square icon, so it
+ * scales by WIDTH alone (the PathsPanel precedent) - 120 wide puts its 60-tall
+ * diamond comfortably inside the 80-tall art row.
+ */
+const PATH_TILE_NATIVE_WIDTH = 256;
+const PATH_CARD_ICON_WIDTH = 120;
 
 /** Price group: coin/moondust icon + amount, centred as one group in the price row. */
 const CARD_PRICE_ICON_NATIVE = 96;
@@ -203,15 +215,18 @@ const CHIP_BOUNCE_SCALE = 1.35;
  * coin/moondust icons stay sprites. Colours are subtle - the coin pill leans
  * warm and the moondust pill cool, nothing saturated.
  */
-const STROKE_BROWN = 0x4a3218;
-const CARD_FILL = 0xf7edd6;
+/** EXPORTED (U4-r1): the paint bar's tier chips reuse this exact chrome, so
+ *  the shop cards and the chips stay one visual language. */
+export const STROKE_BROWN = 0x4a3218;
+export const CARD_FILL = 0xf7edd6;
 const CARD_RADIUS = 20;
 const CARD_STROKE_W = 2;
 const PILL_STROKE_W = 2;
 const BTN_STROKE_W = 2;
 const BTN_RADIUS = 14;
-/** Neutral pill fill (status, owned, shed) and warm/cool price-pill tints. */
-const PILL_FILL = 0xeaddbe;
+/** Neutral pill fill (status, owned, shed) and warm/cool price-pill tints.
+ *  PILL_FILL is exported for the paint bar's count pills (U4-r1). */
+export const PILL_FILL = 0xeaddbe;
 const COIN_PILL_FILL = 0xf4dca6;
 const MOONDUST_PILL_FILL = 0xd8def0;
 const BTN_FILL = 0xf1e2c0;
@@ -221,6 +236,28 @@ const PILL_PAD_X = 16;
 const PILL_HALF_H = 18;
 const OWNED_PILL_HALF_H = 18;
 const OWNED_PILL_PAD_X = 12;
+
+/**
+ * Draw a filled + stroked rounded rect CENTRED on the graphics' own origin,
+ * clearing whatever it held - so scaling the graphics pivots on the shape's
+ * centre and a redraw is a straight replace. The one drawing primitive all the
+ * vector chrome shares (U2b-r1); EXPORTED since U4-r1 so the paint bar's tier
+ * chips draw with the identical card language.
+ */
+export function drawCardRoundRect(
+  g: Phaser.GameObjects.Graphics,
+  halfW: number,
+  halfH: number,
+  radius: number,
+  fill: number,
+  strokeW: number,
+): void {
+  g.clear();
+  g.fillStyle(fill, 1);
+  g.fillRoundedRect(-halfW, -halfH, halfW * 2, halfH * 2, radius);
+  g.lineStyle(strokeW, STROKE_BROWN, 1);
+  g.strokeRoundedRect(-halfW, -halfH, halfW * 2, halfH * 2, radius);
+}
 
 const TITLE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Georgia, serif',
@@ -316,16 +353,22 @@ const ADD_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
-const PATHS_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+/**
+ * The Paths tab's "Paint" entry (U4): a footer button shown ONLY while the
+ * Paths tab is active - it closes the shop and enters the persistent paint
+ * mode (tier choice lives in the paint bar's tier row). The successor of the
+ * pre-U4 "Paths" stopgap footer button, in its band.
+ */
+const PAINT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '32px',
   fontStyle: 'bold',
   color: '#4a3218',
 };
 
-const PATHS_BUTTON_Y = HALF_H - 66;
-const PATHS_BUTTON_WIDTH = 260;
-const PATHS_BUTTON_HEIGHT = 84;
+const PAINT_BUTTON_Y = HALF_H - 66;
+const PAINT_BUTTON_WIDTH = 260;
+const PAINT_BUTTON_HEIGHT = 84;
 
 /**
  * Decor-card stepper controls; absent on a building card. The `-`/`+`/Add
@@ -403,8 +446,13 @@ export class ShopPanel {
 
   private readonly buildingTabBg: Phaser.GameObjects.NineSlice;
   private readonly buildingTabText: Phaser.GameObjects.Text;
+  private readonly pathTabBg: Phaser.GameObjects.NineSlice;
+  private readonly pathTabText: Phaser.GameObjects.Text;
   private readonly decorTabBg: Phaser.GameObjects.NineSlice;
   private readonly decorTabText: Phaser.GameObjects.Text;
+  /** The Paths tab's "Paint" entry (U4) - see PAINT_BUTTON_Y. */
+  private readonly paintButton: Phaser.GameObjects.NineSlice;
+  private readonly paintText: Phaser.GameObjects.Text;
 
   private readonly tooltipText: Phaser.GameObjects.Text;
   private tooltipTween: Phaser.Tweens.Tween | null = null;
@@ -419,15 +467,16 @@ export class ShopPanel {
   private readonly cards: Card[] = [];
 
   /**
-   * The one decor card currently expanded (U3b-r2), or null when all are
-   * collapsed. Tapping a collapsed card's header expands it and collapses any
-   * other; switching tabs or closing the panel resets it to null.
+   * The one stepper card (decor or path, U4) currently expanded (U3b-r2), or
+   * null when all are collapsed. Tapping a collapsed card's header expands it
+   * and collapses any other; switching tabs or closing the panel resets it to
+   * null.
    */
   private expandedDecorCard: Card | null = null;
 
   /**
    * Every persistent hit target the panel owns - the body-tap blocker, the X,
-   * both tabs, the Paths button, and each card's zones - toggled with the
+   * the three tabs, the Paint button, and each card's zones - toggled with the
    * panel's open/closed state (`setInteractivesEnabled`). A CLOSED shop holds
    * NO live hitboxes: without this, arrange mode's "disable every other
    * interactive object" sweep (FarmScene.setOtherHitboxesEnabled) captures the
@@ -440,8 +489,9 @@ export class ShopPanel {
   constructor(
     private readonly scene: Phaser.Scene,
     private readonly audio: AudioManager,
-    /** Close this panel and open the Paths panel (stopgap until U4). */
-    private readonly onOpenPaths: () => void,
+    /** Close this panel and enter the persistent paint mode (U4) - the Paths
+     *  tab's "Paint" footer button. */
+    private readonly onEnterPaintMode: () => void,
     /**
      * A building was just bought (U3b): the scene closes the shop, enters
      * arrange mode, and selects the new building "in hand".
@@ -528,6 +578,12 @@ export class ShopPanel {
       this.audio.sfx('tap');
       this.selectTab('building');
     });
+    this.pathTabBg = this.buildButton(TAB_PATH_X, TAB_Y, TAB_WIDTH, TAB_HEIGHT);
+    this.pathTabText = scene.add.text(TAB_PATH_X, TAB_Y, 'Paths', TAB_STYLE).setOrigin(0.5);
+    this.pathTabBg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.selectTab('path');
+    });
     this.decorTabBg = this.buildButton(TAB_DECOR_X, TAB_Y, TAB_WIDTH, TAB_HEIGHT);
     this.decorTabText = scene.add.text(TAB_DECOR_X, TAB_Y, 'Decor', TAB_STYLE).setOrigin(0.5);
     this.decorTabBg.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
@@ -537,10 +593,12 @@ export class ShopPanel {
     this.container.add([
       this.buildingTabBg,
       this.buildingTabText,
+      this.pathTabBg,
+      this.pathTabText,
       this.decorTabBg,
       this.decorTabText,
     ]);
-    this.interactives.push(this.buildingTabBg, this.decorTabBg);
+    this.interactives.push(this.buildingTabBg, this.pathTabBg, this.decorTabBg);
 
     // One-time Shed tooltip (hidden until the first Add succeeds).
     this.tooltipText = scene.add
@@ -550,34 +608,33 @@ export class ShopPanel {
       .setVisible(false);
     this.container.add(this.tooltipText);
 
-    // Cards for both tabs, filtered to purchasable items (trophies are never
+    // Cards for every tab, filtered to purchasable items (trophies are never
     // sold). Same grid coordinates per tab; only the active tab's cards show.
     for (const item of catalogItemsInCategory('building').filter((i) => i.purchasable)) {
+      this.cards.push(this.buildCard(item));
+    }
+    for (const item of catalogItemsInCategory('path').filter((i) => i.purchasable)) {
       this.cards.push(this.buildCard(item));
     }
     for (const item of catalogItemsInCategory('decor').filter((i) => i.purchasable)) {
       this.cards.push(this.buildCard(item));
     }
-    // Every decor card starts collapsed (U3b-r2): hide the stepper rows and pack
-    // the grid at the collapsed height before the first open.
+    // Every stepper card (path/decor) starts collapsed (U3b-r2): hide the
+    // stepper rows and pack the grid at the collapsed height before the first
+    // open.
     this.applyDecorExpansionAll();
 
-    // Paths stopgap (U4): a plain button opening the existing PathsPanel
-    // unchanged, until U4 ships the Paths tab and retires this.
-    const pathsButton = this.buildButton(
-      0,
-      PATHS_BUTTON_Y,
-      PATHS_BUTTON_WIDTH,
-      PATHS_BUTTON_HEIGHT,
-    );
-    const pathsText = scene.add.text(0, PATHS_BUTTON_Y, 'Paths', PATHS_STYLE).setOrigin(0.5);
-    pathsButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    // The Paths tab's "Paint" entry (U4) - see PAINT_BUTTON_Y. `refresh` shows
+    // it only while the Paths tab is active.
+    this.paintButton = this.buildButton(0, PAINT_BUTTON_Y, PAINT_BUTTON_WIDTH, PAINT_BUTTON_HEIGHT);
+    this.paintText = scene.add.text(0, PAINT_BUTTON_Y, 'Paint', PAINT_STYLE).setOrigin(0.5);
+    this.paintButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
       this.hide();
-      this.onOpenPaths();
+      this.onEnterPaintMode();
     });
-    this.container.add([pathsButton, pathsText]);
-    this.interactives.push(pathsButton);
+    this.container.add([this.paintButton, this.paintText]);
+    this.interactives.push(this.paintButton);
 
     // The panel starts closed, so it must start with no live hitboxes (see
     // `interactives`); `openTo` re-enables them. `refresh` still owns each Add
@@ -618,10 +675,10 @@ export class ShopPanel {
   }
 
   /**
-   * Draw a filled + stroked rounded rect CENTRED on the graphics' own origin,
-   * clearing whatever it held - so scaling the graphics pivots on the shape's
-   * centre and a redraw is a straight replace. The one drawing primitive all the
-   * vector chrome shares (U2b-r1).
+   * Draw a filled + stroked rounded rect CENTRED on the graphics' own origin -
+   * a thin delegate onto the module-level `drawCardRoundRect` (exported since
+   * U4-r1 for the paint bar's tier chips), kept as a method so the panel's
+   * many call sites stay unchanged.
    */
   private drawRoundRect(
     g: Phaser.GameObjects.Graphics,
@@ -631,11 +688,7 @@ export class ShopPanel {
     fill: number,
     strokeW: number,
   ): void {
-    g.clear();
-    g.fillStyle(fill, 1);
-    g.fillRoundedRect(-halfW, -halfH, halfW * 2, halfH * 2, radius);
-    g.lineStyle(strokeW, STROKE_BROWN, 1);
-    g.strokeRoundedRect(-halfW, -halfH, halfW * 2, halfH * 2, radius);
+    drawCardRoundRect(g, halfW, halfH, radius, fill, strokeW);
   }
 
   /**
@@ -681,18 +734,16 @@ export class ShopPanel {
     return zone;
   }
 
-  /** Build one card (building or decor); its grid slot is its index within its tab. */
+  /** Build one card (building, path, or decor); its grid slot is its index within its tab. */
   private buildCard(item: CatalogItem): Card {
-    const tabItems =
-      item.category === 'building'
-        ? catalogItemsInCategory('building').filter((i) => i.purchasable)
-        : catalogItemsInCategory('decor').filter((i) => i.purchasable);
+    const tabItems = catalogItemsInCategory(item.category).filter((i) => i.purchasable);
     const slot = tabItems.findIndex((i) => i.id === item.id);
     const col = slot % 2;
     const rowIndex = Math.floor(slot / 2);
     const centerX = COLUMN_X[col]!;
-    // TOP-anchored: the container sits at the card's top edge. Buildings pack by
-    // the full card height; decor start collapsed and reflow via `layoutDecorGrid`.
+    // TOP-anchored: the container sits at the card's top edge. Buildings pack
+    // by the full card height; path/decor start collapsed and reflow via
+    // `layoutStepperGrids`.
     const isBuilding = item.category === 'building';
     const originY = GRID_TOP_EDGE + rowIndex * (isBuilding ? BUILDING_ROW_SPACING : 0);
 
@@ -702,23 +753,37 @@ export class ShopPanel {
     const cardBg = this.scene.add.graphics();
     this.drawCardBg(cardBg, isBuilding ? BUILDING_CARD_HEIGHT : COLLAPSED_CARD_HEIGHT);
 
-    const iconNative = item.category === 'building' ? BUILDING_ICON_NATIVE : DECOR_ICON_NATIVE;
-    const icon = this.scene.add
-      .image(0, CARD_ICON_Y, ATLAS_KEY, item.frame)
-      .setScale(CARD_ICON_DISPLAY / iconNative);
+    // A path frame is a wide tile diamond, scaled by width (U4); square
+    // building/decor icons scale by their native square size.
+    const iconScale =
+      item.category === 'path'
+        ? PATH_CARD_ICON_WIDTH / PATH_TILE_NATIVE_WIDTH
+        : CARD_ICON_DISPLAY / (isBuilding ? BUILDING_ICON_NATIVE : DECOR_ICON_NATIVE);
+    const icon = this.scene.add.image(0, CARD_ICON_Y, ATLAS_KEY, item.frame).setScale(iconScale);
     const nameText = this.scene.add.text(0, CARD_NAME_Y, item.name, NAME_STYLE).setOrigin(0.5);
 
     // Price pill: a drawn pill behind a coin/moondust icon + amount, laid out as
-    // a centred group. Static per card, so drawn once here.
+    // a centred group. Static per card, so drawn once here. A path tier's price
+    // is PER TILE, so it reads "15 ea"; the free rung (dirt) reads "Free" with
+    // no coin icon at all (U4, the PathsPanel convention).
     const pricePill = this.scene.add.graphics().setPosition(0, CARD_PRICE_Y);
     const priceIconFrame = item.currency === 'coins' ? 'coin' : 'moondust';
     const priceIcon = this.scene.add
       .image(0, CARD_PRICE_Y, ATLAS_KEY, priceIconFrame)
       .setScale(CARD_PRICE_ICON_SCALE);
+    const freePath = item.category === 'path' && item.price === 0;
+    const priceLabel =
+      item.category === 'path' ? (freePath ? 'Free' : `${item.price} ea`) : String(item.price);
     const priceText = this.scene.add
-      .text(0, CARD_PRICE_Y, String(item.price), PRICE_STYLE)
+      .text(0, CARD_PRICE_Y, priceLabel, PRICE_STYLE)
       .setOrigin(0, 0.5);
-    this.layoutPricePill(pricePill, priceIcon, priceText, item.currency);
+    if (freePath) {
+      priceIcon.setVisible(false);
+      priceText.setOrigin(0.5).setX(0);
+      this.drawPill(pricePill, priceText.width, PILL_HALF_H, PILL_PAD_X, COIN_PILL_FILL);
+    } else {
+      this.layoutPricePill(pricePill, priceIcon, priceText, item.currency);
+    }
 
     const statusPill = this.scene.add.graphics().setPosition(0, CARD_STATUS_Y).setVisible(false);
     const statusText = this.scene.add
@@ -898,45 +963,52 @@ export class ShopPanel {
   }
 
   /**
-   * Reflow the decor grid and apply every decor card's expanded/collapsed
-   * visuals from the current `expandedDecorCard` (U3b-r2), WITHOUT re-deriving
-   * from state - so the constructor and `hide` can reset to all-collapsed before
-   * any refresh (the next `openTo` refreshes).
+   * Reflow both stepper grids (path + decor, U4) and apply every stepper
+   * card's expanded/collapsed visuals from the current `expandedDecorCard`
+   * (U3b-r2), WITHOUT re-deriving from state - so the constructor and `hide`
+   * can reset to all-collapsed before any refresh (the next `openTo`
+   * refreshes).
    */
   private applyDecorExpansionAll(): void {
-    this.layoutDecorGrid();
+    this.layoutStepperGrids();
     for (const c of this.cards) {
-      if (c.item.category === 'decor') this.applyDecorExpansion(c);
+      if (c.item.category !== 'building') this.applyDecorExpansion(c);
     }
   }
 
   /**
-   * Reposition every decor card's container top from the reflow (U3b-r2). The
-   * expanded card's row grows; later rows shift down. `originY` tracks the move
-   * so the fly-to-chip start stays correct.
+   * Reposition every stepper card's container top from the reflow (U3b-r2;
+   * per-tab since U4 - the path and decor tabs each run their own reflow over
+   * the same grid band, since only one tab ever shows). The expanded card's
+   * row grows; later rows shift down. `originY` tracks the move so the
+   * fly-to-chip start stays correct.
    */
-  private layoutDecorGrid(): void {
-    const decorCards = this.cards.filter((c) => c.item.category === 'decor');
-    const tops = decorCardTops(
-      decorCards.length,
-      this.expandedDecorCard?.slot ?? null,
-      GRID_TOP_EDGE,
-      COLLAPSED_CARD_HEIGHT,
-      EXPANDED_CARD_HEIGHT,
-      CARD_ROW_GAP,
-    );
-    for (const card of decorCards) {
-      const top = tops[card.slot]!;
-      card.container.setY(top);
-      card.originY = top;
+  private layoutStepperGrids(): void {
+    for (const category of ['path', 'decor'] as const) {
+      const tabCards = this.cards.filter((c) => c.item.category === category);
+      const expanded = this.expandedDecorCard;
+      const tops = decorCardTops(
+        tabCards.length,
+        expanded?.item.category === category ? expanded.slot : null,
+        GRID_TOP_EDGE,
+        COLLAPSED_CARD_HEIGHT,
+        EXPANDED_CARD_HEIGHT,
+        CARD_ROW_GAP,
+      );
+      for (const card of tabCards) {
+        const top = tops[card.slot]!;
+        card.container.setY(top);
+        card.originY = top;
+      }
     }
   }
 
   /**
-   * Apply a decor card's expanded/collapsed visuals (U3b-r2): grow/shrink the
+   * Apply a stepper card's expanded/collapsed visuals (U3b-r2): grow/shrink the
    * card BG and show/hide the stepper + Add row. Zone interactivity for the
-   * stepper is (re-)derived by `refreshDecorCard` on top of this (affordability),
-   * but a collapsed card must carry no live stepper hitboxes regardless.
+   * stepper is (re-)derived by `refreshStepperCard` on top of this
+   * (affordability), but a collapsed card must carry no live stepper hitboxes
+   * regardless.
    */
   private applyDecorExpansion(card: Card): void {
     const stepper = card.stepper;
@@ -996,7 +1068,8 @@ export class ShopPanel {
     this.onBuildingBought(buildingId);
   }
 
-  /** Decor Add: charge qty * price into the shed, animate, keep the shop open. */
+  /** Stepper-card Add (decor or path): charge qty * price into the shed,
+   *  animate, keep the shop open. Free dirt charges 0 through the same path. */
   private onDecorAdd(card: Card): void {
     const stepper = card.stepper;
     if (stepper === undefined) return;
@@ -1116,11 +1189,26 @@ export class ShopPanel {
       this.lastShedTotal = shedTotal;
     }
 
-    const buildingActive = this.activeTab === 'building';
-    this.buildingTabBg.setAlpha(buildingActive ? TAB_ACTIVE_ALPHA : TAB_INACTIVE_ALPHA);
-    this.buildingTabText.setAlpha(buildingActive ? TAB_ACTIVE_ALPHA : TAB_INACTIVE_ALPHA);
-    this.decorTabBg.setAlpha(buildingActive ? TAB_INACTIVE_ALPHA : TAB_ACTIVE_ALPHA);
-    this.decorTabText.setAlpha(buildingActive ? TAB_INACTIVE_ALPHA : TAB_ACTIVE_ALPHA);
+    const tabAlpha = (tab: ShopTab): number =>
+      this.activeTab === tab ? TAB_ACTIVE_ALPHA : TAB_INACTIVE_ALPHA;
+    this.buildingTabBg.setAlpha(tabAlpha('building'));
+    this.buildingTabText.setAlpha(tabAlpha('building'));
+    this.pathTabBg.setAlpha(tabAlpha('path'));
+    this.pathTabText.setAlpha(tabAlpha('path'));
+    this.decorTabBg.setAlpha(tabAlpha('decor'));
+    this.decorTabText.setAlpha(tabAlpha('decor'));
+
+    // The Paint entry belongs to the Paths tab alone (U4): hidden AND
+    // hitbox-dead on the other tabs (`setInteractivesEnabled(true)` on open
+    // re-arms it blindly, the stepper-zone precedent).
+    const onPathTab = this.activeTab === 'path';
+    this.paintButton.setVisible(onPathTab);
+    this.paintText.setVisible(onPathTab);
+    if (onPathTab) {
+      this.paintButton.setInteractive({ useHandCursor: true });
+    } else {
+      this.paintButton.disableInteractive();
+    }
 
     const decorOwned = decorOwnedCount(state.decorations, state.shedInventory);
     const fenceOwned = fenceOwnedCount(state.decorations, state.shedInventory);
@@ -1132,7 +1220,7 @@ export class ShopPanel {
       if (card.item.category === 'building') {
         this.refreshBuildingCard(card, state);
       } else {
-        this.refreshDecorCard(card, state, decorOwned, fenceOwned);
+        this.refreshStepperCard(card, state, decorOwned, fenceOwned);
       }
     }
   }
@@ -1201,7 +1289,13 @@ export class ShopPanel {
     }
   }
 
-  private refreshDecorCard(
+  /**
+   * Re-derive a stepper card (decor or path, U4) from state. A decor card's
+   * owned badge counts placed + shed; a PATH card's counts the SHED alone
+   * (spec: the badge is the paintable stock, and painted tiles are not stock).
+   * The split-budget caps are decor-only - paths are uncapped by design.
+   */
+  private refreshStepperCard(
     card: Card,
     state: GameStateData,
     decorOwned: number,
@@ -1212,8 +1306,11 @@ export class ShopPanel {
     card.container.setAlpha(1);
     stepper.qtyText.setText(String(stepper.qty));
 
-    const placed = state.decorations.filter((d) => d.frame === card.item.frame).length;
     const shed = state.shedInventory[card.item.id] ?? 0;
+    const placed =
+      card.item.category === 'path'
+        ? 0
+        : state.decorations.filter((d) => d.frame === card.item.frame).length;
     this.setOwnedBadge(card, placed + shed);
 
     // A collapsed card hides its stepper, so it must carry no live stepper
@@ -1230,11 +1327,14 @@ export class ShopPanel {
 
     const balance = card.item.currency === 'coins' ? state.coins : state.moondust;
     const affordable = balance >= card.item.price * stepper.qty;
-    // Same split-budget cap `buyToShed` enforces - presentation only here.
+    // Same split-budget cap `buyToShed` enforces - presentation only here, and
+    // decor-only (`buyToShed` exempts paths from both budgets).
     const underCap =
-      card.item.frame === FENCE_FRAME
-        ? fenceOwned + stepper.qty <= MAX_FENCES
-        : decorOwned + stepper.qty <= MAX_DECOR_ITEMS;
+      card.item.category === 'path'
+        ? true
+        : card.item.frame === FENCE_FRAME
+          ? fenceOwned + stepper.qty <= MAX_FENCES
+          : decorOwned + stepper.qty <= MAX_DECOR_ITEMS;
     const enabled = affordable && underCap;
 
     const alpha = enabled ? ENABLED_ALPHA : DISABLED_ALPHA;
@@ -1271,7 +1371,7 @@ export class ShopPanel {
     this.backdrop.setDepth(elevated ? ELEVATED_BACKDROP_DEPTH : undefined);
   }
 
-  /** Open the panel on `tab` (Buildings or Decor). */
+  /** Open the panel on `tab` (Buildings, Paths, or Decor). */
   openTo(tab: ShopTab, state: GameStateData): void {
     this.activeTab = tab;
     this.visible = true;

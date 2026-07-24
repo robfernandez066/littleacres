@@ -17,7 +17,7 @@ import { formatCurrency } from '../data/format';
 import { MAX_LEVEL, xpForLevel } from '../data/levels';
 import { LONG_QUESTS } from '../data/quests';
 import type { AudioManager } from '../systems/audio';
-import type { PathTierId } from '../data/paths';
+import { DEFAULT_PATH_TIER, PATH_TIER_LIST, type PathTierId } from '../data/paths';
 import { gameState, type GameStateData } from '../systems/gameState';
 import { buzz } from '../systems/haptics';
 import { isModalOpen } from '../systems/modalPanels';
@@ -31,10 +31,11 @@ import type { MillPanel } from './MillPanel';
 import { InventoryPanel, type SellableRef } from './InventoryPanel';
 import { MAX_MOONDUST_PER_FLY, MoondustArc } from './MoondustArc';
 import { OrderBoard } from './OrderBoard';
-import { PathsPanel } from './PathsPanel';
 import type { QuestBoard } from './QuestBoard';
 import { SettingsPanel } from './SettingsPanel';
-import { ShopPanel } from './ShopPanel';
+// The chip chrome is shared FROM ShopPanel (U4-r1): one card language for the
+// shop's cards and the paint bar's tier chips.
+import { CARD_FILL, drawCardRoundRect, PILL_FILL, ShopPanel, STROKE_BROWN } from './ShopPanel';
 
 /**
  * Themed top HUD: a full-width wooden banner carrying the level crest, the xp
@@ -298,30 +299,107 @@ const SHOP_EDGE_INSET = DESIGN_WIDTH - (GEAR_X + GEAR_SIZE / 2);
 const SHOP_X = SHOP_EDGE_INSET + SHOP_WIDTH / 2;
 
 /**
- * Path paint-mode bar (T4.12): the only on-screen affordance while the
- * persistent paint mode is up - an Erase toggle and a Done button, centered
- * as one row. It sits on the arrange controls' bottom row y (FarmScene's
- * ARRANGE_ROW2_Y = 1700) because the two modes are mutually exclusive, so
- * they can never both want that band. Built with Edit Layout's convention: a
- * `panel` nineslice sized directly to its display bounds (its default hit
- * area therefore already covers the full visible rectangle) with a centered
- * label, so no custom hit area is needed - both buttons clear 96px already.
+ * Path paint-mode bar (T4.12; the TIER ROW joined in U4, restyled U4-r1): the
+ * only on-screen affordance while the persistent paint mode is up, two rows -
+ *   TIER ROW (y 1604): one chip per path tier, drawn in the Shop's U2b vector
+ *     card language (`drawCardRoundRect` - parchment fill, dark-brown rounded
+ *     stroke) rather than raw sprites: the tile art sits INSIDE a fixed art
+ *     slot with clear margin, and the live "xN" SHED count sits in its own
+ *     pill slot fully below the art (never over it). No tier name - the chip
+ *     is too small for one, so it is art-only by design. States: SELECTED =
+ *     stronger border at full alpha (the shop tabs' accent treatment);
+ *     AVAILABLE = thin border, full alpha; EMPTY (x0) = card + art dimmed
+ *     while the count pill stays full-alpha legible. Selected+empty combines
+ *     (dimmed with the strong border) - selectable-but-inert per U4. The row
+ *     sits just below PAN_BAND_BOTTOM_Y (1560) so a chip tap can never also
+ *     paint the tile under it; each chip's hit target is a paired invisible
+ *     Zone over the drawn card (the ShopPanel pattern), so the field
+ *     classifier's currentlyOver branch claims chip taps first.
+ *   ACTION ROW (y 1700, the arrange bar's band - the modes are mutually
+ *     exclusive): [Erase] [Undo] [Cancel] [Save]. Save is the prominent
+ *     confirm (widest), renamed from Done in U4-r1 to match the arrange bar's
+ *     confirm; Undo pops ONE stroke (strokes group, U4); Cancel is the
+ *     arrange bar's two-tap confirm that unwinds the whole session and exits;
+ *     Erase shows an ACTIVE accent border while erase mode is on, not just an
+ *     alpha change. Buttons are `panel` nineslices sized to their display
+ *     bounds (default hit area covers the visible rect) with centered labels.
  */
 const PATH_BAR_Y = 1700;
 const PATH_BAR_HEIGHT = 100;
 const PATH_BAR_GAP = 24;
-const PATH_ERASE_WIDTH = 220;
-const PATH_DONE_WIDTH = 220;
-const PATH_BAR_X_ERASE = DESIGN_WIDTH / 2 - (PATH_ERASE_WIDTH + PATH_BAR_GAP) / 2;
-const PATH_BAR_X_DONE = DESIGN_WIDTH / 2 + (PATH_DONE_WIDTH + PATH_BAR_GAP) / 2;
+const PATH_ERASE_WIDTH = 200;
+const PATH_UNDO_WIDTH = 200;
+const PATH_CANCEL_WIDTH = 200;
+/** Save is the single prominent confirm - widest, the arrange bar's rule. */
+const PATH_SAVE_WIDTH = 220;
+/** Centers the four action-row widths as one evenly-gapped row (the arrange
+ *  bar's own centering arithmetic). */
+function pathBarCenterXs(widths: number[]): number[] {
+  const total = widths.reduce((sum, w) => sum + w, 0) + PATH_BAR_GAP * (widths.length - 1);
+  let x = DESIGN_WIDTH / 2 - total / 2;
+  return widths.map((w) => {
+    const center = x + w / 2;
+    x += w + PATH_BAR_GAP;
+    return center;
+  });
+}
+const [PATH_BAR_X_ERASE, PATH_BAR_X_UNDO, PATH_BAR_X_CANCEL, PATH_BAR_X_SAVE] = pathBarCenterXs([
+  PATH_ERASE_WIDTH,
+  PATH_UNDO_WIDTH,
+  PATH_CANCEL_WIDTH,
+  PATH_SAVE_WIDTH,
+]) as [number, number, number, number];
 /** Above the arrange UI's own depth so it is never buried by a stale control. */
 const PATH_BAR_DEPTH = 2200;
 /** The Erase toggle reads ON by lighting up; OFF is the same dim as an inert button. */
 const PATH_ERASE_ON_ALPHA = 1;
 const PATH_ERASE_OFF_ALPHA = 0.55;
+/** Erase-ACTIVE accent border (U4-r1): a drawn stroke ringing the button just
+ *  inside its art, so erase-on reads as a state, not merely a brighter label. */
+const PATH_ERASE_ACCENT_INSET = 6;
+const PATH_ERASE_ACCENT_STROKE_W = 5;
+const PATH_ERASE_ACCENT_RADIUS = 16;
+/** Undo follows `editUndoDepth` - the arrange bar's enabled/dim convention. */
+const PATH_UNDO_ENABLED_ALPHA = 1;
+const PATH_UNDO_DISABLED_ALPHA = 0.4;
+/** Cancel's two-tap confirm (U4) - the arrange bar's window and copy exactly. */
+const PATH_CANCEL_ARM_MS = 3000;
+const PATH_CANCEL_LABEL = 'Cancel';
+const PATH_CANCEL_ARMED_LABEL = 'Confirm?';
+/** Tier row (U4; drawn-card chips since U4-r1) - see the bar comment above. */
+const PATH_TIER_ROW_Y = 1604;
+const PATH_TIER_CHIP_WIDTH = 150;
+const PATH_TIER_CHIP_HEIGHT = 88;
+const PATH_TIER_CHIP_RADIUS = 14;
+/** Border weights: the selected chip carries the accent (stronger border at
+ *  full alpha - the shop tabs' treatment); the rest wear the card default. */
+const PATH_TIER_CHIP_STROKE_W = 2;
+const PATH_TIER_CHIP_SELECTED_STROKE_W = 6;
+/**
+ * Art slot: a tier frame is a 256x128 tile diamond, scaled by WIDTH to sit
+ * INSIDE the chip with clear margin (76 wide -> 38 tall in a 150x88 card),
+ * centred in the chip's upper band. The count pill occupies its own slot
+ * fully below the art - the two can never overlap (the U4-r1 defect).
+ */
+const PATH_TIER_ART_NATIVE_WIDTH = 256;
+const PATH_TIER_ART_DISPLAY_WIDTH = 76;
+const PATH_TIER_ART_OFFSET_Y = -17;
+const PATH_TIER_COUNT_OFFSET_Y = 24;
+const PATH_TIER_COUNT_PILL_HALF_H = 15;
+const PATH_TIER_COUNT_PILL_PAD_X = 10;
+const PATH_TIER_COUNT_PILL_STROKE_W = 2;
+/** EMPTY (x0): the chip card and its art dim; the count pill stays full-alpha
+ *  so "x0" is legible in every state (dimmed-but-selectable, never red). */
+const PATH_TIER_EMPTY_ALPHA = 0.45;
 const PATH_BAR_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '34px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
+const PATH_TIER_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '24px',
   fontStyle: 'bold',
   color: '#4a3218',
 };
@@ -437,20 +515,49 @@ export class Hud {
   private readonly inventoryPanel: InventoryPanel;
   /** The unified Shop the Shop button opens (U2b) - Hud-owned, like the bag. */
   private readonly shopPanel: ShopPanel;
-  /** The Paths panel the Shop's "Paths" stopgap button opens (T4.12, U4 retires it). */
-  private readonly pathsPanel: PathsPanel;
-  /** Paint-mode bar (T4.12), hidden outside the mode - see PATH_BAR_Y. */
+  /** Paint-mode bar (T4.12; tier row added in U4), hidden outside the mode -
+   *  see PATH_BAR_Y. */
   private readonly pathBarContainer: Phaser.GameObjects.Container;
   private readonly pathEraseButton: Phaser.GameObjects.NineSlice;
   private readonly pathEraseText: Phaser.GameObjects.Text;
-  /** The paint bar's interactive buttons (Erase, Done), toggled with its
-   *  visibility so a hidden bar holds no live hitboxes (U3b-r1). */
-  private readonly pathBarButtons: Phaser.GameObjects.NineSlice[] = [];
+  /** Erase's ACTIVE accent ring (U4-r1), visible only while erase is on. */
+  private readonly pathEraseAccent: Phaser.GameObjects.Graphics;
+  private readonly pathUndoButton: Phaser.GameObjects.NineSlice;
+  private readonly pathUndoText: Phaser.GameObjects.Text;
+  private readonly pathCancelButton: Phaser.GameObjects.NineSlice;
+  private readonly pathCancelText: Phaser.GameObjects.Text;
+  /**
+   * One tier chip per PATH_TIER_LIST entry (U4; drawn-card chrome since
+   * U4-r1) - see the PATH bar comment. `card` is the drawn chip, `zone` its
+   * paired invisible hit target, `pill` the drawn count pill. `drawnSelected`/
+   * `drawnCount` guard the Graphics redraws so the 250ms tick re-tessellates
+   * nothing that did not change (the U2b-r4 convention).
+   */
+  private readonly pathTierChips: {
+    tier: PathTierId;
+    card: Phaser.GameObjects.Graphics;
+    zone: Phaser.GameObjects.Zone;
+    art: Phaser.GameObjects.Image;
+    pill: Phaser.GameObjects.Graphics;
+    countText: Phaser.GameObjects.Text;
+    drawnSelected: boolean | null;
+    drawnCount: number;
+  }[] = [];
+  /** The paint bar's interactive hit targets (chip zones + action-row
+   *  nineslices), toggled with its visibility so a hidden bar holds no live
+   *  hitboxes (U3b-r1). */
+  private readonly pathBarButtons: (Phaser.GameObjects.NineSlice | Phaser.GameObjects.Zone)[] = [];
   /** Whether path paint mode is active (U3b-r1) - the bar shows only when this
    *  is true AND no modal is open over it (`applyPathBarVisibility`). */
   private pathModeActive = false;
   /** Whether paint mode's Erase toggle is on - read by `FarmScene` per paint. */
   private pathEraseActive = false;
+  /** The tier the bar highlights (U4) - a DISPLAY mirror of the scene's
+   *  `pathModeTier` authority, set on entry and on chip taps. */
+  private pathSelectedTier: PathTierId = DEFAULT_PATH_TIER;
+  /** Timestamp of the first paint-Cancel tap while armed (0 = disarmed) - the
+   *  arrange bar's two-tap confirm, mirrored (U4). */
+  private pathCancelArmedAt = 0;
   private readonly orderBoard: OrderBoard;
 
   /** Animated display value; ticks toward `gameState`'s true coin count. */
@@ -504,10 +611,21 @@ export class Hud {
     private readonly floatingText: FloatingText,
     private readonly audio: AudioManager,
     private readonly onToggleArrange: () => void,
-    /** Enter the persistent path paint mode for `tier` (T4.12). */
-    private readonly onEnterPathMode: (tier: PathTierId) => void,
+    /** Enter the persistent path paint mode (U4) - the Shop Paths tab's Paint
+     *  button. The scene enters with its remembered tier; the tier row here
+     *  switches it after. */
+    private readonly onEnterPathMode: () => void,
     /** Leave path paint mode - the bar's Done button (T4.12). */
     private readonly onExitPathMode: () => void,
+    /** A tier chip was tapped in paint mode (U4) - the scene updates its
+     *  `pathModeTier` authority (this bar re-lights itself). */
+    private readonly onSelectPaintTier: (tier: PathTierId) => void,
+    /** Undo ONE paint stroke (U4) - the scene pops the store's grouped entry
+     *  and re-renders the path layer. */
+    private readonly onPaintUndo: () => void,
+    /** Confirmed Cancel (U4) - the scene unwinds the whole paint session and
+     *  exits the mode, the arrange bar's contract. */
+    private readonly onPaintCancel: () => void,
     /**
      * A building was just bought in the Shop (U3b): the scene enters arrange
      * mode with it selected "in hand". Threaded straight through to `ShopPanel`.
@@ -609,7 +727,6 @@ export class Hud {
       this.goalsPanel?.hide();
       this.millPanel?.hide();
       this.shopPanel.hide();
-      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.settingsPanel.toggle();
     });
@@ -725,7 +842,6 @@ export class Hud {
       this.goalsPanel?.hide();
       this.millPanel?.hide();
       this.shopPanel.hide();
-      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       this.inventoryPanel.toggle(gameState.getState());
     });
@@ -800,7 +916,6 @@ export class Hud {
       this.questBoard?.hide();
       this.millPanel?.hide();
       this.shopPanel.hide();
-      this.pathsPanel.hide();
       this.currencyInfoCard.hide();
       // Deliberately does NOT hide itself first (unlike the other panels this
       // closes): that would turn a second tap into a re-open instead of a
@@ -836,21 +951,16 @@ export class Hud {
       (ref, worldX, worldY) => this.sellSellable(ref, worldX, worldY),
       this.audio,
     );
-    // Building Shop (T4.2d): Hud-owned and built here like the bag panel, so
+    // The unified Shop (U2b): Hud-owned and built here like the bag panel, so
     // it lands on the UI layer with the rest of the HUD and `closePanels`
-    // can hold exclusivity over it.
-    // Paths panel (T4.12): Hud-owned like the Building Shop that reaches it,
-    // so it lands on the UI layer and `closePanels` holds exclusivity over it.
-    // Selecting a tier closes the panel (the panel's own job) and hands the
-    // scene the persistent paint mode.
-    this.pathsPanel = new PathsPanel(this.scene, this.audio, (tier) => {
-      this.onEnterPathMode(tier);
-    });
+    // can hold exclusivity over it. Its Paths tab's Paint button (U4, the
+    // retired PathsPanel's successor entry) hands the scene the persistent
+    // paint mode; the shop has already closed itself by then.
     this.shopPanel = new ShopPanel(
       this.scene,
       this.audio,
       () => {
-        this.pathsPanel.show(gameState.getState());
+        this.onEnterPathMode();
       },
       this.onBuildingBought,
     );
@@ -864,29 +974,124 @@ export class Hud {
 
     this.settingsPanel = new SettingsPanel(this.scene, this.audio);
 
-    // Paint-mode bar (T4.12), built hidden - `setPathModeActive` is the only
-    // thing that ever shows it.
+    // Paint-mode bar (T4.12; tier row U4), built hidden - `setPathModeActive`
+    // is the only thing that ever shows it.
     this.pathBarContainer = this.scene.add
       .container(0, 0)
       .setDepth(PATH_BAR_DEPTH)
       .setVisible(false);
+
+    // TIER ROW (U4; drawn-card chips U4-r1): one chip per tier, centered as
+    // one row above the actions. The card and pill Graphics are DRAWN by
+    // `updatePaintBarState` (state decides the border weight), never here.
+    const chipXs = pathBarCenterXs(PATH_TIER_LIST.map(() => PATH_TIER_CHIP_WIDTH));
+    PATH_TIER_LIST.forEach((def, index) => {
+      const x = chipXs[index]!;
+      const card = this.scene.add.graphics().setPosition(x, PATH_TIER_ROW_Y);
+      const art = this.scene.add
+        .image(x, PATH_TIER_ROW_Y + PATH_TIER_ART_OFFSET_Y, ATLAS_KEY, def.frame)
+        .setScale(PATH_TIER_ART_DISPLAY_WIDTH / PATH_TIER_ART_NATIVE_WIDTH);
+      const pill = this.scene.add
+        .graphics()
+        .setPosition(x, PATH_TIER_ROW_Y + PATH_TIER_COUNT_OFFSET_Y);
+      const countText = this.scene.add
+        .text(x, PATH_TIER_ROW_Y + PATH_TIER_COUNT_OFFSET_Y, '', PATH_TIER_COUNT_STYLE)
+        .setOrigin(0.5);
+      // Paired invisible hit zone over the drawn card (the ShopPanel
+      // pattern) - the rounded art itself needs no hitArea maths.
+      const zone = this.scene.add
+        .zone(x, PATH_TIER_ROW_Y, PATH_TIER_CHIP_WIDTH, PATH_TIER_CHIP_HEIGHT)
+        .setInteractive({ useHandCursor: true });
+      zone.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+        // Selectable even at count 0 (selectable-but-inert, U4) - the store
+        // refuses the tiles, the bar never refuses the choice.
+        this.audio.sfx('tap');
+        this.disarmPathCancel();
+        this.pathSelectedTier = def.id;
+        this.onSelectPaintTier(def.id);
+        this.updatePaintBarState();
+      });
+      this.pathBarContainer.add([card, art, pill, countText, zone]);
+      this.pathBarButtons.push(zone);
+      this.pathTierChips.push({
+        tier: def.id,
+        card,
+        zone,
+        art,
+        pill,
+        countText,
+        drawnSelected: null,
+        drawnCount: -1,
+      });
+    });
+
+    // ACTION ROW: [Erase] [Undo] [Cancel] [Save].
     this.pathEraseButton = this.buildPathBarButton(PATH_BAR_X_ERASE, PATH_ERASE_WIDTH);
     this.pathEraseText = this.scene.add
       .text(PATH_BAR_X_ERASE, PATH_BAR_Y, 'Erase', PATH_BAR_STYLE)
       .setOrigin(0.5);
-    const doneButton = this.buildPathBarButton(PATH_BAR_X_DONE, PATH_DONE_WIDTH);
-    const doneText = this.scene.add
-      .text(PATH_BAR_X_DONE, PATH_BAR_Y, 'Done', PATH_BAR_STYLE)
+    // Erase's ACTIVE accent ring (U4-r1): drawn once (static geometry), only
+    // its visibility tracks the toggle.
+    this.pathEraseAccent = this.scene.add
+      .graphics()
+      .setPosition(PATH_BAR_X_ERASE, PATH_BAR_Y)
+      .setVisible(false);
+    this.pathEraseAccent.lineStyle(PATH_ERASE_ACCENT_STROKE_W, STROKE_BROWN, 1);
+    this.pathEraseAccent.strokeRoundedRect(
+      -(PATH_ERASE_WIDTH / 2 - PATH_ERASE_ACCENT_INSET),
+      -(PATH_BAR_HEIGHT / 2 - PATH_ERASE_ACCENT_INSET),
+      PATH_ERASE_WIDTH - PATH_ERASE_ACCENT_INSET * 2,
+      PATH_BAR_HEIGHT - PATH_ERASE_ACCENT_INSET * 2,
+      PATH_ERASE_ACCENT_RADIUS,
+    );
+    this.pathUndoButton = this.buildPathBarButton(PATH_BAR_X_UNDO, PATH_UNDO_WIDTH);
+    this.pathUndoText = this.scene.add
+      .text(PATH_BAR_X_UNDO, PATH_BAR_Y, 'Undo', PATH_BAR_STYLE)
       .setOrigin(0.5);
-    this.pathBarContainer.add([this.pathEraseButton, this.pathEraseText, doneButton, doneText]);
-    this.pathBarButtons.push(this.pathEraseButton, doneButton);
+    this.pathCancelButton = this.buildPathBarButton(PATH_BAR_X_CANCEL, PATH_CANCEL_WIDTH);
+    this.pathCancelText = this.scene.add
+      .text(PATH_BAR_X_CANCEL, PATH_BAR_Y, PATH_CANCEL_LABEL, PATH_BAR_STYLE)
+      .setOrigin(0.5);
+    // "Save" since U4-r1 (was "Done"): the arrange bar's confirm label, same
+    // interaction family, and the prominent (widest) button of the row.
+    const saveButton = this.buildPathBarButton(PATH_BAR_X_SAVE, PATH_SAVE_WIDTH);
+    const saveText = this.scene.add
+      .text(PATH_BAR_X_SAVE, PATH_BAR_Y, 'Save', PATH_BAR_STYLE)
+      .setOrigin(0.5);
+    this.pathBarContainer.add([
+      this.pathEraseButton,
+      this.pathEraseText,
+      this.pathEraseAccent,
+      this.pathUndoButton,
+      this.pathUndoText,
+      this.pathCancelButton,
+      this.pathCancelText,
+      saveButton,
+      saveText,
+    ]);
+    this.pathBarButtons.push(this.pathEraseButton, this.pathUndoButton, saveButton);
+    // Cancel manages its own arming, so it joins the toggle list too - but via
+    // pathBarButtons like the rest; nothing special about its hitbox.
+    this.pathBarButtons.push(this.pathCancelButton);
 
     this.pathEraseButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
       this.audio.sfx('tap');
+      this.disarmPathCancel();
       this.setPathEraseActive(!this.pathEraseActive);
     });
-    doneButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+    this.pathUndoButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.disarmPathCancel();
+      if (gameState.editUndoDepth() <= 0) return;
       this.audio.sfx('tap');
+      this.onPaintUndo();
+      this.updatePaintBarState();
+    });
+    this.pathCancelButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.handlePaintCancelTap();
+    });
+    saveButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, () => {
+      this.audio.sfx('tap');
+      this.disarmPathCancel();
       this.onExitPathMode();
     });
     // Built hidden with no live hitboxes (U3b-r1 hygiene).
@@ -915,23 +1120,28 @@ export class Hud {
 
   /**
    * Show or hide the paint-mode bar (T4.12). `FarmScene` owns whether paint
-   * mode is active; this only reflects it. Leaving the mode always resets the
-   * Erase toggle, so re-entering paint mode never starts in erase.
+   * mode is active; this only reflects it - `tier` mirrors the scene's
+   * `pathModeTier` into the tier row's highlight on entry (U4). Leaving the
+   * mode always resets the Erase toggle, so re-entering paint mode never
+   * starts in erase; Cancel always re-shows disarmed.
    */
-  setPathModeActive(active: boolean): void {
+  setPathModeActive(active: boolean, tier?: PathTierId): void {
     this.pathModeActive = active;
+    if (tier !== undefined) this.pathSelectedTier = tier;
     if (!active) this.setPathEraseActive(false);
     else this.setPathEraseActive(this.pathEraseActive);
+    this.disarmPathCancel();
     this.applyPathBarVisibility();
   }
 
   /**
    * Re-derive the paint bar's visibility AND its live hitboxes (U3b-r1): it
    * shows only while paint mode is active AND no modal is open over it - opening
-   * the shop (or any panel) while painting must not leave the Erase/Done buttons
+   * the shop (or any panel) while painting must not leave the bar's buttons
    * floating above the modal, and a hidden bar holds ZERO live hitboxes
    * (U2b-r3 hygiene). Re-run on the periodic `refresh` tick so it reacts to a
-   * modal opening or closing.
+   * modal opening or closing. While shown, `updatePaintBarState` re-derives the
+   * tier counts and Undo's own enabled state ON TOP of the blanket re-arm.
    */
   private applyPathBarVisibility(): void {
     const show = this.pathModeActive && !isModalOpen();
@@ -940,6 +1150,89 @@ export class Hud {
       if (show) button.setInteractive({ useHandCursor: true });
       else button.disableInteractive();
     }
+    if (show) this.updatePaintBarState();
+  }
+
+  /**
+   * Re-derive the paint bar's live state (U4): each tier chip's shed count and
+   * selected/empty dimming, the Undo button's enabled state (follows
+   * `editUndoDepth`, the arrange bar's convention), and Cancel's lapsed-window
+   * disarm. Cheap text/alpha writes - safe on the 250ms tick and after every
+   * painted tile (`FarmScene` calls `refreshPaintBar`).
+   */
+  private updatePaintBarState(): void {
+    for (const chip of this.pathTierChips) {
+      const count = gameState.shedCount(chip.tier);
+      const selected = chip.tier === this.pathSelectedTier;
+      // Redraw the card only when its border state changed, and the pill only
+      // when its count (hence width) did - the U2b-r4 re-tessellation guard.
+      if (chip.drawnSelected !== selected) {
+        drawCardRoundRect(
+          chip.card,
+          PATH_TIER_CHIP_WIDTH / 2,
+          PATH_TIER_CHIP_HEIGHT / 2,
+          PATH_TIER_CHIP_RADIUS,
+          CARD_FILL,
+          selected ? PATH_TIER_CHIP_SELECTED_STROKE_W : PATH_TIER_CHIP_STROKE_W,
+        );
+        chip.drawnSelected = selected;
+      }
+      if (chip.drawnCount !== count) {
+        chip.countText.setText(`x${count}`);
+        drawCardRoundRect(
+          chip.pill,
+          chip.countText.width / 2 + PATH_TIER_COUNT_PILL_PAD_X,
+          PATH_TIER_COUNT_PILL_HALF_H,
+          PATH_TIER_COUNT_PILL_HALF_H,
+          PILL_FILL,
+          PATH_TIER_COUNT_PILL_STROKE_W,
+        );
+        chip.drawnCount = count;
+      }
+      // EMPTY dims the card and art; the count pill stays full-alpha legible.
+      // Selected+empty keeps the strong border, dimmed - the U4 rule.
+      const dim = count > 0 ? 1 : PATH_TIER_EMPTY_ALPHA;
+      chip.card.setAlpha(dim);
+      chip.art.setAlpha(dim);
+    }
+    const undoEnabled = gameState.editUndoDepth() > 0;
+    const undoAlpha = undoEnabled ? PATH_UNDO_ENABLED_ALPHA : PATH_UNDO_DISABLED_ALPHA;
+    this.pathUndoButton.setAlpha(undoAlpha);
+    this.pathUndoText.setAlpha(undoAlpha);
+    // Cancel disarms itself once its confirm window lapses (the arrange rule).
+    if (this.pathCancelArmedAt !== 0 && Date.now() - this.pathCancelArmedAt >= PATH_CANCEL_ARM_MS) {
+      this.disarmPathCancel();
+    }
+  }
+
+  /** Re-derive the paint bar's counts/undo state now - `FarmScene`'s per-tile
+   *  seam (U4), so the chips tick the moment a tile spends or refunds. */
+  refreshPaintBar(): void {
+    if (this.pathModeActive) this.updatePaintBarState();
+  }
+
+  /**
+   * Paint-mode Cancel tap (U4): the arrange bar's two-tap confirm, mirrored.
+   * First tap arms (label swaps); a second within PATH_CANCEL_ARM_MS fires the
+   * scene's full-session unwind; the window lapsing re-arms next tap.
+   */
+  private handlePaintCancelTap(): void {
+    this.audio.sfx('tap');
+    const now = Date.now();
+    if (this.pathCancelArmedAt !== 0 && now - this.pathCancelArmedAt < PATH_CANCEL_ARM_MS) {
+      this.disarmPathCancel();
+      this.onPaintCancel();
+      return;
+    }
+    this.pathCancelArmedAt = now;
+    this.pathCancelText.setText(PATH_CANCEL_ARMED_LABEL);
+  }
+
+  /** Disarm the paint Cancel confirm (U4) - a no-op when it was not armed. */
+  private disarmPathCancel(): void {
+    if (this.pathCancelArmedAt === 0) return;
+    this.pathCancelArmedAt = 0;
+    this.pathCancelText.setText(PATH_CANCEL_LABEL);
   }
 
   /** Whether paint mode's Erase toggle is on - `FarmScene` reads this per tile. */
@@ -952,6 +1245,9 @@ export class Hud {
     const alpha = active ? PATH_ERASE_ON_ALPHA : PATH_ERASE_OFF_ALPHA;
     this.pathEraseButton.setAlpha(alpha);
     this.pathEraseText.setAlpha(alpha);
+    // The ACTIVE accent ring (U4-r1): erase-on is a bordered state, not just a
+    // brighter label.
+    this.pathEraseAccent.setVisible(active);
   }
 
   /**
@@ -980,7 +1276,6 @@ export class Hud {
     this.goalsPanel?.hide();
     this.millPanel?.hide();
     this.shopPanel.hide();
-    this.pathsPanel.hide();
     this.currencyInfoCard.hide();
     this.orderBoard.toggle(gameState.getState());
   }
@@ -1000,7 +1295,6 @@ export class Hud {
     this.goalsPanel?.hide();
     this.millPanel?.hide();
     this.shopPanel.hide();
-    this.pathsPanel.hide();
     this.currencyInfoCard.hide();
   }
 
@@ -1195,9 +1489,6 @@ export class Hud {
     // Only while visible, like the mill panel: this keeps the Buy button live
     // as coins and level change under an open shop.
     if (this.shopPanel.isVisible()) this.shopPanel.refresh(state);
-    // Same "only while visible" rule: keeps the tier rows' affordability
-    // dimming live as coins change under an open panel.
-    if (this.pathsPanel.isVisible()) this.pathsPanel.refresh(state);
     // Re-derives its controls from state so a dev import/reset re-renders it.
     this.settingsPanel.refresh();
 

@@ -199,7 +199,7 @@ export interface DecorationPlacement {
  * nothing and is never consulted by `isPlotTileFree` or
  * `isStructureAnchorFree`, so a plot, structure, or decoration may sit right
  * on top of one. At most ONE tile per (col, row): repainting replaces the
- * tier rather than stacking (see `paintPath`).
+ * tier rather than stacking (see `writePathTile`).
  */
 export interface PathTile {
   col: number;
@@ -650,8 +650,9 @@ export interface GameStateData {
    * warehouse (T3.9b, a historical save field) merged into here and was deleted
    * from the save, so `buyDecoration` and `storeDecoration` are now thin
    * delegates onto the shed reducers and there is exactly one implementation of
-   * each move. `buyBuilding` and `paintPath` are still their own purchase paths
-   * (a later task cuts them over).
+   * each move. `buyBuilding` is the one remaining per-system purchase path
+   * (paths cut over to `buyToShed` in U4, retiring `paintPath`'s per-tile
+   * charge).
    */
   shedInventory: Record<string, number>;
   /** Movable structures' grid anchors (T3.3s, schema v18). */
@@ -2728,6 +2729,13 @@ export class GameStateStore {
    *  (only `placeFromShed` -> `setDecorationTransform`), so the compound action
    *  records exactly ONE inverse rather than two (U3a). */
   private undoRecordSuppressed = false;
+  /**
+   * Open undo GROUP buffer (U4), or null when not grouping. While a group is
+   * open, `recordUndo` collects inverses here instead of the stack;
+   * `endUndoGroup` composes them into ONE stack entry - a whole paint stroke
+   * undoes as one action. In-memory only, like the stack it feeds.
+   */
+  private undoGroupBuffer: (() => boolean)[] | null = null;
 
   constructor(options: GameStateStoreOptions = {}) {
     this.storage = options.storage === undefined ? defaultStorage() : options.storage;
@@ -3534,42 +3542,15 @@ export class GameStateStore {
   }
 
   /**
-   * Paint one path tile (T4.12) - THE authority on whether a tile lays and
-   * what it costs. Deducts the tier's `costCoins` and places (or REPLACES, so
-   * a repaint switches tier in place rather than stacking) the tile at
-   * (col, row).
-   *
-   * Returns false WITHOUT mutating anything when the tier is unknown, the
-   * coords are off the validator's grid, or coins are short - the same
-   * refusal feel as failing to plant. Only `dirt` is free, so its balance
-   * check trivially passes; the three priced rungs above it charge through
-   * this same path (the caller shows a "-N" float when `costCoins > 0`).
-   *
-   * Deliberately does NO legality check beyond the coordinate bounds: paths
-   * are cosmetic and block nothing, so a plot or structure standing on the
-   * tile is irrelevant.
-   */
-  paintPath(col: number, row: number, tier: PathTierId): boolean {
-    const def = findPathTier(tier);
-    if (def === undefined) return false;
-    if (!isPlotGridCoord(col) || !isPlotGridCoord(row)) return false;
-    if (this.state.coins < def.costCoins) return false;
-    const existing = this.state.paths.find((path) => path.col === col && path.row === row);
-    // A repaint of the SAME tier is a no-op, not a second charge - a drag that
-    // re-enters a tile it already laid must never bill twice.
-    if (existing?.tier === def.id) return false;
-    this.state.coins -= def.costCoins;
-    this.writePathTile(col, row, def.id);
-    this.save();
-    return true;
-  }
-
-  /**
    * Lay `tier` on (col, row), REPLACING whatever tier was there, and return the
    * tier that was displaced (null if the tile was bare). No cost, no legality,
-   * no save - purely the tile write, factored out so `paintPath` (which
-   * charges) and `placeFromShed` (which spends a shed count instead) put a tile
-   * down through one piece of code rather than two that can drift.
+   * no save - purely the tile write, kept separate so the placement rules in
+   * `placePathFromShed` read as rules and the mutation as mutation.
+   *
+   * The tile paths are shed-only since U4: `paintPath` (the T4.12 per-tile
+   * coin charge) and `erasePath` (the no-refund remove) are RETIRED - paint =
+   * `placeFromShed`, erase = `putAwayToShed`, one implementation per
+   * operation, and the coin sink lives at shop buy time (`buyToShed`).
    *
    * The displaced tier is returned rather than dropped because the shed path
    * has to bank it: repainting over a Moonstone tile must not destroy the
@@ -3584,19 +3565,6 @@ export class GameStateStore {
     const displaced = existing.tier;
     existing.tier = tier;
     return displaced === tier ? null : displaced;
-  }
-
-  /**
-   * Erase the path tile at (col, row) (T4.12). NO refund (owner decision -
-   * paint is a spend, not an inventory). Returns false without mutating
-   * anything when no tile is painted there.
-   */
-  erasePath(col: number, row: number): boolean {
-    const index = this.state.paths.findIndex((path) => path.col === col && path.row === row);
-    if (index === -1) return false;
-    this.state.paths.splice(index, 1);
-    this.save();
-    return true;
   }
 
   /**
@@ -3615,9 +3583,10 @@ export class GameStateStore {
 
   // ---------------------------------------------------------------------------
   // The Shed (U1). Shop --buyToShed--> shed --placeFromShed--> farm, and
-  // farm --putAwayToShed--> shed back again. Model only this task: nothing in
-  // the game calls these yet (the dev hooks aside), and the existing Building
-  // Shop / decor shop / path painting flows are untouched and still live.
+  // farm --putAwayToShed--> shed back again. The live pipeline for decor
+  // (U2a/U2b) and paths (U4 - painting spends the shed, erasing refunds to
+  // it); buildings still purchase through `buyBuilding` but round-trip
+  // through here for put-away/undo.
   //
   // Two invariants hold across all three, and the tests pin both:
   //   - NOTHING IS DESTROYED. A count only ever moves between `shedInventory`
@@ -3647,8 +3616,9 @@ export class GameStateStore {
 
   /**
    * Buy `qty` of a catalog item into the shed (U1) - the unified Shop's one
-   * purchase path, replacing per-system buys (`buyBuilding`, `buyDecoration`,
-   * `paintPath`'s per-tile charge) once a later task cuts them over.
+   * purchase path. `buyDecoration` delegates here (U2b) and path tiers buy
+   * exclusively through it (U4 - the retired `paintPath` charge moved to shop
+   * buy time); `buyBuilding` is the one per-system purchase left.
    *
    * Refuses - mutating NOTHING, so there is no partial state to unwind - on an
    * unknown id, a non-positive or non-integer `qty`, a level below the item's
@@ -3703,8 +3673,8 @@ export class GameStateStore {
    * Move ONE of `itemId` out of the shed and onto the farm (U1), through the
    * placement rules its category already has - `isBuildingAnchorFree` stays THE
    * building authority, a decoration still lands through
-   * `setDecorationTransform`'s clamp, and a path tile still goes down through
-   * the same tile write `paintPath` uses. No rule is restated here.
+   * `setDecorationTransform`'s clamp, and a path tile goes down through the one
+   * tile write (`writePathTile`). No rule is restated here.
    *
    * Returns the new instance's index (into `buildings`, `decorations`, or
    * `paths`), or false having mutated NOTHING when the id is unknown, the shed
@@ -3732,6 +3702,14 @@ export class GameStateStore {
     const item = findCatalogItem(itemId);
     if (item === undefined) return false;
     if (this.shedCount(itemId) <= 0) return false;
+    // For a path, snapshot the tier this place is about to cover (U4) BEFORE
+    // the mutation - the recorded inverse restores it, so undoing a paint-over
+    // puts the covered tier back on the tile instead of leaving it bare.
+    const priorPathTier =
+      item.category === 'path' && options.col !== undefined && options.row !== undefined
+        ? (this.state.paths.find((p) => p.col === options.col && p.row === options.row)?.tier ??
+          null)
+        : null;
     const index =
       item.category === 'building'
         ? this.placeBuildingFromShed(item, options)
@@ -3742,7 +3720,7 @@ export class GameStateStore {
     // ONE public entry point, so a placement records exactly one entry and the
     // nested `setDecorationTransform` inside the decor path never adds a second
     // (it is suppressed there).
-    if (index !== false) this.recordPlaceUndo(item, options, index);
+    if (index !== false) this.recordPlaceUndo(item, options, index, priorPathTier);
     return index;
   }
 
@@ -3752,8 +3730,17 @@ export class GameStateStore {
    * tile key (paths), never by the raw index - a later put-away can splice the
    * arrays and shift indices, but the reference still finds the instance (or,
    * once it is gone, cleanly refuses so the stack cannot jam).
+   *
+   * `priorPathTier` (U4, paths only) is the tier the place covered, or null on
+   * a bare tile: the inverse re-places it from the shed - where the paint-over
+   * banked it - so the undo restores the tile exactly, not to bare.
    */
-  private recordPlaceUndo(item: CatalogItem, options: ShedPlaceOptions, index: number): void {
+  private recordPlaceUndo(
+    item: CatalogItem,
+    options: ShedPlaceOptions,
+    index: number,
+    priorPathTier: PathTierId | null,
+  ): void {
     switch (item.category) {
       case 'building': {
         const placed = this.state.buildings[index];
@@ -3782,7 +3769,13 @@ export class GameStateStore {
           // Only put away if OUR tier is still there - a repaint may have
           // replaced it, in which case this undo cleanly refuses.
           if (tile?.tier !== tier) return false;
-          return this.putAwayToShed({ category: 'path', col, row }) !== null;
+          if (this.putAwayToShed({ category: 'path', col, row }) === null) return false;
+          // Restore the covered tier (U4): the paint banked it into the shed,
+          // so re-placing it from there is the exact inverse. A refusal (the
+          // banked count was spent elsewhere meanwhile) leaves the tile bare -
+          // the honest partial, per the discard-on-refusal rule.
+          if (priorPathTier === null) return true;
+          return this.placeFromShed(priorPathTier, { col, row }) !== false;
         });
         return;
       }
@@ -4065,6 +4058,50 @@ export class GameStateStore {
   endEditSession(): void {
     this.editSessionActive = false;
     this.editUndoStack.length = 0;
+    // A group left open (a stroke interrupted by the session ending) dies with
+    // the stack it would have fed (U4).
+    this.undoGroupBuffer = null;
+  }
+
+  /**
+   * Open an undo GROUP (U4): until `endUndoGroup`, every inverse `recordUndo`
+   * accepts is collected into one buffer instead of the stack. The paint
+   * stroke's seam - `beginUndoGroup` at stroke start, per-tile places/erases
+   * record as normal, `endUndoGroup` at stroke end lands ONE stack entry for
+   * the whole stroke. A no-op when a group is already open (strokes are
+   * serial; belt-and-braces).
+   */
+  beginUndoGroup(): void {
+    if (this.undoGroupBuffer !== null) return;
+    this.undoGroupBuffer = [];
+  }
+
+  /**
+   * Close the open undo group (U4) and push its composed inverse as ONE stack
+   * entry. The composed entry applies the collected inverses in REVERSE order
+   * (LIFO within the stroke, matching the stack's own order); the U3a
+   * discard-on-refusal rule applies PER COMPOSED STEP - a step whose state no
+   * longer admits it is skipped, never retried, and the rest still apply. The
+   * entry reports true when every step succeeded. An empty group (a stroke
+   * that laid nothing) pushes nothing; a no-op when no group is open.
+   */
+  endUndoGroup(): void {
+    const group = this.undoGroupBuffer;
+    this.undoGroupBuffer = null;
+    if (group === null || group.length === 0) return;
+    const first = group[0];
+    // A one-step group needs no composition - push the step itself.
+    if (group.length === 1 && first !== undefined) {
+      this.editUndoStack.push(first);
+      return;
+    }
+    this.editUndoStack.push(() => {
+      let allApplied = true;
+      for (let i = group.length - 1; i >= 0; i--) {
+        if (!group[i]!()) allApplied = false;
+      }
+      return allApplied;
+    });
   }
 
   /** How many undoable actions the current session holds (U3a) - U3b's Undo
@@ -4097,10 +4134,15 @@ export class GameStateStore {
    * inside an active session (U3a). A no-op unless a session is active, and also
    * while an undo is being applied (`undoApplyDepth`) or a compound reducer has
    * suppressed nested recording (`undoRecordSuppressed`) - the three guards that
-   * keep exactly one stack entry per player action.
+   * keep exactly one stack entry per player action. With a group open (U4) the
+   * inverse lands in the group buffer instead; `endUndoGroup` composes it in.
    */
   private recordUndo(inverse: () => boolean): void {
     if (!this.editSessionActive || this.undoApplyDepth > 0 || this.undoRecordSuppressed) return;
+    if (this.undoGroupBuffer !== null) {
+      this.undoGroupBuffer.push(inverse);
+      return;
+    }
     this.editUndoStack.push(inverse);
   }
 

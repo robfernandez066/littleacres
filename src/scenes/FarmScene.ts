@@ -53,7 +53,13 @@ import { findRegion, type RegionDef, REGIONS } from '../data/farm';
 import { ONBOARDING_STEPS } from '../data/onboarding';
 import { AMBIENT_KEY, MUSIC_TRACKS } from '../data/audio';
 import { isOrderCoverable } from '../data/orders';
-import { PATH_TIERS, type PathTierId } from '../data/paths';
+import {
+  DEFAULT_PATH_TIER,
+  findPathTier,
+  PATH_TIER_LIST,
+  PATH_TIERS,
+  type PathTierId,
+} from '../data/paths';
 import {
   FARMHOUSE_FRAME,
   FARMHOUSE_RESTORED_FRAME,
@@ -82,6 +88,7 @@ import {
   registerFootprintsToggle,
   registerGroundModeCycle,
   registerHitboxToggle,
+  registerPaintModeHooks,
   registerSceneLayersProbe,
 } from '../systems/dev';
 import {
@@ -263,6 +270,33 @@ const XP_TEXT_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 44 };
  * harvest xp label does.
  */
 const PLANT_COST_TEXT_OPTIONS: FloatingTextOptions = { color: '#ffe27a', fontSize: 40 };
+
+/**
+ * Paint mode's live remaining-count label (U4): a small screen-space "xN"
+ * riding above the painting finger, re-derived from the selected tier's SHED
+ * count on every laid/refunded tile. UI-layer (pixel-fixed), shown only while
+ * a stroke is confirmed and in flight.
+ */
+const PAINT_COUNT_OFFSET_Y = -90;
+const PAINT_COUNT_EDGE_PAD = 40;
+/** Above the paint bar (2200) so the label survives crossing its band. */
+const PAINT_COUNT_DEPTH = 2210;
+const PAINT_COUNT_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '34px',
+  fontStyle: 'bold',
+  color: '#fff8e1',
+  stroke: '#3a2a10',
+  strokeThickness: 5,
+};
+
+/**
+ * The mid-stroke empty-shed nudge (U4): a gentle floating "Shed's empty" at
+ * the finger, once per stroke - no error state, no red, no sound sting
+ * (spec). Same warm parchment tint as the xp float.
+ */
+const PAINT_EMPTY_NUDGE_TEXT = "Shed's empty";
+const PAINT_EMPTY_NUDGE_OPTIONS: FloatingTextOptions = { color: '#fff3c4', fontSize: 34 };
 
 /**
  * Radiant harvest juice: large gold floating text well above the xp-label
@@ -1360,7 +1394,7 @@ export class FarmScene extends Phaser.Scene {
   private readonly pathSprites = new Map<string, Phaser.GameObjects.Image>();
   /**
    * The `paths` ARRAY last rendered from - identity, not contents (T4.12-r1).
-   * `paintPath`/`erasePath` mutate that array in place, so a live stroke keeps
+   * The shed's path reducers mutate that array in place, so a live stroke keeps
    * the same reference and `refreshPaths` stays a no-op while the incremental
    * updates do the drawing. Every BULK change - load, migration, backup
    * restore, import, reset - assigns a whole new state object and therefore a
@@ -1401,6 +1435,18 @@ export class FarmScene extends Phaser.Scene {
    */
   private paintDownWorldX = 0;
   private paintDownWorldY = 0;
+  /**
+   * The tier paint mode last painted with (U4), seeded to the free rung - what
+   * the Shop's Paint entry re-enters with (the retired PathsPanel kept the
+   * same memory as its caret). Updated on every tier-chip tap.
+   */
+  private lastPaintTier: PathTierId = DEFAULT_PATH_TIER;
+  /** Whether THIS stroke already showed the "Shed's empty" nudge (U4) - once
+   *  per stroke, reset when a new gesture arms. */
+  private paintEmptyNudged = false;
+  /** The live remaining-count label riding the painting finger (U4) - see
+   *  PAINT_COUNT_STYLE. Built in create (UI layer), shown only mid-stroke. */
+  private paintCountLabel!: Phaser.GameObjects.Text;
   /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
   private selectedDecorationIndex: number | null = null;
   /**
@@ -1824,8 +1870,11 @@ export class FarmScene extends Phaser.Scene {
           this.uiFloatingText,
           this.audio,
           () => this.toggleArrangeMode(),
-          (tier) => this.enterPathMode(tier),
+          () => this.enterPathMode(this.lastPaintTier),
           () => this.exitPathMode(),
+          (tier) => this.selectPaintTier(tier),
+          () => this.handlePaintUndo(),
+          () => this.handlePaintCancel(),
           (buildingId) => this.enterArrangeWithBuilding(buildingId),
         ),
     );
@@ -1850,6 +1899,15 @@ export class FarmScene extends Phaser.Scene {
     // exclusivity and its per-tick refresh (see `setMillPanel`).
     this.millPanel = this.inUiLayer(() => new MillPanel(this, this.audio));
     this.hud.setMillPanel(this.millPanel);
+    // Paint mode's live remaining-count label (U4): screen-space, so it rides
+    // the finger regardless of camera pan/zoom. Hidden outside a stroke.
+    this.paintCountLabel = this.inUiLayer(() =>
+      this.add
+        .text(0, 0, '', PAINT_COUNT_STYLE)
+        .setOrigin(0.5)
+        .setDepth(PAINT_COUNT_DEPTH)
+        .setVisible(false),
+    );
     this.createFarmhouse();
     this.createNoticeBoard();
     // Placed buildings (T4.1) - none on a fresh save; `refreshBuildings` picks
@@ -1967,6 +2025,12 @@ export class FarmScene extends Phaser.Scene {
     registerFootprintsToggle(() => this.toggleDevFootprints());
     // U3c-r2 long-press live-proof seam - see `devLongPressAt`.
     registerLongPressDriver((worldX, worldY) => this.devLongPressAt(worldX, worldY));
+    // U4 paint-mode live-proof seams - see `devPaintStrokeAt`.
+    registerPaintModeHooks({
+      enter: (tier) => this.enterPathMode(findPathTier(tier ?? '')?.id ?? this.lastPaintTier),
+      exit: () => this.exitPathMode(),
+      strokeAt: (worldX, worldY, tiles) => this.devPaintStrokeAt(worldX, worldY, tiles ?? 1),
+    });
     // T3.26 farmhouse angle diagnosis - see `applyFarmhouseDevTransform`.
     registerFarmhouseTransformHooks({
       setRotation: (degrees) => this.setFarmhouseDevRotation(degrees),
@@ -2258,7 +2322,7 @@ export class FarmScene extends Phaser.Scene {
       this.cancelArrangeEntry();
       // Paint mode (U3c-r1): a second finger on a paint gesture is a pinch
       // ATTEMPT. Before the stroke confirmed it cancels outright (zero tiles,
-      // zero coins); mid-stroke it halts further painting. Either way the
+      // zero shed spend); mid-stroke it halts further painting. Either way the
       // camera stays disabled in paint mode, so this never starts a pinch.
       if (this.paintGesture.active) {
         this.handlePaintSecondFinger();
@@ -2388,6 +2452,11 @@ export class FarmScene extends Phaser.Scene {
         this.paintGesture.begin(pointer.x, pointer.y);
         this.paintDownWorldX = world.x;
         this.paintDownWorldY = world.y;
+        // Stroke bookkeeping (U4): the whole stroke composes into ONE undo
+        // entry (a cancelled/empty stroke composes nothing), and the gentle
+        // empty nudge re-arms per stroke.
+        gameState.beginUndoGroup();
+        this.paintEmptyNudged = false;
       } else {
         this.fieldGesture = 'idle';
       }
@@ -3380,6 +3449,11 @@ export class FarmScene extends Phaser.Scene {
         }
         this.pathGestureVisited.clear();
         this.pathLastCell = null;
+        // Stroke over (U4): compose everything it laid into ONE undo entry
+        // and retire the finger-riding count label with it.
+        gameState.endUndoGroup();
+        this.paintCountLabel.setVisible(false);
+        this.hud.refreshPaintBar();
       } else if (gesture === 'pan') {
         this.finishPan(true);
         // U3c-r2: an empty-ground TAP in arrange mode (a pan that never left
@@ -5949,6 +6023,7 @@ export class FarmScene extends Phaser.Scene {
     if (this.arrangeModeActive) this.exitArrangeMode();
     if (!gameState.getState().onboarding.completed) return;
     this.pathModeTier = tier;
+    this.lastPaintTier = tier;
     this.pathGestureVisited.clear();
     this.pathLastCell = null;
     this.paintGesture.reset();
@@ -5956,38 +6031,108 @@ export class FarmScene extends Phaser.Scene {
     this.selectedDecorationIndex = null;
     this.selectedPlotIndex = null;
     this.seedBar.setVisible(false);
-    this.hud.setPathModeActive(true);
+    // Paint mode records into an edit session now (U4): each stroke's group
+    // composes onto the session's undo stack, exactly arrange's lifecycle
+    // (exitArrangeMode above already ended arrange's own session).
+    gameState.beginEditSession();
+    this.hud.setPathModeActive(true, tier);
   }
 
-  /** Leave path paint mode (T4.12) and restore normal play. */
+  /** Leave path paint mode (T4.12) and restore normal play. THE single exit
+   *  (Done, Cancel's unwind, the Edit Layout toggle, dressing edit), so the
+   *  paint session (U4) can never outlive the mode. */
   private exitPathMode(): void {
     if (!this.pathModeActive()) return;
     this.pathModeTier = null;
     this.pathGestureVisited.clear();
     this.pathLastCell = null;
     this.paintGesture.reset();
+    // A stroke interrupted by the exit composes nothing; the session dies with
+    // the mode - undo is a within-mode affordance, leaving commits (U3b rule).
+    gameState.endUndoGroup();
+    gameState.endEditSession();
+    this.paintCountLabel.setVisible(false);
     this.hud.setPathModeActive(false);
     this.seedBar.setVisible(true);
   }
 
   /**
-   * Paint (or erase) the path tile under a screen point (T4.12) - the paint
-   * mode's per-tile action, called on the gesture's first contact and again
-   * for each NEW tile a drag crosses.
-   *
-   * The store is the sole authority on whether the tile lays and what it
-   * costs: a refusal (short coins, off-grid) simply shows nothing, the same
-   * feel as failing to plant. A successful PAID placement floats "-N" at the
-   * tile; the free tier (dirt) floats nothing, and neither does a same-tier
-   * repaint - the store refuses it, so there is no float and no second charge.
+   * A tier chip tapped in the paint bar (U4): switch what the NEXT stroke
+   * lays, and remember it for the Shop's Paint entry. Selecting an empty tier
+   * is allowed (selectable-but-inert) - its tiles refuse at the store.
    */
+  private selectPaintTier(tier: PathTierId): void {
+    if (!this.pathModeActive()) return;
+    this.pathModeTier = tier;
+    this.lastPaintTier = tier;
+  }
+
+  /**
+   * The paint bar's Undo (U4): pop ONE composed stroke entry off the session
+   * stack and redraw the whole path layer from state - the composed inverse
+   * splices/pushes `paths` in place, which the tick's identity check cannot
+   * see, so the redraw is explicit (the arrange bar's own convention).
+   */
+  private handlePaintUndo(): void {
+    if (gameState.editUndoDepth() <= 0) return;
+    // Redraw even on a refused entry: parts of a composed stroke may have
+    // reverted before one step refused (discard-on-refusal, per step).
+    gameState.undoEditAction();
+    this.rebuildPaths();
+  }
+
+  /**
+   * The paint bar's confirmed Cancel (U4): unwind the WHOLE paint session -
+   * every stroke, newest first - then leave the mode, mirroring the arrange
+   * bar's Cancel contract (`doCancelUnwind`).
+   */
+  private handlePaintCancel(): void {
+    let guard = 0;
+    while (gameState.editUndoDepth() > 0 && guard < 1000) {
+      gameState.undoEditAction();
+      guard++;
+    }
+    this.rebuildPaths();
+    this.exitPathMode();
+  }
+
+  /**
+   * Dev-only stroke driver (U4) - `dev.paintStrokeAt`, the `devLongPressAt`
+   * precedent: a real drag stroke is not reproducible from desktop automation,
+   * so this walks the SAME per-tile path a confirmed gesture takes (undo
+   * group, dedup, shed spend/refund, nudge, count label) for `tiles` tiles
+   * rightward from the world point. Deliberately leaves the count label
+   * visible - it is the thing being screenshotted; exiting paint mode clears
+   * it. No-op outside paint mode.
+   */
+  private devPaintStrokeAt(worldX: number, worldY: number, tiles: number): void {
+    if (!this.pathModeActive() || !Number.isFinite(worldX) || !Number.isFinite(worldY)) return;
+    gameState.beginUndoGroup();
+    this.paintEmptyNudged = false;
+    this.pathGestureVisited.clear();
+    this.pathLastCell = null;
+    const screen = this.worldToScreen(worldX, worldY);
+    this.movePaintCountLabel(screen.x, screen.y);
+    const start = isoToGrid(worldX, worldY);
+    const startCol = Math.round(start.col);
+    const startRow = Math.round(start.row);
+    const count = Math.max(1, Math.floor(tiles));
+    for (let i = 0; i < count; i++) {
+      const { x, y } = gridToIso(startCol + i, startRow);
+      this.paintPathAt(x, y);
+    }
+    gameState.endUndoGroup();
+    this.hud.refreshPaintBar();
+  }
+
   /**
    * A move of the painting finger (U3c-r1). Drives the `PaintGesture` phase:
    * the first move past TAP_SLOP CONFIRMS the stroke (lay the first tile at the
    * down point, then this move's tile - so a drag looks identical to the old
    * paint-on-down feel); every later move paints the tile under the finger. A
    * still-within-slop move, or a halted stroke (a second finger arrived), lays
-   * nothing.
+   * nothing. A confirmed stroke also carries the live remaining-count label at
+   * the finger (U4).
    */
   private handlePaintMove(pointer: Phaser.Input.Pointer): void {
     const effect = this.paintGesture.move(pointer.x, pointer.y);
@@ -5996,17 +6141,20 @@ export class FarmScene extends Phaser.Scene {
       this.fieldGesture = 'paint';
       this.paintPathAt(this.paintDownWorldX, this.paintDownWorldY);
     }
+    this.movePaintCountLabel(pointer.x, pointer.y);
     const world = this.fieldPointerWorld(pointer);
     this.paintPathAt(world.x, world.y);
   }
 
   /**
    * A second finger landed on a live paint gesture (U3c-r1). Before the stroke
-   * confirmed it is a pinch ATTEMPT: cancel outright - zero tiles, zero coins,
-   * gesture inert (no pinch; the camera stays disabled in paint mode). Mid
-   * confirmed stroke it HALTS further painting - the `PaintGesture` phase goes
-   * 'halted', so subsequent moves lay nothing, while the tiles already laid
-   * stay (they were deliberate) and the stroke ends normally on release.
+   * confirmed it is a pinch ATTEMPT: cancel outright - zero tiles, zero shed
+   * counts, gesture inert (no pinch; the camera stays disabled in paint mode).
+   * Mid confirmed stroke it HALTS further painting - the `PaintGesture` phase
+   * goes 'halted', so subsequent moves lay nothing, while the tiles already
+   * laid stay (they were deliberate) and the stroke ends normally on release
+   * (which is where the open undo group composes, U4 - a halted stroke's laid
+   * tiles still undo as one entry).
    */
   private handlePaintSecondFinger(): void {
     if (this.paintGesture.secondFinger() === 'cancel') {
@@ -6014,9 +6162,39 @@ export class FarmScene extends Phaser.Scene {
       this.gesturePointerId = -1;
       this.pathGestureVisited.clear();
       this.pathLastCell = null;
+      // The armed stroke died before laying anything (U4): the open group is
+      // empty and composes to nothing.
+      gameState.endUndoGroup();
+      this.paintCountLabel.setVisible(false);
     }
   }
 
+  /** Show the remaining-count label at the finger (U4), clamped to the screen. */
+  private movePaintCountLabel(screenX: number, screenY: number): void {
+    const tier = this.pathModeTier;
+    if (tier === null) return;
+    this.paintCountLabel
+      .setText(`x${gameState.shedCount(tier)}`)
+      .setPosition(
+        Math.min(DESIGN_WIDTH - PAINT_COUNT_EDGE_PAD, Math.max(PAINT_COUNT_EDGE_PAD, screenX)),
+        screenY + PAINT_COUNT_OFFSET_Y,
+      )
+      .setVisible(true);
+  }
+
+  /**
+   * Paint (or erase) the path tile under a WORLD point (T4.12) - the paint
+   * mode's per-tile action, called on the gesture's confirm and again for each
+   * NEW tile a drag crosses.
+   *
+   * SHED-BACKED since U4 (the T4.13 paint-time coin charge is retired): paint
+   * SPENDS one of the tier's shed count via `placeFromShed` (which banks any
+   * displaced tier back - the store's own rule, nothing restated here), erase
+   * REFUNDS the tile to the shed via `putAwayToShed`. No coins move in either
+   * direction - the sink lives at shop buy time. An empty shed stops the
+   * stroke gently: the tier's tiles simply refuse, and a one-per-stroke
+   * "Shed's empty" nudge floats at the finger (no error state, no sting).
+   */
   private paintPathAt(worldX: number, worldY: number): void {
     const tier = this.pathModeTier;
     if (tier === null) return;
@@ -6032,32 +6210,49 @@ export class FarmScene extends Phaser.Scene {
     this.pathLastCell = target;
 
     const erasing = this.hud.isPathEraseActive();
-    const cost = PATH_TIERS[tier].costCoins;
     let changed = false;
     for (const cell of cells) {
       const key = FarmScene.pathKey(cell.col, cell.row);
       if (this.pathGestureVisited.has(key)) continue;
       this.pathGestureVisited.add(key);
       if (erasing) {
-        if (!gameState.erasePath(cell.col, cell.row)) continue;
+        if (gameState.putAwayToShed({ category: 'path', col: cell.col, row: cell.row }) === null) {
+          continue;
+        }
         this.clearPathSprite(cell.col, cell.row);
         changed = true;
         continue;
       }
-      if (!gameState.paintPath(cell.col, cell.row, tier)) continue;
-      // Draw just this tile - never a whole-layer rebuild mid-stroke.
+      // The empty check runs BEFORE the attempt so an out-of-stock refusal is
+      // distinguishable from the store's other refusals (same-tier repaint,
+      // off-grid), which stay silent.
+      if (gameState.shedCount(tier) <= 0) {
+        if (!this.paintEmptyNudged) {
+          this.paintEmptyNudged = true;
+          this.uiFloatingText.show(
+            this.paintCountLabel.x,
+            this.paintCountLabel.y,
+            PAINT_EMPTY_NUDGE_TEXT,
+            PAINT_EMPTY_NUDGE_OPTIONS,
+          );
+        }
+        continue;
+      }
+      if (gameState.placeFromShed(tier, { col: cell.col, row: cell.row }) === false) continue;
+      // Draw just this tile - never a whole-layer rebuild mid-stroke. A
+      // paint-over is drawn by the same call (the sprite swaps in place).
       this.setPathSprite({ col: cell.col, row: cell.row, tier });
       changed = true;
-      if (cost > 0) {
-        const { x, y } = gridToIso(cell.col, cell.row);
-        this.worldFloatingText.show(x, y + XP_LABEL_OFFSET_Y, `-${cost}`, PLANT_COST_TEXT_OPTIONS);
-      }
     }
     // Feedback fires once per POINTER EVENT, not once per tile: one fast move
     // can now lay a dozen tiles, and a dozen simultaneous taps/buzzes would
     // machine-gun. A tap or slow drag lays one tile per event, so those feel
     // exactly as before.
     if (!changed) return;
+    // Live counts (U4): the finger label and the tier bar both tick per event.
+    const remaining = gameState.shedCount(tier);
+    if (this.paintCountLabel.visible) this.paintCountLabel.setText(`x${remaining}`);
+    this.hud.refreshPaintBar();
     this.audio.sfx('tap');
     buzz(HAPTIC_LIGHT_MS);
   }
@@ -7314,12 +7509,34 @@ export class FarmScene extends Phaser.Scene {
     // (an undo/Cancel of a placement banks it there); its row appears only while
     // its shed count > 0 and taps into hand at its default anchor. `id === frame`
     // for every building, so the single-`frame` row shape carries both.
+    // Path rows (U4): a shed-held tier gets a row whose button reads "Paint"
+    // and taps straight into paint mode with that tier - `enterPathMode` leaves
+    // arrange (closing this panel with it), so no extra teardown here. The
+    // tile-diamond icon keeps its wide aspect, like the plot row's.
+    const pathRows = PATH_TIER_LIST.map((def) => {
+      const row = this.buildShedRow(
+        def.id,
+        def.name,
+        SHED_NAME_STYLE,
+        () => {
+          this.audio.sfx('tap');
+          this.enterPathMode(def.id);
+        },
+        'Paint',
+        // A tier's shed KEY is its id ('gravel') but its art is its frame
+        // ('gravel_path') - the one row family where the two differ.
+        def.frame,
+      );
+      row.icon.setDisplaySize(SHED_ICON_SIZE, (SHED_ICON_SIZE * TILE_FRAME_HEIGHT) / TILE_WIDTH);
+      return row;
+    });
     this.shedRows = [
       ...BUILDING_IDS.map((id) =>
         this.buildShedRow(id, BUILDINGS[id].name, SHED_NAME_STYLE, () =>
           this.placeShedBuilding(id),
         ),
       ),
+      ...pathRows,
       ...DECOR_ITEMS.map((item) =>
         this.buildShedRow(item.frame, item.name, SHED_NAME_STYLE, () =>
           this.placeShedDecoration(item.frame),
@@ -7363,21 +7580,26 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * One shed panel row: icon, name, "xN" count, a Place button - built
+   * One shed panel row: icon, name, "xN" count, an action button - built
    * once at a neutral (0, 0) position, hidden until shown. `nameStyle` is
    * `SHED_TROPHY_NAME_STYLE` for a trophy row, `SHED_NAME_STYLE`
-   * otherwise - everything else (icon, count, Place button/behavior) is
-   * identical between decor and trophy rows. Actual on-panel position is
-   * assigned later, per visible slot, by `positionShedRow`.
+   * otherwise - everything else (icon, count, button behavior) is identical
+   * across row families. `frame` is the row's SHED KEY (a catalog id) and
+   * doubles as the atlas frame unless `iconFrame` overrides it (path tiers,
+   * U4 - id 'gravel', art 'gravel_path'); `buttonLabel` defaults to the Place
+   * verb ('Paint' on a path row). Actual on-panel position is assigned later,
+   * per visible slot, by `positionShedRow`.
    */
   private buildShedRow(
     frame: string,
     name: string,
     nameStyle: Phaser.Types.GameObjects.Text.TextStyle,
     onPlace: () => void,
+    buttonLabel = 'Place',
+    iconFrame = frame,
   ): ShedRow {
     const icon = this.add
-      .image(0, 0, ATLAS_KEY, frame)
+      .image(0, 0, ATLAS_KEY, iconFrame)
       .setDisplaySize(SHED_ICON_SIZE, SHED_ICON_SIZE)
       .setVisible(false);
     const nameText = this.add.text(0, 0, name, nameStyle).setOrigin(0, 0.5).setVisible(false);
@@ -7400,7 +7622,7 @@ export class FarmScene extends Phaser.Scene {
       )
       .setVisible(false);
     const placeText = this.add
-      .text(0, 0, 'Place', SHED_PLACE_STYLE)
+      .text(0, 0, buttonLabel, SHED_PLACE_STYLE)
       .setOrigin(0.5)
       .setVisible(false);
     placeButton.on(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN, onPlace);
@@ -7468,9 +7690,8 @@ export class FarmScene extends Phaser.Scene {
    */
   private refreshShedPanel(): void {
     const state = gameState.getState();
-    // The rows are built from DECOR_ITEMS + TROPHY_ITEMS, so only decor ids are
-    // ever looked up here - a building or path tier sitting in the same shed
-    // has no row and is silently (and correctly) not shown by this panel.
+    // Rows cover buildings (U3b-r1), path tiers (U4 - their button enters
+    // paint mode), decor, and trophies; every shed key therefore has a row.
     const stored = state.shedInventory;
     let anyOwned = false;
     let visibleIndex = 0;

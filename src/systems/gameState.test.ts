@@ -52,7 +52,7 @@ import {
   SKIP_COOLDOWN_MAX_MS,
   SKIP_STREAK_RESET_MS,
 } from '../data/orders';
-import { PATH_TIER_LIST, PATH_TIERS } from '../data/paths';
+import { PATH_TIER_LIST } from '../data/paths';
 import {
   GROWTH_TARGETS_BY_LEVEL,
   growthTargetForLevel,
@@ -91,6 +91,7 @@ import {
   MIGRATIONS,
   type Migration,
   nextChainPlotTile,
+  type PathTile,
   placeablePlotTiles,
   type PlotState,
   PLOT_COUNT,
@@ -8457,10 +8458,15 @@ describe('paths (T4.12)', () => {
     });
 
     it('round-trips a painted tile through save and load', () => {
+      // RE-PIN (U4): painting is `placeFromShed` now - `paintPath` and its
+      // per-tile charge are retired, so the round-trip paints out of a
+      // granted shed count instead of a coin balance. The pinned outcome (the
+      // tile survives a reload) is unchanged.
       const storage = makeStorage({ [SAVE_KEY]: JSON.stringify(savedWithPaths()) });
       const store = new GameStateStore({ storage });
       store.load();
-      expect(store.paintPath(-3, 5, 'gravel')).toBe(true);
+      expect(store.devGrantToShed('gravel', 1)).toBe(true);
+      expect(store.placeFromShed('gravel', { col: -3, row: 5 })).toBe(0);
 
       const reloaded = new GameStateStore({ storage });
       reloaded.load();
@@ -8469,96 +8475,74 @@ describe('paths (T4.12)', () => {
     });
   });
 
-  describe('paintPath', () => {
-    it('places a tile and deducts the tier cost, on every rung of the ladder', () => {
-      // One paint per tier, each on its own tile, against a balance that
-      // covers the whole ladder (0 + 15 + 70 + 350 = 435).
+  /**
+   * U4 RE-PINS: `paintPath` (per-tile coin charge, T4.12/T4.13) and
+   * `erasePath` (no-refund remove) are RETIRED - paint = `placeFromShed`,
+   * erase = `putAwayToShed`, and the coin sink moved to shop buy time
+   * (`buyToShed`). The pins below re-state the behaviors that survive under
+   * the new implementation; the coin-charge pins died with the charge.
+   */
+  describe('painting and erasing are shed moves (U4)', () => {
+    it('painting spends the shed count and never coins, on every rung of the ladder', () => {
+      // DERIVATION (U4): was "deducts the tier cost per tile" (T4.13's 435-coin
+      // ladder pin). Painting now spends ONE shed count per tile and moves no
+      // currency; the tiers' prices are charged by `buyToShed` alone.
       const store = loadedStore(savedWithPaths({ coins: 1000 }));
-      let spent = 0;
+      for (const def of PATH_TIER_LIST) expect(store.devGrantToShed(def.id, 1)).toBe(true);
+      const moondustBefore = store.getState().moondust;
       PATH_TIER_LIST.forEach((def, index) => {
-        expect(store.paintPath(index, 2, def.id)).toBe(true);
-        spent += def.costCoins;
-        // Derived from the registry, so a reprice moves this with the data.
-        expect(store.getState().coins).toBe(1000 - spent);
+        expect(store.placeFromShed(def.id, { col: index, row: 2 })).toBe(index);
+        expect(store.shedCount(def.id)).toBe(0);
       });
       expect(store.getState().paths).toEqual(
         PATH_TIER_LIST.map((def, index) => ({ col: index, row: 2, tier: def.id })),
       );
-      // The T4.13 prices, pinned literally so a silent reprice fails here too.
-      expect(spent).toBe(435);
+      expect(store.getState().coins).toBe(1000);
+      expect(store.getState().moondust).toBe(moondustBefore);
     });
 
-    it('refuses without mutation when coins are short', () => {
-      // One coin below gravel's 15 - the store's balance guard, exercised
-      // through the shipping registry now that the ladder has priced rungs.
-      const store = loadedStore(savedWithPaths({ coins: PATH_TIERS.gravel.costCoins - 1 }));
-      expect(store.paintPath(1, 2, 'gravel')).toBe(false);
+    it('a tier at 0 in the shed refuses to paint, mutating nothing (the empty-stop seam)', () => {
+      // The store side of AC3's gentle empty stop: painting with an empty
+      // tier is refused outright, whatever the coin balance says.
+      const store = loadedStore(savedWithPaths({ coins: 100_000 }));
+      expect(store.placeFromShed('gravel', { col: 1, row: 2 })).toBe(false);
       expect(store.getState().paths).toEqual([]);
-      expect(store.getState().coins).toBe(PATH_TIERS.gravel.costCoins - 1);
-      // The free rung stays paintable at any balance - that is the point of it.
-      expect(store.paintPath(1, 2, 'dirt')).toBe(true);
+      expect(store.getState().coins).toBe(100_000);
     });
 
-    it('charges a repaint that CHANGES tier, and nothing for a same-tier repaint', () => {
+    it('erasing REFUNDS the tile to the shed, and still moves no coins', () => {
+      // DERIVATION (U4): supersedes the T4.12 "no refund" pin. The old rule
+      // guarded the COIN spend (paint was a purchase); with tiles bought into
+      // the shed up front, erase returns the TILE to the shed - the T4.12
+      // coin part survives as "no coins move in either direction".
       const store = loadedStore(savedWithPaths({ coins: 500 }));
-      expect(store.paintPath(3, 3, 'dirt')).toBe(true);
-      expect(store.getState().coins).toBe(500);
-      // Upgrading the tile to a priced tier bills once, in place.
-      expect(store.paintPath(3, 3, 'stone')).toBe(true);
-      expect(store.getState().coins).toBe(500 - PATH_TIERS.stone.costCoins);
-      expect(store.getState().paths).toEqual([{ col: 3, row: 3, tier: 'stone' }]);
-      // ...and re-laying the same tier over it is free, not a second charge.
-      expect(store.paintPath(3, 3, 'stone')).toBe(false);
-      expect(store.getState().coins).toBe(500 - PATH_TIERS.stone.costCoins);
-    });
-
-    it('refuses an unknown tier and off-grid coordinates without mutating', () => {
-      const store = loadedStore(savedWithPaths());
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any -- deliberately passing an id outside PathTierId to prove the store rejects it
-      expect(store.paintPath(1, 2, 'obsidian' as any)).toBe(false);
-      expect(store.paintPath(1.5, 2, 'gravel')).toBe(false);
-      expect(store.paintPath(PLOT_GRID_COORD_MAX + 1, 2, 'gravel')).toBe(false);
+      expect(store.devGrantToShed('moonstone', 1)).toBe(true);
+      expect(store.placeFromShed('moonstone', { col: 2, row: 2 })).toBe(0);
+      expect(store.shedCount('moonstone')).toBe(0);
+      const result = store.putAwayToShed({ category: 'path', col: 2, row: 2 });
+      expect(result).toEqual({ itemId: 'moonstone', options: { col: 2, row: 2 } });
       expect(store.getState().paths).toEqual([]);
+      expect(store.shedCount('moonstone')).toBe(1);
+      expect(store.getState().coins).toBe(500);
     });
 
-    it('keeps at most one tile per (col, row) - a repaint of the same tier is a no-op', () => {
+    it('erase refuses without mutation when no tile is painted there', () => {
       const store = loadedStore(savedWithPaths());
-      expect(store.paintPath(4, 4, 'gravel')).toBe(true);
-      // Second paint of the same tier on the same tile: refused, so a drag
-      // re-entering a tile it already laid can never bill or duplicate it.
-      expect(store.paintPath(4, 4, 'gravel')).toBe(false);
-      expect(store.getState().paths).toEqual([{ col: 4, row: 4, tier: 'gravel' }]);
+      store.devGrantToShed('gravel', 1);
+      expect(store.placeFromShed('gravel', { col: 2, row: 2 })).toBe(0);
+      expect(store.putAwayToShed({ category: 'path', col: 7, row: 7 })).toBeNull();
+      expect(store.getState().paths).toEqual([{ col: 2, row: 2, tier: 'gravel' }]);
     });
 
     it('paints on a tile that already holds a plot - paths block nothing', () => {
+      // RE-PIN (U4): the T4.12 pin, through the shed path.
       const saved = savedWithPaths();
       const { col, row } = saved.plots[0]!;
       const store = loadedStore(saved);
-      expect(store.paintPath(col, row, 'gravel')).toBe(true);
+      store.devGrantToShed('gravel', 1);
+      expect(store.placeFromShed('gravel', { col, row })).toBe(0);
       // The plot is untouched: a path is a cosmetic ground layer under it.
       expect(store.getState().plots[0]).toEqual(saved.plots[0]);
-    });
-  });
-
-  describe('erasePath', () => {
-    it('removes a painted tile with no refund', () => {
-      const store = loadedStore(savedWithPaths({ coins: 500 }));
-      // Erase a PAID tile (moonstone, the priciest rung) - the case where a
-      // refund would be most tempting and most visible if one leaked in.
-      expect(store.paintPath(2, 2, 'moonstone')).toBe(true);
-      const coinsAfterPaint = store.getState().coins;
-      expect(coinsAfterPaint).toBe(500 - PATH_TIERS.moonstone.costCoins);
-      expect(store.erasePath(2, 2)).toBe(true);
-      expect(store.getState().paths).toEqual([]);
-      // No refund (owner decision): erasing never returns coins.
-      expect(store.getState().coins).toBe(coinsAfterPaint);
-    });
-
-    it('refuses without mutation when no tile is painted there', () => {
-      const store = loadedStore(savedWithPaths());
-      expect(store.paintPath(2, 2, 'gravel')).toBe(true);
-      expect(store.erasePath(7, 7)).toBe(false);
-      expect(store.getState().paths).toEqual([{ col: 2, row: 2, tier: 'gravel' }]);
     });
   });
 });
@@ -8980,7 +8964,7 @@ describe('the Shed (U1, schema v29; warehouse cutover U2a, schema v30)', () => {
       expect(store.placeFromShed('gravel', { col: 2, row: 2 })).toBe(0);
       expect(store.getState().paths).toEqual([{ col: 2, row: 2, tier: 'gravel' }]);
       expect(store.shedCount('gravel')).toBe(1);
-      // Placing a path costs nothing - unlike `paintPath`, which charges.
+      // Placing a path costs nothing - the coin sink is `buyToShed` alone (U4).
       expect(purse(store)).toEqual(before);
 
       const result = store.putAwayToShed({ category: 'path', col: 2, row: 2 })!;
@@ -9069,30 +9053,11 @@ describe('the Shed (U1, schema v29; warehouse cutover U2a, schema v30)', () => {
       expect(store.getState().shedInventory).toEqual({});
     });
 
-    it('paintPath still charges coins per tile and ignores the shed', () => {
-      const store = makeShedStore();
-      store.addCoins(10_000);
-      const before = purse(store);
-      const gravel = PATH_TIERS.gravel;
-      expect(store.paintPath(4, 4, 'gravel')).toBe(true);
-      expect(store.getState().coins).toBe(before.coins - gravel.costCoins);
-      expect(store.getState().paths).toEqual([{ col: 4, row: 4, tier: 'gravel' }]);
-      expect(store.getState().shedInventory).toEqual({});
-      // A repaint of the same tier is still a no-op, not a second charge.
-      expect(store.paintPath(4, 4, 'gravel')).toBe(false);
-      expect(store.getState().coins).toBe(before.coins - gravel.costCoins);
-    });
-
-    it('paintPath still REPLACES a different tier in place rather than stacking', () => {
-      const store = makeShedStore();
-      store.addCoins(10_000);
-      expect(store.paintPath(4, 4, 'gravel')).toBe(true);
-      expect(store.paintPath(4, 4, 'stone')).toBe(true);
-      expect(store.getState().paths).toEqual([{ col: 4, row: 4, tier: 'stone' }]);
-      // `paintPath` is a SPEND, not an inventory: the covered gravel does not
-      // come back (only the shed path banks a displaced tier).
-      expect(store.getState().shedInventory).toEqual({});
-    });
+    // The two `paintPath` pins that lived here ("still charges coins per
+    // tile", "a spend, not an inventory") are DELETED in U4 with the method
+    // itself - painting is `placeFromShed` now, whose spend-the-shed and
+    // bank-the-displaced-tier behaviors are pinned in the round-trip suite
+    // above and in "painting and erasing are shed moves (U4)".
 
     it('buyBuilding still charges coins and places at the default anchor', () => {
       const store = makeShedStore();
@@ -9468,5 +9433,141 @@ describe('edit-session undo stack (U3a, model only)', () => {
     // The next undo proceeds normally.
     expect(store.undoEditAction()).toBe(true);
     expect(store.getState().structures.farmhouse).toEqual(fh);
+  });
+});
+
+/**
+ * Stroke undo grouping (U4): `beginUndoGroup`/`endUndoGroup` compose every
+ * inverse recorded between them into ONE stack entry, applied in reverse
+ * order - the paint bar's "one stroke = one Undo tap" contract, pinned at the
+ * store seam.
+ */
+describe('stroke undo grouping (U4)', () => {
+  /** A post-onboarding store with shed stock to paint out of. */
+  function paintStore(): GameStateStore {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    store.devGrantToShed('gravel', 10);
+    store.devGrantToShed('stone', 5);
+    return store;
+  }
+
+  it('a 5-tile paint stroke is ONE entry whose undo restores tiles and counts byte-identically', () => {
+    const store = paintStore();
+    store.beginEditSession();
+    const before = JSON.parse(JSON.stringify(store.getState())) as unknown;
+    store.beginUndoGroup();
+    for (let col = 0; col < 5; col++) {
+      expect(store.placeFromShed('gravel', { col, row: 3 })).toBe(col);
+    }
+    store.endUndoGroup();
+    expect(store.getState().paths).toHaveLength(5);
+    expect(store.shedCount('gravel')).toBe(5);
+    // THE grouping pin: five tiles, one undoable action.
+    expect(store.editUndoDepth()).toBe(1);
+    expect(store.undoEditAction()).toBe(true);
+    expect(store.getState()).toEqual(before);
+    expect(store.editUndoDepth()).toBe(0);
+  });
+
+  it('an erase stroke groups identically - one entry re-lays every erased tile', () => {
+    const store = paintStore();
+    for (let col = 0; col < 3; col++) {
+      expect(store.placeFromShed('gravel', { col, row: 4 })).toBe(col);
+    }
+    store.beginEditSession();
+    const before = JSON.parse(JSON.stringify(store.getState())) as unknown;
+    store.beginUndoGroup();
+    for (let col = 0; col < 3; col++) {
+      expect(store.putAwayToShed({ category: 'path', col, row: 4 })).not.toBeNull();
+    }
+    store.endUndoGroup();
+    expect(store.getState().paths).toEqual([]);
+    expect(store.shedCount('gravel')).toBe(10);
+    expect(store.editUndoDepth()).toBe(1);
+    expect(store.undoEditAction()).toBe(true);
+    // The composed inverses re-lay newest-erased first, so the ARRAY comes
+    // back in reverse order - which is not state: paths hold at most one tile
+    // per (col, row) and the layer renders coplanar, so order carries nothing.
+    // Compare order-insensitively; everything else must be byte-identical.
+    const sortTiles = (state: unknown): unknown => {
+      const clone = JSON.parse(JSON.stringify(state)) as { paths: PathTile[] };
+      clone.paths.sort((a, b) => a.col - b.col || a.row - b.row);
+      return clone;
+    };
+    expect(sortTiles(store.getState())).toEqual(sortTiles(before));
+  });
+
+  it('undoing a paint-over stroke restores the DISPLACED tier to its tile', () => {
+    const store = paintStore();
+    expect(store.placeFromShed('stone', { col: 1, row: 1 })).toBe(0);
+    store.beginEditSession();
+    const before = JSON.parse(JSON.stringify(store.getState())) as unknown;
+    store.beginUndoGroup();
+    expect(store.placeFromShed('gravel', { col: 1, row: 1 })).toBe(0);
+    store.endUndoGroup();
+    // The paint-over banked the covered stone (U1's no-destruction rule).
+    expect(store.getState().paths).toEqual([{ col: 1, row: 1, tier: 'gravel' }]);
+    expect(store.shedCount('stone')).toBe(5);
+    // Undo puts the gravel back in the shed AND the stone back on the tile -
+    // not a bare tile with a stray banked stone (the U4 inverse).
+    expect(store.undoEditAction()).toBe(true);
+    expect(store.getState()).toEqual(before);
+    expect(store.getState().paths).toEqual([{ col: 1, row: 1, tier: 'stone' }]);
+  });
+
+  it('an empty or cancelled stroke composes nothing onto the stack', () => {
+    const store = paintStore();
+    store.beginEditSession();
+    store.beginUndoGroup();
+    // Nothing painted (the pinch-cancel path): no entry may land.
+    store.endUndoGroup();
+    expect(store.editUndoDepth()).toBe(0);
+    // A stroke whose every place REFUSED (empty tier) also composes nothing.
+    store.beginUndoGroup();
+    expect(store.placeFromShed('moonstone', { col: 0, row: 0 })).toBe(false);
+    store.endUndoGroup();
+    expect(store.editUndoDepth()).toBe(0);
+  });
+
+  it('groups interleave with ungrouped entries - LIFO across strokes and single actions', () => {
+    const store = paintStore();
+    store.devGrantToShed('decor_bench', 1);
+    store.beginEditSession();
+    store.beginUndoGroup();
+    expect(store.placeFromShed('gravel', { col: 0, row: 0 })).toBe(0);
+    expect(store.placeFromShed('gravel', { col: 1, row: 0 })).toBe(1);
+    store.endUndoGroup();
+    expect(store.placeFromShed('decor_bench')).toBe(0);
+    expect(store.editUndoDepth()).toBe(2);
+    // Newest first: the bench place pops alone...
+    expect(store.undoEditAction()).toBe(true);
+    expect(store.getState().decorations).toEqual([]);
+    expect(store.getState().paths).toHaveLength(2);
+    // ...then the whole stroke pops as one.
+    expect(store.undoEditAction()).toBe(true);
+    expect(store.getState().paths).toEqual([]);
+    expect(store.shedCount('gravel')).toBe(10);
+  });
+
+  it('a refused composed step is skipped and the rest of the stroke still reverts', () => {
+    const store = paintStore();
+    store.beginEditSession();
+    store.beginUndoGroup();
+    expect(store.placeFromShed('gravel', { col: 0, row: 0 })).toBe(0);
+    expect(store.placeFromShed('gravel', { col: 1, row: 0 })).toBe(1);
+    store.endUndoGroup();
+    // Out-of-band change: the (0, 0) tile vanishes (the direct-poke idiom this
+    // suite uses for staging), so its composed step must cleanly refuse.
+    store.getState().paths.splice(
+      store.getState().paths.findIndex((p) => p.col === 0 && p.row === 0),
+      1,
+    );
+    // The entry reports the partial application honestly (false)...
+    expect(store.undoEditAction()).toBe(false);
+    // ...but the surviving tile still reverted, and the entry is discarded.
+    expect(store.getState().paths).toEqual([]);
+    expect(store.shedCount('gravel')).toBe(9);
+    expect(store.editUndoDepth()).toBe(0);
   });
 });

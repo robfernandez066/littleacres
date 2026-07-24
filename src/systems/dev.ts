@@ -199,6 +199,24 @@ export interface DevTools {
    */
   longPress?(worldX: number, worldY: number): void;
   /**
+   * Paint-mode live-proof seams (U4), the `longPress` precedent - a real drag
+   * stroke is not reproducible from desktop automation, so the U4 screenshots
+   * (count label at the finger, "Shed's empty" nudge) drive the scene's own
+   * stroke path directly. Registered by FarmScene.
+   *
+   * - paintMode(tier?): enter the persistent paint mode (an unknown/omitted
+   *   tier falls back to the scene's remembered one). No-op mid-tutorial.
+   * - exitPaintMode(): leave it (Done's path).
+   * - paintStrokeAt(worldX, worldY, tiles?): lay one confirmed stroke of
+   *   `tiles` tiles (default 1) rightward from the world point through the
+   *   real per-tile path (shed spend, dedup, nudge, undo GROUP - the stroke
+   *   composes to one undo entry). Leaves the count label visible so it can
+   *   be screenshotted; exiting paint mode clears it.
+   */
+  paintMode?(tier?: string): void;
+  exitPaintMode?(): void;
+  paintStrokeAt?(worldX: number, worldY: number, tiles?: number): void;
+  /**
    * T3.26 dev-only farmhouse transform knobs, for diagnosing the building's
    * angle: does an in-plane rotation make it sit right on the iso grid (a tilt
    * the art can be rotated out of), or not (a perspective mismatch that needs
@@ -355,6 +373,22 @@ export function registerFootprintsToggle(toggle: () => void): void {
  */
 export function registerLongPressDriver(drive: (worldX: number, worldY: number) => void): void {
   if (window.dev !== undefined) window.dev.longPress = drive;
+}
+
+/**
+ * Late-bind the U4 paint-mode live-proof seams once the Farm scene exists,
+ * bundled like `registerDressingEditorHooks` since the three are always wired
+ * together.
+ */
+export function registerPaintModeHooks(hooks: {
+  enter: (tier?: string) => void;
+  exit: () => void;
+  strokeAt: (worldX: number, worldY: number, tiles?: number) => void;
+}): void {
+  if (window.dev === undefined) return;
+  window.dev.paintMode = hooks.enter;
+  window.dev.exitPaintMode = hooks.exit;
+  window.dev.paintStrokeAt = hooks.strokeAt;
 }
 
 /**
