@@ -631,6 +631,12 @@ export class Hud {
      * mode with it selected "in hand". Threaded straight through to `ShopPanel`.
      */
     private readonly onBuildingBought: (buildingId: BuildingId) => void,
+    /**
+     * The Shop header's Shed button (U5-r2): close the shop and open the Shed
+     * panel (the scene enters arrange mode first if the shop was opened from
+     * the HUD). Threaded straight through to `ShopPanel`.
+     */
+    private readonly onOpenShedFromShop: () => void,
   ) {
     this.coinDisplay.value = gameState.getState().coins;
     this.moondustDisplay.value = gameState.getState().moondust;
@@ -963,6 +969,7 @@ export class Hud {
         this.onEnterPathMode();
       },
       this.onBuildingBought,
+      this.onOpenShedFromShop,
     );
 
     this.orderBoard = new OrderBoard(

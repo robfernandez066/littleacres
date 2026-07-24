@@ -1958,6 +1958,7 @@ export class FarmScene extends Phaser.Scene {
           () => this.handlePaintUndo(),
           () => this.handlePaintCancel(),
           (buildingId) => this.enterArrangeWithBuilding(buildingId),
+          () => this.openShedFromShop(),
         ),
     );
     // Constructed after Hud (needs it for claim-reward juice - see
@@ -4799,6 +4800,18 @@ export class FarmScene extends Phaser.Scene {
     // The unified Shop on its Decor tab (U2b), elevated above the arrange
     // control row. The shed panel is closed above; the Hud method toggles it.
     this.hud.toggleShopDecor(true);
+  }
+
+  /**
+   * The Shop header's Shed button (U5-r2): the shop (`ShopPanel`) has already
+   * hidden itself and played the tap sfx. Enter arrange mode if it is not
+   * already active (the U3b entrance, nothing selected), then open the Shed
+   * panel over it. From arrange (the shop was elevated) arrange stays untouched
+   * and only the panel opens.
+   */
+  private openShedFromShop(): void {
+    if (!this.arrangeModeActive) this.enterArrangeMode();
+    this.showShedPanel();
   }
 
   /**

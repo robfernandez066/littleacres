@@ -85,12 +85,23 @@ const BALANCE_ICON_NATIVE = 96;
 const BALANCE_ICON_DISPLAY = 36;
 const BALANCE_ICON_SCALE = BALANCE_ICON_DISPLAY / BALANCE_ICON_NATIVE;
 /**
- * The Shed chip is a DRAWN pill reading "Shed N" (U2b-r1) - the treasure-chest
- * sprite it replaced collided with the premium-order chest concept. Its centre
- * is the fly-to-chip target and the bounce pivot.
+ * The Shed BUTTON (U5-r2): the header's real button that opens the Shed panel -
+ * a `panel` nineslice labeled "Shed" with a gold corner count badge, mirroring
+ * the arrange bar's Shed button (FarmScene's ARRANGE_SHED_* + badge) 1:1 in its
+ * visual language. Its centre is the fly-to-chip target and the bounce pivot; a
+ * paired invisible Zone carries the hit test (the ShopPanel pattern), toggled
+ * with the panel's open state. Replaces the pre-U5-r2 drawn "Shed N" pill.
  */
-const SHED_PILL_X = 250;
-const SHED_PILL_HALF_H = 24;
+const SHED_BTN_X = 250;
+const SHED_BTN_WIDTH = 150;
+const SHED_BTN_HEIGHT = 60;
+/**
+ * Count badge pinned to the button's top-right corner - the arrange bar's badge
+ * treatment (gold, dark stroke), offset to this button's corner. An overhanging
+ * text object, so a 3-digit count never clips.
+ */
+const SHED_BADGE_OFFSET_X = SHED_BTN_WIDTH / 2 - 8;
+const SHED_BADGE_OFFSET_Y = -SHED_BTN_HEIGHT / 2 + 4;
 
 /** Tab row: three tabs since U4 (Buildings | Paths | Decor), evenly spread. */
 const TAB_Y = -HALF_H + 190;
@@ -280,11 +291,28 @@ const BALANCE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   color: '#4a3218',
 };
 
-const SHED_CHIP_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+/** The "Shed" button label - the arrange bar's brown Arial-bold lettering,
+ *  sized to the header button (U5-r2). */
+const SHED_BTN_LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
   fontFamily: 'Arial, sans-serif',
   fontSize: '30px',
   fontStyle: 'bold',
   color: '#4a3218',
+};
+
+/**
+ * The Shed button's corner count badge (U5-r2): mirrors the arrange bar's
+ * ARRANGE_SHED_BADGE_STYLE 1:1 (gold fill, dark stroke) so the two Shed buttons
+ * read identically. Kept as its own copy rather than imported from FarmScene:
+ * FarmScene imports Hud which imports this file, so importing back would cycle.
+ */
+const SHED_BADGE_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '28px',
+  fontStyle: 'bold',
+  color: '#f5c542',
+  stroke: '#3a2a10',
+  strokeThickness: 5,
 };
 
 const TAB_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
@@ -441,8 +469,9 @@ export class ShopPanel {
 
   private readonly coinText: Phaser.GameObjects.Text;
   private readonly moondustText: Phaser.GameObjects.Text;
-  private readonly shedPill: Phaser.GameObjects.Graphics;
-  private readonly shedChipText: Phaser.GameObjects.Text;
+  private readonly shedButton: Phaser.GameObjects.NineSlice;
+  private readonly shedButtonLabel: Phaser.GameObjects.Text;
+  private readonly shedBadge: Phaser.GameObjects.Text;
 
   private readonly buildingTabBg: Phaser.GameObjects.NineSlice;
   private readonly buildingTabText: Phaser.GameObjects.Text;
@@ -456,13 +485,6 @@ export class ShopPanel {
 
   private readonly tooltipText: Phaser.GameObjects.Text;
   private tooltipTween: Phaser.Tweens.Tween | null = null;
-
-  /**
-   * Last shed total whose pill geometry was drawn (-1 forces the first draw).
-   * See Card.ownedCount: guards the shed pill's re-tessellation so the 250ms
-   * refresh does not redraw it every tick during the fly/bounce (U2b-r4).
-   */
-  private lastShedTotal = -1;
 
   private readonly cards: Card[] = [];
 
@@ -497,6 +519,13 @@ export class ShopPanel {
      * arrange mode, and selects the new building "in hand".
      */
     private readonly onBuildingBought: (buildingId: BuildingId) => void,
+    /**
+     * The header's Shed button (U5-r2): this panel has already hidden itself;
+     * the scene enters arrange mode if it is not already active (the U3b
+     * entrance, nothing selected) and opens the Shed panel. From the elevated
+     * (arrange) context arrange stays and only the panel opens.
+     */
+    private readonly onOpenShed: () => void,
   ) {
     this.backdrop = new ModalBackdrop(scene, () => {
       this.audio.sfx('tap');
@@ -554,20 +583,60 @@ export class ShopPanel {
     this.moondustText = scene.add
       .text(MOONDUST_TEXT_X, HEADER_Y, '0', BALANCE_STYLE)
       .setOrigin(0, 0.5);
-    // The Shed chip: a drawn "Shed N" pill (redrawn to fit its count in
-    // `refresh`), its centre the fly-to-chip target and bounce pivot.
-    this.shedPill = scene.add.graphics().setPosition(SHED_PILL_X, HEADER_Y);
-    this.shedChipText = scene.add
-      .text(SHED_PILL_X, HEADER_Y, 'Shed 0', SHED_CHIP_STYLE)
+    // The Shed BUTTON (U5-r2): a `panel` nineslice + "Shed" label + gold corner
+    // count badge, mirroring the arrange bar's Shed button. Its centre is the
+    // fly-to-chip target and the bounce pivot. The nineslice is visual only; a
+    // paired invisible Zone (pushed to `interactives`) carries the hit test, so
+    // a closed shop holds no live Shed hitbox.
+    this.shedButton = scene.add.nineslice(
+      SHED_BTN_X,
+      HEADER_Y,
+      ATLAS_KEY,
+      'panel',
+      SHED_BTN_WIDTH,
+      SHED_BTN_HEIGHT,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+      PANEL_SLICE,
+    );
+    this.shedButtonLabel = scene.add
+      .text(SHED_BTN_X, HEADER_Y, 'Shed', SHED_BTN_LABEL_STYLE)
       .setOrigin(0.5);
+    this.shedBadge = scene.add
+      .text(SHED_BTN_X + SHED_BADGE_OFFSET_X, HEADER_Y + SHED_BADGE_OFFSET_Y, '', SHED_BADGE_STYLE)
+      .setOrigin(0.5)
+      .setVisible(false);
+    const shedZone = scene.add
+      .zone(SHED_BTN_X, HEADER_Y, SHED_BTN_WIDTH, SHED_BTN_HEIGHT)
+      .setInteractive({ useHandCursor: true });
+    shedZone.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        // Consume the tap so it never leaks through the (about-to-close)
+        // backdrop to an arrange control underneath (the U3b-r3 class).
+        event.stopPropagation();
+        this.audio.sfx('tap');
+        this.hide();
+        this.onOpenShed();
+      },
+    );
     this.container.add([
       coinIcon,
       this.coinText,
       moondustIcon,
       this.moondustText,
-      this.shedPill,
-      this.shedChipText,
+      this.shedButton,
+      this.shedButtonLabel,
+      this.shedBadge,
+      shedZone,
     ]);
+    this.interactives.push(shedZone);
 
     // Tab row.
     this.buildingTabBg = this.buildButton(TAB_BUILDING_X, TAB_Y, TAB_WIDTH, TAB_HEIGHT);
@@ -1102,7 +1171,7 @@ export class ShopPanel {
     this.container.add(fly);
     this.scene.tweens.add({
       targets: fly,
-      x: SHED_PILL_X,
+      x: SHED_BTN_X,
       y: HEADER_Y,
       scale: FLY_END_SCALE,
       alpha: 0.2,
@@ -1115,17 +1184,18 @@ export class ShopPanel {
     });
   }
 
-  /** A small scale pop on the Shed pill as its count ticks up. */
+  /** A small scale pop on the Shed button + badge as its count ticks up. */
   private bounceChip(): void {
     this.scene.tweens.add({
-      targets: [this.shedPill, this.shedChipText],
+      targets: [this.shedButton, this.shedButtonLabel, this.shedBadge],
       scale: CHIP_BOUNCE_SCALE,
       duration: CHIP_BOUNCE_MS,
       yoyo: true,
       ease: 'Sine.easeOut',
       onComplete: () => {
-        this.shedPill.setScale(1);
-        this.shedChipText.setScale(1);
+        this.shedButton.setScale(1);
+        this.shedButtonLabel.setScale(1);
+        this.shedBadge.setScale(1);
       },
     });
   }
@@ -1174,20 +1244,12 @@ export class ShopPanel {
   refresh(state: GameStateData): void {
     this.coinText.setText(String(state.coins));
     this.moondustText.setText(String(state.moondust));
+    // The Shed button's corner count badge: the live shed total, hidden at 0
+    // (the arrange bar's Shed badge convention). Just a text swap - the button
+    // nineslice never redraws, so the periodic refresh never hitches the
+    // fly/bounce.
     const shedTotal = Object.values(state.shedInventory).reduce((sum, n) => sum + n, 0);
-    this.shedChipText.setText(`Shed ${shedTotal}`);
-    // Only re-tessellate the pill when the count (hence its width) changed - the
-    // periodic refresh must stay text-only so it never hitches the fly/bounce.
-    if (shedTotal !== this.lastShedTotal) {
-      this.drawPill(
-        this.shedPill,
-        this.shedChipText.width,
-        SHED_PILL_HALF_H,
-        PILL_PAD_X,
-        PILL_FILL,
-      );
-      this.lastShedTotal = shedTotal;
-    }
+    this.shedBadge.setText(shedTotal > 0 ? String(shedTotal) : '').setVisible(shedTotal > 0);
 
     const tabAlpha = (tab: ShopTab): number =>
       this.activeTab === tab ? TAB_ACTIVE_ALPHA : TAB_INACTIVE_ALPHA;
