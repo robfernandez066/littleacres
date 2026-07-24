@@ -6,11 +6,12 @@
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U-wave COMPLETE + U5 shipped (1371d4a). **U5-r2 (shop header Shed button, routine) is ACTIVE - run the coder loop.** Then the P-wave.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U-wave + U5 family COMPLETE (794cb14). P-wave open, REORDERED P2 first (direct owner request). **P2 (soft-ellipse decor shadows, pack-time generator, complex) is ACTIVE - run the coder loop.** Then P1 art-contract templates -> P3 Capacitor spike.
 
 ## Queued next
 
-- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator - owner's decor-oval directive, P3 Capacitor wrap spike) - after U5.
+- **P1** art-contract templates (footprint diamond + base-contact box baked into generation masters).
+- **P3** Capacitor wrap spike (end goal native mobile, decided 2026-07-23).
 - **Q3 post-L8 content runway** resurfaces after the P-wave (content, not tuning).
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
@@ -19,6 +20,7 @@
 
 ## Completed (newest first)
 
+- U5-r2 shop-header Shed button (badge count, opens Shed panel via edit mode) - 794cb14
 - U5(+r1) Store All Decorations + Clear All Paths (edit-layout secondary row, one undo group each), path-tile long-press, fresh-placement one-touch drag - 1371d4a, tests 861; owner device pass
 - U4(+r1) Paths tab + paint-from-Shed (coin charge -> buy time, erase refunds, stroke undo groups, vector tier chips, PathsPanel deleted) - 09fb2d0, tests 859; owner device pass. **U-WAVE COMPLETE.**
 - U3c(+r1,r2) long-press edit entry + alpha-aware occluded selection (topOnly-proof manual collector - fixed latent buried-asset cycling) + paint pinch guard + empty-tap deselect - 7187cdb, tests 858; owner device pass
