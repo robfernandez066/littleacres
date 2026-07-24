@@ -1,17 +1,17 @@
 # Little Acres - Status
 
 **Updated:** 2026-07-22
-**Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v33 · **Tests:** 858 · **Live:** robfernandez066.github.io/littleacres/
+**Phase:** Phase 4 + U-WAVE COMPLETE (2026-07-24): unified Shop (Buildings/Paths/Decor), Shed pipeline (never rebuy), edit-scene rework (contextual toolbar, Undo/Cancel/Save, long-press entry, alpha-aware selection), paths painted from the Shed. Spec: docs/design/shop-edit-ui-spec.md (SHIPPED).
+**Schema:** v33 · **Tests:** 859 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3c SHIPPED (latest 7187cdb). **U4 (Paths tab + paint-from-inventory + stroke undo, complex) is ACTIVE - run the coder loop.** It closes the U-wave; the P-wave (art contract, ellipse shadows, Capacitor spike) and the remove-all-decor button follow.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U-wave COMPLETE (09fb2d0). **U5 (remove-all-decor + remove-all-paths buttons, routine) is ACTIVE - run the coder loop.** Then the P-wave.
 
 ## Queued next
 
-- **U5 (first after the wave commit):** "Remove all decor" (edit bar) + "Remove all paths" (paint bar) - two-tap confirm, everything banks to the Shed, each removal is ONE undo-group entry (owner request 2026-07-24; supersedes the spec's out-of-scope deferral).
-- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator, P3 Capacitor wrap spike) - after U5.
+- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator - owner's decor-oval directive, P3 Capacitor wrap spike) - after U5.
+- **Q3 post-L8 content runway** resurfaces after the P-wave (content, not tuning).
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
@@ -19,6 +19,7 @@
 
 ## Completed (newest first)
 
+- U4(+r1) Paths tab + paint-from-Shed (coin charge -> buy time, erase refunds, stroke undo groups, vector tier chips, PathsPanel deleted) - 09fb2d0, tests 859; owner device pass. **U-WAVE COMPLETE.**
 - U3c(+r1,r2) long-press edit entry + alpha-aware occluded selection (topOnly-proof manual collector - fixed latent buried-asset cycling) + paint pinch guard + empty-tap deselect - 7187cdb, tests 858; owner device pass
 - U3b-r3 edit-bar tap consumption (seed-bar leak) + arrange guard + unique-building 1/1 badges - 56adff5, tests 836; owner device pass
 - V33 dupe-building normalize + refund migration (schema v33; owner refunded + shed deduped, verified live pre-commit) - 06540cf, tests 834

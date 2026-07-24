@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-24 - U4 shipped: THE U-WAVE IS COMPLETE
+**Context:** The wave closer: Paths tab in the unified Shop, painting spends the Shed, stroke undo. One fix round (r1: vector tier chips - contained art, three distinct states, paint confirm renamed Save; chip chrome shared FROM ShopPanel's exported primitive).
+**Decision/verdict:** COMMIT 09fb2d0 (tests 859; owner device pass). paintPath/erasePath RETIRED - paint = placeFromShed, erase = putAwayToShed (erase now refunds the TILE, superseding T4.12's no-refund ruling per spec); the paths coin sink moved to shop buy time (balance mirror currencies.csv row updated in this doc pass); undo grouping (beginUndoGroup/endUndoGroup) makes one stroke one undo entry; paint mode now runs inside an edit session; PathsPanel deleted, tier bar lives in Hud. Accepted deviation: paint entry = "Paint" footer button on the Paths tab. The whole shop-edit-ui spec is now SHIPPED (header flipped); remaining extension U5 (remove-all buttons) is owner-requested beyond spec. Coder-flagged nits queued into U5: stale comments in paths.ts/paintGesture.ts/gameState session banner; shed panel row capacity tightness noted.
+**Trigger:** U4 + r1 reports; owner pass; wave retrospective in this entry.
+
 ## 2026-07-24 - U3c shipped (+2 fix rounds): long-press entry + alpha-aware occlusion
 **Context:** The wave's gesture task. r1: owner rulings (long-press toolbar carries no Place; pinch attempts in paint mode must lay zero tiles - the paint-pending defer/confirm machine). r2: the r1 Place suppression failed on device (fragile set-after-select flag, likely re-cleared by a mobile ghost-tap; hardened to an atomic setter param), empty-ground tap now deselects, and occlusion became ALPHA-AWARE (visible pixels under the tap outrank rect-only containment, then base distance).
 **Decision/verdict:** COMMIT 7187cdb (tests 858, zero re-pins of classification rules; owner device passes across all three rounds). KEY FIND: Phaser input.topOnly meant currentlyOver only ever held the topmost hitbox - U3c's original cycling could never reach a truly buried asset; replaced with a manual containment collector. Dev seam dev.longPress(x,y) added - gesture fixes now require live proof, never "verified in code". Owner-approved feel: hold-to-grab in overlap stacks, tap cycles.

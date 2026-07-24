@@ -9,7 +9,7 @@ coins,sink,Seeds,see Crops,Continuous drain (seed_cost per plant).
 coins,sink,Buildings,"500 / 2,000","Flour Mill 500, Bakery 2,000. Major early sink."
 coins,sink,Building slots,2000 + 6000 / 4000 + 12000,"Mill slot 2/3 = 2,000/6,000; Bakery = 4,000/12,000."
 coins,sink,Decor (coin items),"400 - 5,000","Bench 600, Flowerbed 900, Fence 400, Barrels 550, Scarecrow 1,500, Birdbath 2,000, Well 5,000"
-coins,sink,Paths (tiles),0 / 15 / 70 / 350,"Per tile: Dirt free, Gravel 15, Stone 70, Moonstone 350. Optional cosmetic sink, no level gate (T4.13)."
+coins,sink,Paths (tiles),0 / 15 / 70 / 350,"Per tile: Dirt free, Gravel 15, Stone 70, Moonstone 350. Optional cosmetic sink, no level gate. Since U4 charged at SHOP buy into the Shed (not at paint time); erasing refunds the TILE to the Shed, never coins."
 coins,sink,Farm expansion,750,Expand sign: +4 plots (12 -> 16).
 coins,sink,Region: East Meadow,"15,000",Level 7 gate. +6 plots. Dominant mid-game sink.
 coins,sink,Restore farmhouse,"100,000",Long-term goal. Also costs 20 moondust.

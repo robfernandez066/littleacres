@@ -1,10 +1,11 @@
 # Little Acres - Shop & Edit Mode UI Overhaul Spec
 
-**Status:** ACTIVE (2026-07-22) - owner-authored spec, adopted as the scope
-contract for the U-wave (U1-U4 below). SUPERSEDES T4.14 (paths
-reclaim/storage bank): the Shed pipeline IS the no-resale storage system,
-generalized to all items. Remove All stays out of scope alongside the
-spec's own "sweep all decor" deferral.
+**Status:** SHIPPED (2026-07-24, wave commits c8d061e..09fb2d0) - the
+owner-authored scope contract for the U-wave, fully implemented across
+U1/U2a/U2b/U3a/U3b/U3c/U4 plus fix rounds; owner-device-passed
+throughout. Superseded T4.14. Post-ship extension: U5 adds the
+remove-all buttons (the spec's own deferral, owner-promoted). See
+decisions.md 2026-07-22..24 for the per-task rulings and deviations.
 
 **PM sequencing (tasks are cut from this spec; details land in each
 task file when it goes ACTIVE):**
