@@ -2,15 +2,15 @@
 
 **Updated:** 2026-07-22
 **Phase:** Phase 4 (production buildings). Flour mill + bakery COMPLETE end-to-end (buy -> produce -> sell/order); building flip and a 2-column west starter-area expansion shipped. Economy balance pass v2 shipped (T4.11). Paths four-tier coin ladder + farmhouse 2x2 fit shipped (T4.12 v1 gravel; T4.13 dirt/gravel/stone/moonstone).
-**Schema:** v33 · **Tests:** 836 · **Live:** robfernandez066.github.io/littleacres/
+**Schema:** v33 · **Tests:** 858 · **Live:** robfernandez066.github.io/littleacres/
 
 ## In flight
 
-- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3b-r3 SHIPPED (latest 56adff5). **U3c (long-press edit entry + occluded-asset selection, gesture classifier, complex) is ACTIVE - run the coder loop; real-phone pass is the commit gate.** Then U4 paths tab + paint-from-inventory closes the wave.
+- **U-wave: Shop & Edit UI overhaul** (spec: docs/design/shop-edit-ui-spec.md; supersedes T4.14). U1 through U3c SHIPPED (latest 7187cdb). **U4 (Paths tab + paint-from-inventory + stroke undo, complex) is ACTIVE - run the coder loop.** It closes the U-wave; the P-wave (art contract, ellipse shadows, Capacitor spike) and the remove-all-decor button follow.
 
 ## Queued next
 
-- **U4** paths tab + paint-from-inventory (see spec's PM sequencing header) - closes the U-wave.
+- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator, P3 Capacitor wrap spike) + **remove-all-decor** small task - after the wave closes.
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
@@ -18,6 +18,7 @@
 
 ## Completed (newest first)
 
+- U3c(+r1,r2) long-press edit entry + alpha-aware occluded selection (topOnly-proof manual collector - fixed latent buried-asset cycling) + paint pinch guard + empty-tap deselect - 7187cdb, tests 858; owner device pass
 - U3b-r3 edit-bar tap consumption (seed-bar leak) + arrange guard + unique-building 1/1 badges - 56adff5, tests 836; owner device pass
 - V33 dupe-building normalize + refund migration (schema v33; owner refunded + shed deduped, verified live pre-commit) - 06540cf, tests 834
 - U3b-r2 shop tap-to-expand decor cards + contextual toolbar column (Flip/Put away/Place; floating Place Next retired) - a4b4e29, tests 828; owner device pass

@@ -19,6 +19,11 @@ Format:
 **Trigger:** task/report that prompted it (if any)
 
 ---
+## 2026-07-24 - U3c shipped (+2 fix rounds): long-press entry + alpha-aware occlusion
+**Context:** The wave's gesture task. r1: owner rulings (long-press toolbar carries no Place; pinch attempts in paint mode must lay zero tiles - the paint-pending defer/confirm machine). r2: the r1 Place suppression failed on device (fragile set-after-select flag, likely re-cleared by a mobile ghost-tap; hardened to an atomic setter param), empty-ground tap now deselects, and occlusion became ALPHA-AWARE (visible pixels under the tap outrank rect-only containment, then base distance).
+**Decision/verdict:** COMMIT 7187cdb (tests 858, zero re-pins of classification rules; owner device passes across all three rounds). KEY FIND: Phaser input.topOnly meant currentlyOver only ever held the topmost hitbox - U3c's original cycling could never reach a truly buried asset; replaced with a manual containment collector. Dev seam dev.longPress(x,y) added - gesture fixes now require live proof, never "verified in code". Owner-approved feel: hold-to-grab in overlap stacks, tap cycles.
+**Trigger:** U3c + r1 + r2 reports; owner device passes.
+
 ## 2026-07-23 - U3b-r3 shipped: bar-tap consumption + 1/1 badges
 **Context:** Owner's seed-bar-in-edit-mode report plus the owned-of-max badge directive.
 **Decision/verdict:** COMMIT 56adff5 (tests 836; owner device pass). Root cause: the five edit-bar handlers were the only arrange interactives NOT consuming the pointer, so the scene field classifier re-processed every bar tap; fixed via one onArrangeBarTap seam (stopPropagation) plus a beginFarmGesture arrange guard as depth-defense. The coder could not reproduce the exact device sighting - the structural seed-bar guard held in every driven state - so the sighting stays open-but-defended; owner re-reports with button+state if seen again. Badges: one tested helper (ownedBadgeLabel) derives "1/1" vs "xN" from allowMultiple everywhere.
