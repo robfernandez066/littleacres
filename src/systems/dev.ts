@@ -190,6 +190,15 @@ export interface DevTools {
    */
   footprints?(): void;
   /**
+   * Drive a long-press arrange entry at a WORLD point (U3c-r2), exactly as a
+   * matured 500ms hold would - the live-proof seam for the long-press toolbar
+   * (a real hold is not reproducible from desktop automation). Enters arrange
+   * pre-targeted at whichever movable's art is under the point, so the
+   * Place-suppressed toolbar is screenshottable. No-op off an empty spot or
+   * when already arranging. Registered by FarmScene.
+   */
+  longPress?(worldX: number, worldY: number): void;
+  /**
    * T3.26 dev-only farmhouse transform knobs, for diagnosing the building's
    * angle: does an in-plane rotation make it sit right on the iso grid (a tilt
    * the art can be rotated out of), or not (a perspective mismatch that needs
@@ -338,6 +347,14 @@ export function registerSceneLayersProbe(
  */
 export function registerFootprintsToggle(toggle: () => void): void {
   if (window.dev !== undefined) window.dev.footprints = toggle;
+}
+
+/**
+ * Late-bind `dev.longPress` once the Farm scene exists (U3c-r2), same pattern
+ * as `registerCoinArcTest`.
+ */
+export function registerLongPressDriver(drive: (worldX: number, worldY: number) => void): void {
+  if (window.dev !== undefined) window.dev.longPress = drive;
 }
 
 /**

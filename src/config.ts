@@ -3,6 +3,38 @@ export const DESIGN_WIDTH = 1080;
 export const DESIGN_HEIGHT = 1920;
 
 /**
+ * Long-press-to-arrange entry (U3c): a one-finger hold this long (ms) on a
+ * placed movable in plain farm mode enters arrange mode with it selected - the
+ * spec's third entrance. Deliberately longer than the arrange-mode lift hold
+ * (FarmScene HOLD_MS 250): entering a mode is a bigger commitment than picking
+ * up an already-arranging piece, and the extra dwell keeps a normal tap (which
+ * still resolves on RELEASE, unchanged) from ever tripping it. Movement past
+ * the classifier's tap slop, or a second finger, cancels the pending entry.
+ */
+export const LONG_PRESS_MS = 500;
+
+/**
+ * Occluded-asset tap-cycling radius (U3c), design px. A repeat selection tap
+ * landing within this of the previous one - on the same overlapping set -
+ * advances to the NEXT buried candidate (see systems/occlusionSelect.ts), so
+ * every asset squeezed under its neighbors is reachable by tapping the same
+ * spot. A touch bigger than the tap slop (12): a finger re-taps a hair off the
+ * first spot, and the whole point is to keep hitting "the same place".
+ */
+export const SELECTION_CYCLE_RADIUS = 36;
+
+/**
+ * Alpha-aware occlusion threshold (U3c-r2), 0-255. When several movables'
+ * rectangular hit areas overlap a selection tap, a candidate whose texture
+ * alpha at the tap point is >= this counts as "opaquely hit" and outranks any
+ * candidate the tap only landed on transparently (its rect covers the point but
+ * its art does not) - so tapping the mill's visible roof selects the mill even
+ * though the farmhouse's bigger rect also covers it. 64 (~25% alpha) ignores
+ * the faint anti-aliased fringe at art edges while still catching solid pixels.
+ */
+export const OCCLUSION_ALPHA_THRESHOLD = 64;
+
+/**
  * The WORLD rect: the pannable/zoomable farm world. Born (T3.3a-r2) around the
  * legacy 1080x1920 design rect - which stays exactly where it is (no existing
  * coordinate changes) - with a 180px grass apron east/west and a 320px apron

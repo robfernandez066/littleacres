@@ -16,7 +16,10 @@ import {
   GROUND_TEXTURE_A_KEY,
   GROUND_TEXTURE_A_TILE_SCALE,
   type GroundMode,
+  LONG_PRESS_MS,
+  OCCLUSION_ALPHA_THRESHOLD,
   PANEL_SLICE,
+  SELECTION_CYCLE_RADIUS,
   STRUCTURE_FOOTPRINT_OFFSETS,
   STRUCTURE_FRAME_SIZE,
   STRUCTURE_RENDER_OFFSETS,
@@ -72,6 +75,7 @@ import {
 import {
   registerCameraControl,
   registerCameraStateProbe,
+  registerLongPressDriver,
   registerCoinArcTest,
   registerDressingEditorHooks,
   registerFarmhouseTransformHooks,
@@ -103,6 +107,13 @@ import { buzz } from '../systems/haptics';
 import { type GridCell, gridCellLine } from '../systems/gridLine';
 import { gridToIso, isoToGrid, TILE_HEIGHT, TILE_WIDTH } from '../systems/iso';
 import { isModalOpen, setPanelOpen } from '../systems/modalPanels';
+import {
+  orderByBaseDistance,
+  resolveSelection,
+  type OcclusionCandidate,
+  type SelectionCycle,
+} from '../systems/occlusionSelect';
+import { PaintGesture } from '../systems/paintGesture';
 import { plotIndexAtScreen, PlotPointerTracker } from '../systems/plotPointer';
 import { registerPulseTarget, type PulseTarget } from '../systems/pulseTargets';
 import { now } from '../systems/time';
@@ -386,6 +397,21 @@ function sameMovableRef(a: MovableAnchorRef | null, b: MovableAnchorRef | null):
   if (a.kind === 'structure' && b.kind === 'structure') return a.id === b.id;
   if (a.kind === 'building' && b.kind === 'building') return a.index === b.index;
   return false;
+}
+
+/**
+ * One movable under a selection point (U3c). Carries the lift/select descriptor
+ * (kind + sprite + optional structure ref) alongside the geometry the pure
+ * occlusion resolver reads (`OcclusionCandidate`: key/base/depth), so ordering
+ * and cycling can run off-scene and hand back the very object to act on. The
+ * base ground position is the sprite's own position - decor/structures/
+ * buildings are positioned at their ground point and plot tiles at their
+ * diamond center, so one rule (`sprite.x/y`) serves every kind.
+ */
+interface MovableCandidate extends OcclusionCandidate {
+  kind: 'decor' | 'plot' | 'structure';
+  target: Phaser.GameObjects.Image;
+  structureId?: MovableAnchorRef;
 }
 
 /**
@@ -946,6 +972,12 @@ const LIFT_PULSE_MS = 90;
 /** Haptic lift cue duration - see `buzzOnLift` (feature-checked; iOS Safari has no vibrate). */
 const LIFT_VIBRATE_MS = 30;
 /**
+ * Long-press-to-arrange entry buzz (U3c): a single gentle pulse when a farm-mode
+ * hold matures into arrange mode. Routed through `buzz` (systems/haptics), so
+ * unlike the lift's `buzzOnLift` it already respects the hapticsOn setting.
+ */
+const LONG_PRESS_ENTER_VIBRATE_MS = 20;
+/**
  * Free-follow structure drop (T3.3s-r2): on release, the lifted structure
  * commits to the NEAREST legal anchor whose ideal anchor-tile center lies
  * within this many design px of the drop point's; with none in range it
@@ -1356,6 +1388,19 @@ export class FarmScene extends Phaser.Scene {
    * to where the previous one ended.
    */
   private pathLastCell: GridCell | null = null;
+  /**
+   * Paint-gesture phase machine (U3c-r1): defers the first tile until the
+   * stroke proves itself a single finger, so a pinch attempt lays nothing (see
+   * `PaintGesture`). Slop is the classifier's existing TAP_SLOP.
+   */
+  private readonly paintGesture = new PaintGesture(TAP_SLOP);
+  /**
+   * The WORLD point of the paint down (U3c-r1) - where the stroke's first tile
+   * lays once the gesture confirms (a drag past slop, or an in-slop tap), the
+   * paint analogue of `armedFarmWorldX/Y`.
+   */
+  private paintDownWorldX = 0;
+  private paintDownWorldY = 0;
   /** Index into `decorationSprites`/`decorationShadowSprites` of the tapped decoration, or null. */
   private selectedDecorationIndex: number | null = null;
   /**
@@ -1478,10 +1523,16 @@ export class FarmScene extends Phaser.Scene {
    *   A down whose topmost movable is the CURRENTLY SELECTED piece
    *   (T3.3a-r3c) classifies 'lift' directly - no hold; selection is the
    *   player's explicit "I'm working with this piece".
-   * - 'paint' (T4.12): path paint mode is active and the down landed on the
-   *   field band. Lays its tile immediately (no arm/defer - Erase makes a
-   *   mistaken tile trivially undoable) and every NEW tile the drag crosses
-   *   paints too, deduped per gesture by `pathGestureVisited`.
+   * - 'paint-pending' (U3c-r1): path paint mode, the down landed on the field
+   *   band, ARMED but laying NOTHING yet (`PaintGesture` phase 'pending'). A
+   *   move past TAP_SLOP confirms into 'paint' (drag-paint), an in-slop release
+   *   lays one tile (tap-paint), a SECOND FINGER before either cancels the
+   *   gesture outright - zero tiles, zero coins (no pinch: camera stays
+   *   disabled in paint mode). This is the paint mirror of 'farm-pending'.
+   * - 'paint' (T4.12; deferred entry since U3c-r1): a CONFIRMED paint stroke.
+   *   Every NEW tile the drag crosses paints, deduped per gesture by
+   *   `pathGestureVisited`. A second finger mid-stroke HALTS further painting
+   *   (`PaintGesture` phase 'halted'); laid tiles stay.
    * - 'object': the down landed on any other interactive object - not ours,
    *   its own per-object input handles everything.
    * - 'idle': the down landed in the banner or seed-bar band - nothing to do
@@ -1495,6 +1546,7 @@ export class FarmScene extends Phaser.Scene {
     | 'structure-armed'
     | 'lift-pending'
     | 'lift'
+    | 'paint-pending'
     | 'paint'
     | 'object'
     | 'idle'
@@ -1545,6 +1597,16 @@ export class FarmScene extends Phaser.Scene {
     grabOffsetX: number;
     grabOffsetY: number;
     timer: Phaser.Time.TimerEvent;
+    /**
+     * Occlusion context (U3c), set only when >= 2 movables overlapped the down.
+     * The `kind`/`target`/`structureId`/`grabOffset` above then describe the
+     * GRAB target (the selected piece, or nearest base) that a matured HOLD
+     * lifts; a TAP instead re-resolves against `candidates` at the down's world
+     * point (`downWorldX/Y`), cycling through the stack (`resolveOcclusionTap`).
+     */
+    candidates?: readonly MovableCandidate[];
+    downWorldX?: number;
+    downWorldY?: number;
   } | null = null;
   /** The active lift (T3.3a-r3), set while `fieldGesture` is 'lift' - same
    *  reference-not-index rule as `pendingLift`. */
@@ -1553,6 +1615,44 @@ export class FarmScene extends Phaser.Scene {
     target: Phaser.GameObjects.Image;
     grabOffsetX: number;
     grabOffsetY: number;
+  } | null = null;
+  /**
+   * Tap-cycle memory for occluded-asset selection (U3c). Set by a selection
+   * tap that resolved among >= 2 overlapping movables; a repeat tap on the
+   * same spot + set advances through the stack (`resolveOcclusionTap`). Reset
+   * to null by any lift/grab, single-candidate tap, or arrange enter/exit -
+   * see `resolveLiftTap`, `startLift`, `enterArrangeMode`, `exitArrangeMode`.
+   */
+  private selectionCycle: SelectionCycle | null = null;
+  /**
+   * Whether the CURRENT arrange selection was created by a long-press entry
+   * (U3c-r1). A long-press is a grab-this gesture, so its contextual toolbar
+   * omits Place (Flip / Put away only) even when the asset has shed stock. Set
+   * true right after `fireArrangeEntry` selects; cleared by any tap-select
+   * (every `setDecorationSelection`/`setPlotSelection`/`setStructureSelection`
+   * resets it) and by arrange enter/exit, so changing selection restores the
+   * normal U3b-r2 toolbar rules. Read by `contextualTarget`.
+   */
+  private selectionFromLongPress = false;
+  /**
+   * The pending long-press-to-arrange entry (U3c), armed while a one-finger
+   * hold sits on a placed movable in PLAIN farm mode (not arrange/paint/modal/
+   * onboarding). Independent of `fieldGesture` - the normal tap classification
+   * runs untouched alongside it, so tap timing is byte-identical; only the
+   * timer maturing (`fireArrangeEntry`) converts the gesture into arrange-mode
+   * entry, pre-targeted at `target`. Movement past TAP_SLOP, a second finger,
+   * or a release before HOLD all cancel it (`cancelArrangeEntry`).
+   */
+  private pendingArrangeEntry: {
+    pointer: Phaser.Input.Pointer;
+    downX: number;
+    downY: number;
+    target: {
+      kind: 'decor' | 'plot' | 'structure';
+      target: Phaser.GameObjects.Image;
+      structureId?: MovableAnchorRef;
+    };
+    timer: Phaser.Time.TimerEvent;
   } | null = null;
   /** The lift pulse's target and its pre-pulse scale, so a release landing
    *  mid-pulse can settle the scale exactly - `commitDecorationTransform`
@@ -1865,6 +1965,8 @@ export class FarmScene extends Phaser.Scene {
     });
     // T3.3s-r2 dev restrictions overlay - see `toggleDevFootprints`.
     registerFootprintsToggle(() => this.toggleDevFootprints());
+    // U3c-r2 long-press live-proof seam - see `devLongPressAt`.
+    registerLongPressDriver((worldX, worldY) => this.devLongPressAt(worldX, worldY));
     // T3.26 farmhouse angle diagnosis - see `applyFarmhouseDevTransform`.
     registerFarmhouseTransformHooks({
       setRotation: (degrees) => this.setFarmhouseDevRotation(degrees),
@@ -2151,6 +2253,17 @@ export class FarmScene extends Phaser.Scene {
     currentlyOver: Phaser.GameObjects.GameObject[],
   ): void {
     if (this.downPointerCount() >= 2) {
+      // A second finger cancels any pending long-press entry (U3c) - the
+      // gesture is now camera input (pinch), per the standing classification.
+      this.cancelArrangeEntry();
+      // Paint mode (U3c-r1): a second finger on a paint gesture is a pinch
+      // ATTEMPT. Before the stroke confirmed it cancels outright (zero tiles,
+      // zero coins); mid-stroke it halts further painting. Either way the
+      // camera stays disabled in paint mode, so this never starts a pinch.
+      if (this.paintGesture.active) {
+        this.handlePaintSecondFinger();
+        return;
+      }
       this.maybeStartPinch();
       return;
     }
@@ -2175,43 +2288,80 @@ export class FarmScene extends Phaser.Scene {
       this.beginFarmGesture(pointer);
       return;
     }
+    // Long-press-to-arrange entry (U3c): in PLAIN farm mode (not arrange, not
+    // paint - both own the field's gestures), arm a hold timer if this down
+    // sits on a placed movable. It runs ALONGSIDE the normal classification
+    // below and never touches `fieldGesture`, so tap timing is byte-identical;
+    // only the timer maturing converts the gesture (`fireArrangeEntry`).
+    if (!this.arrangeModeActive && !this.pathModeActive()) {
+      this.maybeArmArrangeEntry(pointer);
+    }
     if (structureArmedNow && this.armedStructure?.pointerId === pointer.id) {
       this.fieldGesture = 'structure-armed';
       return;
     }
     if (currentlyOver.length > 0) {
-      // Arrange mode (T3.3a-r3): a down on a movable object (decor sprite
-      // or plot tile) arms a deliberate long-press lift instead of lifting
-      // instantly - a swipe that merely STARTS on one must pan.
-      const movable = this.arrangeModeActive ? this.movableLiftTarget(currentlyOver) : null;
-      if (movable !== null) {
-        // The SELECTED piece lifts instantly (T3.3a-r3c, supersedes the
-        // post-drop grace window): selection is the player's explicit "I'm
-        // working with this piece", so a down on it goes straight to 'lift'
-        // - same cue, no hold. Deliberate tradeoff (owner decision): a
-        // pan-swipe starting on the selected piece moves the piece instead
-        // of panning for as long as it stays selected; every UNselected
-        // piece keeps hold-to-lift pan safety.
-        if (this.isSelectedMovable(movable)) {
-          const world = this.fieldPointerWorld(pointer);
-          if (
-            this.startLift(
-              movable.kind,
-              movable.target,
-              movable.target.x - world.x,
-              movable.target.y - world.y,
-              movable.structureId,
-            )
-          ) {
-            return;
-          }
-          // A selected target that can no longer lift (stale selection -
-          // despawned decor, non-empty plot) falls through to the normal
-          // hold arm, exactly as the stale-grace case did.
+      if (this.arrangeModeActive) {
+        const world = this.fieldPointerWorld(pointer);
+        // Phaser's `currentlyOver` is TOP-ONLY (`input.topOnly` defaults true),
+        // so a buried movable under a larger neighbour's rect never appears in
+        // it - the root cause of the farmhouse-covers-mill miss (U3c-r2). Gate
+        // on the topmost hit being a movable (a UI element on top owns the tap,
+        // 'object' below), then collect the FULL overlapping stack by hand
+        // (`collectMovablesAtWorld`) so occlusion sees every buried candidate.
+        const topmost = this.candidateForObject(
+          currentlyOver[0] as Phaser.GameObjects.Image,
+          world.x,
+          world.y,
+        );
+        const candidates = topmost === null ? [] : this.collectMovablesAtWorld(world.x, world.y);
+        if (candidates.length >= 2) {
+          // Occlusion (U3c): several movables' hit areas overlap this point, so
+          // the topmost rectangle would swallow every buried one. Resolve the
+          // target LAZILY - a matured HOLD grabs the selected-or-nearest piece,
+          // an in-slop TAP cycles through the stack (`resolveOcclusionTap`). No
+          // instant-lift here: tap-to-cycle and instant-grab both fire on a tap
+          // of the selected piece, and cycling must win so a buried asset stays
+          // reachable (the owner's unmovable-bakery report).
+          this.fieldGesture = 'lift-pending';
+          this.beginOcclusionLift(pointer, candidates, world);
+          return;
         }
-        this.fieldGesture = 'lift-pending';
-        this.beginPendingLift(pointer, movable.kind, movable.target, movable.structureId);
-        return;
+        if (candidates.length === 1) {
+          // Single movable under the point: the pre-U3c path, byte-identical.
+          // Arrange mode (T3.3a-r3): a down arms a deliberate long-press lift
+          // instead of lifting instantly - a swipe that merely STARTS on one
+          // must pan.
+          const movable = candidates[0]!;
+          // The SELECTED piece lifts instantly (T3.3a-r3c, supersedes the
+          // post-drop grace window): selection is the player's explicit "I'm
+          // working with this piece", so a down on it goes straight to 'lift'
+          // - same cue, no hold. Deliberate tradeoff (owner decision): a
+          // pan-swipe starting on the selected piece moves the piece instead
+          // of panning for as long as it stays selected; every UNselected
+          // piece keeps hold-to-lift pan safety.
+          if (this.isSelectedMovable(movable)) {
+            if (
+              this.startLift(
+                movable.kind,
+                movable.target,
+                movable.target.x - world.x,
+                movable.target.y - world.y,
+                movable.structureId,
+              )
+            ) {
+              return;
+            }
+            // A selected target that can no longer lift (stale selection -
+            // despawned decor, non-empty plot) falls through to the normal
+            // hold arm, exactly as the stale-grace case did.
+          }
+          this.fieldGesture = 'lift-pending';
+          this.beginPendingLift(pointer, movable.kind, movable.target, movable.structureId);
+          return;
+        }
+        // Interactive but not a movable (e.g. an arrange control that leaked a
+        // down): fall through to 'object' below.
       }
       // Not ours: badges, panels, and every button keep their own
       // per-object input unchanged.
@@ -2221,18 +2371,23 @@ export class FarmScene extends Phaser.Scene {
     const world = this.fieldPointerWorld(pointer);
     if (this.pathModeActive()) {
       // Paint mode (T4.12) owns every ONE-finger gesture on the field band -
-      // two fingers still pinch (handled at the top of this method), and the
-      // HUD's own buttons were already claimed by the currentlyOver branch
-      // above. Unlike a farm gesture the down is NOT armed and deferred: a
-      // painted tile is instantly undoable with Erase, so there is nothing
-      // to protect the way a mistaken harvest needs protecting. Outside the
-      // pan band (banner, the paint bar's own row at y 1700) nothing paints,
-      // so the HUD can never be painted through.
+      // two fingers cancel/halt the stroke (handled at the top of this method,
+      // U3c-r1), and the HUD's own buttons were already claimed by the
+      // currentlyOver branch above. Outside the pan band (banner, the paint
+      // bar's own row at y 1700) nothing paints, so the HUD can never be
+      // painted through.
       if (pointer.y > PAN_BAND_TOP_Y && pointer.y < PAN_BAND_BOTTOM_Y) {
-        this.fieldGesture = 'paint';
+        // U3c-r1: ARM the stroke, lay NOTHING yet - a pinch's first finger
+        // landing on the band must be able to cancel before any tile lays
+        // (the plot-feedback discipline, applied to paint). The stroke's first
+        // tile lays at `paintDownWorldX/Y` on confirm (drag) or in-slop release
+        // (tap); see `handlePaintMove` / the pointer-up 'paint-pending' branch.
+        this.fieldGesture = 'paint-pending';
         this.pathGestureVisited.clear();
         this.pathLastCell = null;
-        this.paintPathAt(world.x, world.y);
+        this.paintGesture.begin(pointer.x, pointer.y);
+        this.paintDownWorldX = world.x;
+        this.paintDownWorldY = world.y;
       } else {
         this.fieldGesture = 'idle';
       }
@@ -2337,38 +2492,87 @@ export class FarmScene extends Phaser.Scene {
   // -- ARRANGE LIFT (T3.3a-r3) -----------------------------------------------
 
   /**
-   * The topmost movable arrange object under the down, or null - the hit
-   * list arrives topmost-first, so the first decor sprite, plot tile, or
-   * movable structure (T3.3s: farmhouse/notice board) in it is the one the
-   * finger visually landed on.
+   * Classify one interactive object as a movable candidate (U3c), or null when
+   * it is not one of ours - a decoration sprite, a plot tile, the farmhouse /
+   * notice board, or a building (all sharing the 'structure' lift kind since
+   * T4.1). The base ground position is the sprite's own position (see
+   * `MovableCandidate`), and the render depth is its depth, so the pure
+   * occlusion resolver can order and cycle among them off-scene.
    */
-  private movableLiftTarget(currentlyOver: readonly Phaser.GameObjects.GameObject[]): {
-    kind: 'decor' | 'plot' | 'structure';
-    target: Phaser.GameObjects.Image;
-    structureId?: MovableAnchorRef;
-  } | null {
-    for (const object of currentlyOver) {
-      const image = object as Phaser.GameObjects.Image;
-      if (this.decorationSprites.includes(image)) return { kind: 'decor', target: image };
-      if (this.plotTileSprites.includes(image)) return { kind: 'plot', target: image };
-      if (image === this.farmhouseImage) {
-        return { kind: 'structure', target: image, structureId: FARMHOUSE_REF };
-      }
-      if (image === this.noticeBoardImage) {
-        return { kind: 'structure', target: image, structureId: NOTICE_BOARD_REF };
-      }
-      // Buildings share the 'structure' lift kind (T4.1) - identical
-      // anchor/footprint/snap machinery, so the classifier needs no new case.
-      const buildingIndex = this.buildingImages.indexOf(image);
-      if (buildingIndex !== -1) {
-        return {
-          kind: 'structure',
-          target: image,
-          structureId: { kind: 'building', index: buildingIndex },
-        };
-      }
+  private candidateForObject(
+    image: Phaser.GameObjects.Image,
+    worldX: number,
+    worldY: number,
+  ): MovableCandidate | null {
+    const base = {
+      baseX: image.x,
+      baseY: image.y,
+      depth: image.depth,
+      // Alpha-aware tier (U3c-r2): does the tap land on this sprite's VISIBLE
+      // pixels, or only inside its rectangular frame?
+      opaqueAtPoint: this.spriteOpaqueAt(image, worldX, worldY),
+    };
+    const decorIndex = this.decorationSprites.indexOf(image);
+    if (decorIndex !== -1) return { kind: 'decor', target: image, key: `d${decorIndex}`, ...base };
+    const plotIndex = this.plotTileSprites.indexOf(image);
+    if (plotIndex !== -1) return { kind: 'plot', target: image, key: `p${plotIndex}`, ...base };
+    if (image === this.farmhouseImage) {
+      return {
+        kind: 'structure',
+        target: image,
+        structureId: FARMHOUSE_REF,
+        key: 's:farmhouse',
+        ...base,
+      };
+    }
+    if (image === this.noticeBoardImage) {
+      return {
+        kind: 'structure',
+        target: image,
+        structureId: NOTICE_BOARD_REF,
+        key: 's:noticeBoard',
+        ...base,
+      };
+    }
+    const buildingIndex = this.buildingImages.indexOf(image);
+    if (buildingIndex !== -1) {
+      return {
+        kind: 'structure',
+        target: image,
+        structureId: { kind: 'building', index: buildingIndex },
+        key: `b${buildingIndex}`,
+        ...base,
+      };
     }
     return null;
+  }
+
+  /**
+   * Whether the world point lands on `sprite`'s VISIBLE (opaque) pixels, not
+   * just inside its frame rectangle (U3c-r2) - the alpha tier for occlusion
+   * ordering. Maps the world point back through the sprite's display transform
+   * (position, origin, scale, flipX) into its SOURCE texture pixel, then into
+   * the trimmed frame's cut region, and reads the atlas alpha there. A point in
+   * the frame's trimmed-away padding (outside the cut region) is transparent by
+   * definition. No rotation is ever applied to these sprites, so a plain affine
+   * inverse suffices.
+   */
+  private spriteOpaqueAt(
+    sprite: Phaser.GameObjects.Image,
+    worldX: number,
+    worldY: number,
+  ): boolean {
+    const frame = sprite.frame;
+    const dx = (worldX - sprite.x) / sprite.scaleX;
+    // flipX mirrors the frame around the display origin (a negative scaleX).
+    const srcX = sprite.flipX ? sprite.displayOriginX - dx : sprite.displayOriginX + dx;
+    const srcY = sprite.displayOriginY + (worldY - sprite.y) / sprite.scaleY;
+    // Source-size px -> trimmed cut px (packed frames trim transparent padding).
+    const cutX = Math.floor(srcX - frame.x);
+    const cutY = Math.floor(srcY - frame.y);
+    if (cutX < 0 || cutY < 0 || cutX >= frame.cutWidth || cutY >= frame.cutHeight) return false;
+    const alpha = this.textures.getPixelAlpha(cutX, cutY, sprite.texture.key, frame.name);
+    return alpha !== null && alpha >= OCCLUSION_ALPHA_THRESHOLD;
   }
 
   /**
@@ -2432,6 +2636,77 @@ export class FarmScene extends Phaser.Scene {
       grabOffsetY: target.y - world.y,
       timer: this.time.delayedCall(HOLD_MS, () => this.fireHoldLift()),
     };
+  }
+
+  /**
+   * Arm a long-press lift over an OVERLAP of >= 2 movables (U3c). Same hold
+   * timer as `beginPendingLift`, but the target is resolved LAZILY: the
+   * `kind`/`target`/`grabOffset` stored here are the HOLD grab target - the
+   * currently selected piece if it is in the stack, else the nearest-base one
+   * (`occlusionGrabTarget`) - so a matured hold lifts exactly what the player
+   * is working with. A TAP instead re-resolves against the whole stack and
+   * cycles (`resolveOcclusionTap`), which is why the candidate set + the down's
+   * world point ride along on `pendingLift`.
+   */
+  private beginOcclusionLift(
+    pointer: Phaser.Input.Pointer,
+    candidates: readonly MovableCandidate[],
+    world: Phaser.Math.Vector2,
+  ): void {
+    const grab = this.occlusionGrabTarget(candidates, world);
+    this.pendingLift = {
+      pointer,
+      kind: grab.kind,
+      target: grab.target,
+      structureId: grab.structureId,
+      downX: pointer.x,
+      downY: pointer.y,
+      grabOffsetX: grab.target.x - world.x,
+      grabOffsetY: grab.target.y - world.y,
+      timer: this.time.delayedCall(HOLD_MS, () => this.fireHoldLift()),
+      candidates,
+      downWorldX: world.x,
+      downWorldY: world.y,
+    };
+  }
+
+  /**
+   * The movable a HOLD over an overlap grabs (U3c): the currently SELECTED
+   * piece when it is one of the candidates (so a hold on the piece you just
+   * cycled to picks it up, never a neighbor), otherwise the nearest-base
+   * candidate - the same first choice a fresh tap would make.
+   */
+  private occlusionGrabTarget(
+    candidates: readonly MovableCandidate[],
+    world: Phaser.Math.Vector2,
+  ): MovableCandidate {
+    const selected = candidates.find((c) => this.isSelectedMovable(c));
+    if (selected !== undefined) return selected;
+    return orderByBaseDistance(candidates, world.x, world.y)[0]!;
+  }
+
+  /**
+   * An in-slop release over an overlap (U3c): a selection TAP. Cycle to the
+   * next candidate in the stack (`resolveSelection` advances a repeat tap,
+   * resets otherwise), remember the new cycle, and select it exactly as a
+   * single-candidate tap would (`resolveLiftTap`, which itself clears the
+   * cycle first - hence the restore afterwards).
+   */
+  private resolveOcclusionTap(
+    candidates: readonly MovableCandidate[],
+    worldX: number,
+    worldY: number,
+  ): void {
+    const res = resolveSelection(
+      candidates,
+      worldX,
+      worldY,
+      this.selectionCycle,
+      SELECTION_CYCLE_RADIUS,
+    );
+    if (res === null) return;
+    this.resolveLiftTap(res.selected.kind, res.selected.target, res.selected.structureId);
+    this.selectionCycle = res.cycle;
   }
 
   /** Discard the pending lift and its hold timer (no-op when none is armed). */
@@ -2499,6 +2774,9 @@ export class FarmScene extends Phaser.Scene {
     if (kind !== 'decor') this.showPlacementGrid();
     this.activeLift = { kind, target, grabOffsetX, grabOffsetY };
     this.fieldGesture = 'lift';
+    // Grabbing a piece is a definitive selection - end any tap-cycle (U3c) so
+    // the next overlap tap starts fresh at the nearest base.
+    this.selectionCycle = null;
     this.playLiftPulse(target);
     this.buzzOnLift();
     return true;
@@ -2708,6 +2986,9 @@ export class FarmScene extends Phaser.Scene {
     target: Phaser.GameObjects.Image,
     structureId?: MovableAnchorRef,
   ): void {
+    // A tap resets the occlusion cycle (U3c) by default - only an overlap tap
+    // keeps one, and `resolveOcclusionTap` re-sets it after calling here.
+    this.selectionCycle = null;
     if (kind === 'decor') {
       const index = this.decorationSprites.indexOf(target);
       if (index !== -1) this.setDecorationSelection(index);
@@ -2769,10 +3050,184 @@ export class FarmScene extends Phaser.Scene {
     }
   }
 
+  // -- LONG-PRESS ARRANGE ENTRY (U3c) ----------------------------------------
+
+  /**
+   * Arm the long-press-to-arrange entry (U3c) if this plain-farm-mode down sits
+   * on a placed movable. Bare-ground holds arm nothing (a no-op hold). The
+   * armed timer is independent of `fieldGesture`: the normal classification
+   * runs untouched, so a release before HOLD is a normal tap with zero added
+   * latency; only the timer maturing (`fireArrangeEntry`) enters arrange mode.
+   */
+  private maybeArmArrangeEntry(pointer: Phaser.Input.Pointer): void {
+    // A fresh single-finger down: never stack two arms.
+    this.cancelArrangeEntry();
+    const world = this.fieldPointerWorld(pointer);
+    const candidates = this.collectEntryCandidates(world);
+    if (candidates.length === 0) return;
+    const best = orderByBaseDistance(candidates, world.x, world.y)[0]!;
+    this.pendingArrangeEntry = {
+      pointer,
+      downX: pointer.x,
+      downY: pointer.y,
+      target: { kind: best.kind, target: best.target, structureId: best.structureId },
+      timer: this.time.delayedCall(LONG_PRESS_MS, () => this.fireArrangeEntry()),
+    };
+  }
+
+  /**
+   * Every movable under the point for the FARM-mode long-press target (U3c) -
+   * the manual containment set (`collectMovablesAtWorld`, so it never depends on
+   * Phaser's top-only `currentlyOver`; decorations and plot tiles are inert in
+   * farm mode anyway), minus occupied plots: a long-press can only grab an EMPTY
+   * plot (an occupied one is not liftable). The caller orders.
+   */
+  private collectEntryCandidates(world: Phaser.Math.Vector2): MovableCandidate[] {
+    return this.collectMovablesAtWorld(world.x, world.y).filter((candidate) => {
+      if (candidate.kind !== 'plot') return true;
+      const index = this.plotTileSprites.indexOf(candidate.target);
+      return index !== -1 && gameState.getState().plots[index]?.state === 'empty';
+    });
+  }
+
+  /** Discard a pending long-press entry and its timer (no-op when none armed). */
+  private cancelArrangeEntry(): void {
+    if (this.pendingArrangeEntry === null) return;
+    this.pendingArrangeEntry.timer.remove(false);
+    this.pendingArrangeEntry = null;
+  }
+
+  /**
+   * The hold matured (U3c): a deliberate long-press on a movable in plain farm
+   * mode. Re-validate the gates (a modal / paint / arrange could have opened
+   * while held), neutralize the in-flight normal gesture so its release fires
+   * nothing, then enter arrange mode pre-targeted at the held movable (the U3b
+   * entrance flow) with one gentle hapticsOn-respecting buzz.
+   */
+  private fireArrangeEntry(): void {
+    const entry = this.pendingArrangeEntry;
+    this.pendingArrangeEntry = null;
+    if (entry === null) return;
+    if (
+      !entry.pointer.isDown ||
+      this.arrangeModeActive ||
+      this.pathModeActive() ||
+      !this.cameraGesturesAllowed()
+    ) {
+      return;
+    }
+    // Claim the gesture: clear any armed structure tap / farm-pending arm and
+    // detach the gesture pointer, so the coming release runs no tap action.
+    this.armedStructure = null;
+    this.structureArmedThisDown = false;
+    this.fieldGesture = null;
+    this.gesturePointerId = -1;
+    this.enterArrangeViaLongPress(entry.target);
+  }
+
+  /**
+   * Enter arrange mode pre-targeted at a long-pressed movable (U3c; extracted
+   * U3c-r2 so the dev seam `devLongPressAt` drives the identical path).
+   * `selectEntryTarget` selects with the long-press ORIGIN threaded in, so the
+   * flag is set atomically with the selection (U3c-r2 root-cause fix - no
+   * separate set-after-select window) and its toolbar omits Place
+   * (`contextualTarget`). One gentle hapticsOn-respecting buzz.
+   */
+  private enterArrangeViaLongPress(target: {
+    kind: 'decor' | 'plot' | 'structure';
+    target: Phaser.GameObjects.Image;
+    structureId?: MovableAnchorRef;
+  }): void {
+    this.enterArrangeMode();
+    this.selectEntryTarget(target);
+    buzz(LONG_PRESS_ENTER_VIBRATE_MS);
+  }
+
+  /**
+   * Dev seam (U3c-r2): drive a long-press arrange entry at a WORLD point,
+   * exactly as a matured hold would - so the Place-suppressed toolbar is
+   * demonstrable in-browser (a real 500ms hold is not reproducible from desktop
+   * automation). Collects every movable whose art is under the point, resolves
+   * the same way a real long-press does (`orderByBaseDistance`, alpha-aware),
+   * and enters arrange pre-targeted at the winner. No-op off an empty spot.
+   */
+  private devLongPressAt(worldX: number, worldY: number): void {
+    if (this.arrangeModeActive || this.pathModeActive() || !this.cameraGesturesAllowed()) return;
+    const candidates = this.collectMovablesAtWorld(worldX, worldY);
+    if (candidates.length === 0) return;
+    const best = orderByBaseDistance(candidates, worldX, worldY)[0]!;
+    this.enterArrangeViaLongPress({
+      kind: best.kind,
+      target: best.target,
+      structureId: best.structureId,
+    });
+  }
+
+  /**
+   * Every movable whose art is under a WORLD point, hit-tested MANUALLY (U3c-r2)
+   * - the containment set for BOTH the arrange-mode selection resolve and the
+   * dev seam. Manual rather than Phaser's `currentlyOver` because that is
+   * TOP-ONLY (`input.topOnly`), so a movable buried under a larger neighbour's
+   * rect never appears in it. Decorations/buildings/structures by their frame
+   * bounds (the overlapping-rectangles the occlusion rule is all about), the
+   * plot by the diamond lookup. Each candidate carries its alpha-at-point flag
+   * via `candidateForObject`; the caller orders via `orderByBaseDistance`.
+   */
+  private collectMovablesAtWorld(worldX: number, worldY: number): MovableCandidate[] {
+    const out: MovableCandidate[] = [];
+    const consider = (sprite: Phaser.GameObjects.Image | undefined): void => {
+      if (sprite === undefined) return;
+      if (!sprite.getBounds().contains(worldX, worldY)) return;
+      const candidate = this.candidateForObject(sprite, worldX, worldY);
+      if (candidate !== null) out.push(candidate);
+    };
+    for (const sprite of this.decorationSprites) consider(sprite);
+    for (const sprite of this.buildingImages) consider(sprite);
+    consider(this.farmhouseImage);
+    consider(this.noticeBoardImage);
+    const plotIndex = plotIndexAtScreen(worldX, worldY, gameState.getState().plots);
+    if (plotIndex !== null) consider(this.plotTileSprites[plotIndex]);
+    return out;
+  }
+
+  /**
+   * Select the long-pressed movable after entering arrange (U3c), flagging the
+   * selection as long-press origin ATOMICALLY (U3c-r2 - the `true` argument) so
+   * its toolbar omits Place and no re-select can leave the flag mismatched.
+   */
+  private selectEntryTarget(target: {
+    kind: 'decor' | 'plot' | 'structure';
+    target: Phaser.GameObjects.Image;
+    structureId?: MovableAnchorRef;
+  }): void {
+    if (target.kind === 'structure') {
+      if (target.structureId !== undefined) this.setStructureSelection(target.structureId, true);
+      return;
+    }
+    if (target.kind === 'decor') {
+      const index = this.decorationSprites.indexOf(target.target);
+      if (index !== -1) this.setDecorationSelection(index, true);
+      return;
+    }
+    const plotIndex = this.plotTileSprites.indexOf(target.target);
+    if (plotIndex !== -1) this.setPlotSelection(plotIndex, true);
+  }
+
   private onFieldPointerMove(pointer: Phaser.Input.Pointer): void {
     if (this.fieldGesture === 'pinch') {
       this.updatePinch();
       return;
+    }
+    // Long-press entry (U3c): movement past the tap slop cancels a pending
+    // hold-to-arrange - the gesture is a pan/sweep, not a deliberate hold. Runs
+    // independently of `fieldGesture` (the normal gesture keeps its own path).
+    const entry = this.pendingArrangeEntry;
+    if (
+      entry !== null &&
+      pointer.id === entry.pointer.id &&
+      Math.hypot(pointer.x - entry.downX, pointer.y - entry.downY) > TAP_SLOP
+    ) {
+      this.cancelArrangeEntry();
     }
     if (!pointer.isDown || pointer.id !== this.gesturePointerId) return;
     if (this.fieldGesture === 'pan') {
@@ -2856,13 +3311,8 @@ export class FarmScene extends Phaser.Scene {
       }
       return;
     }
-    if (this.fieldGesture === 'paint' && !this.farmingSuppressed) {
-      // The paint run (T4.12): each move paints the tile under the finger,
-      // deduped per gesture inside `paintPathAt`. `farmingSuppressed` is
-      // shared with farming deliberately - a gesture that became a pinch must
-      // stop painting for the same reason it stops harvesting.
-      const world = this.fieldPointerWorld(pointer);
-      this.paintPathAt(world.x, world.y);
+    if (this.fieldGesture === 'paint-pending' || this.fieldGesture === 'paint') {
+      this.handlePaintMove(pointer);
       return;
     }
     if (this.fieldGesture === 'farm' && !this.farmingSuppressed) {
@@ -2877,6 +3327,12 @@ export class FarmScene extends Phaser.Scene {
     let remaining = 0;
     for (const p of this.input.manager.pointers) {
       if (p.isDown && p !== pointer) remaining++;
+    }
+    // Released before the hold matured (U3c): a normal tap, not a long-press
+    // entry. Cancel the pending arm so nothing enters arrange; the tap then
+    // resolves below exactly as today (byte-identical timing).
+    if (this.pendingArrangeEntry !== null && this.pendingArrangeEntry.pointer.id === pointer.id) {
+      this.cancelArrangeEntry();
     }
     if (this.fieldGesture === 'pinch') {
       this.pinchPointerA = null;
@@ -2913,13 +3369,34 @@ export class FarmScene extends Phaser.Scene {
         // gesture ends exactly like a one-plot sweep.
         this.confirmArmedPlot();
         this.endFarmGesture();
-      } else if (gesture === 'paint') {
-        // The run ends; the next gesture starts with a clean visited set so
+      } else if (gesture === 'paint-pending' || gesture === 'paint') {
+        // U3c-r1: an in-slop release of an unconfirmed stroke is a TAP-PAINT -
+        // lay exactly one tile, at the down point, on release (a confirmed
+        // stroke already laid its tiles and `end` returns 'none'). Then the
+        // run ends; the next gesture starts with a clean visited set so
         // re-crossing a tile in a NEW stroke paints (or erases) it again.
+        if (this.paintGesture.end(pointer.x, pointer.y) === 'tap') {
+          this.paintPathAt(this.paintDownWorldX, this.paintDownWorldY);
+        }
         this.pathGestureVisited.clear();
         this.pathLastCell = null;
       } else if (gesture === 'pan') {
         this.finishPan(true);
+        // U3c-r2: an empty-ground TAP in arrange mode (a pan that never left
+        // TAP_SLOP - so not a real drag) clears the selection and hides the
+        // contextual toolbar. `!farmingSuppressed` excludes a pinch-survivor
+        // pan (that flag stays set until every finger lifts), so this never
+        // fires off a pinch; a down on a movable classifies 'lift-pending', not
+        // 'pan', so it never fights tap-select/cycle; UI taps are consumed
+        // upstream and never reach here.
+        if (
+          this.arrangeModeActive &&
+          !this.farmingSuppressed &&
+          Math.hypot(pointer.x - this.panStartPointerX, pointer.y - this.panStartPointerY) <=
+            TAP_SLOP
+        ) {
+          this.clearArrangeSelection();
+        }
       } else if (gesture === 'lift-pending') {
         const pending = this.pendingLift;
         this.cancelPendingLift();
@@ -2932,7 +3409,12 @@ export class FarmScene extends Phaser.Scene {
           this.cameraGesturesAllowed() &&
           Math.hypot(pointer.x - pending.downX, pointer.y - pending.downY) <= TAP_SLOP
         ) {
-          this.resolveLiftTap(pending.kind, pending.target, pending.structureId);
+          if (pending.candidates !== undefined) {
+            // Overlap tap (U3c): cycle through the buried stack.
+            this.resolveOcclusionTap(pending.candidates, pending.downWorldX!, pending.downWorldY!);
+          } else {
+            this.resolveLiftTap(pending.kind, pending.target, pending.structureId);
+          }
         }
       } else if (gesture === 'lift') {
         this.finishLift();
@@ -4730,8 +5212,15 @@ export class FarmScene extends Phaser.Scene {
    * time across both kinds). Re-derives the contextual toolbar (U3b), which
    * floats above whatever is selected.
    */
-  private setDecorationSelection(index: number | null): void {
+  private setDecorationSelection(index: number | null, fromLongPress = false): void {
     this.disarmCancel();
+    // U3c-r2: the long-press origin is set ATOMICALLY with the selection (not in
+    // a separate statement after, as r1 did), so no re-select - including a
+    // mobile compatibility "ghost tap" landing on the now-interactive asset just
+    // after the touch releases - can leave the flag set while the selection
+    // changed, or clear it while a long-press just set it. A normal (tap)
+    // selection passes false and restores the normal Place rules.
+    this.selectionFromLongPress = fromLongPress;
     if (index !== null) {
       this.clearPlotSelectionTint();
       this.clearStructureSelectionTint();
@@ -4751,8 +5240,9 @@ export class FarmScene extends Phaser.Scene {
    * the previous plot) first - the plot-side mirror of
    * `setDecorationSelection`, driving the same per-item button re-derive.
    */
-  private setPlotSelection(index: number | null): void {
+  private setPlotSelection(index: number | null, fromLongPress = false): void {
     this.disarmCancel();
+    this.selectionFromLongPress = fromLongPress; // U3c-r2: atomic, see setDecorationSelection.
     if (index !== null) {
       if (this.selectedDecorationIndex !== null) {
         this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
@@ -4777,6 +5267,19 @@ export class FarmScene extends Phaser.Scene {
   private applyPlotSelectionTint(): void {
     if (this.selectedPlotIndex === null) return;
     this.plotTileSprites[this.selectedPlotIndex]?.setTint(DRESSING_SELECTED_TINT);
+  }
+
+  /**
+   * Clear whatever is selected in arrange mode and hide the contextual toolbar
+   * (U3c-r2) - the empty-ground-tap deselect. Each setter untints its kind,
+   * disarms the Cancel button (`disarmCancel`), and re-derives the toolbar,
+   * which lands hidden once nothing is selected. Also ends any occlusion cycle.
+   */
+  private clearArrangeSelection(): void {
+    this.setDecorationSelection(null);
+    this.setPlotSelection(null);
+    this.setStructureSelection(null);
+    this.selectionCycle = null;
   }
 
   /**
@@ -5265,20 +5768,25 @@ export class FarmScene extends Phaser.Scene {
     placeCount: number;
   } | null {
     const state = gameState.getState();
+    // U3c-r1: a long-press entry is a grab-this gesture, so its toolbar never
+    // offers Place - Flip / Put away only - until the selection changes.
+    const suppressPlace = this.selectionFromLongPress;
     if (this.selectedDecorationIndex !== null) {
       const obj = this.decorationSprites[this.selectedDecorationIndex];
       if (obj === undefined) return null;
       // Place shows when more of THIS decoration's frame waits in the shed.
       const frame = state.decorations[this.selectedDecorationIndex]?.frame;
       const shed = frame === undefined ? 0 : (state.shedInventory[frame] ?? 0);
-      return { obj, showFlip: true, showPutAway: true, showPlace: shed > 0, placeCount: shed };
+      const showPlace = shed > 0 && !suppressPlace;
+      return { obj, showFlip: true, showPutAway: true, showPlace, placeCount: shed };
     }
     if (this.selectedPlotIndex !== null) {
       const obj = this.plotTileSprites[this.selectedPlotIndex];
       if (obj === undefined) return null;
       const count = state.unplacedPlots;
-      // A plot offers Place only; nothing to place -> no toolbar.
-      if (count <= 0) return null;
+      // A plot offers Place only; nothing to place (or Place suppressed by a
+      // long-press entry) -> no toolbar at all.
+      if (count <= 0 || suppressPlace) return null;
       return { obj, showFlip: false, showPutAway: false, showPlace: true, placeCount: count };
     }
     const ref = this.selectedStructureId;
@@ -5443,6 +5951,7 @@ export class FarmScene extends Phaser.Scene {
     this.pathModeTier = tier;
     this.pathGestureVisited.clear();
     this.pathLastCell = null;
+    this.paintGesture.reset();
     this.setStructureSelection(null);
     this.selectedDecorationIndex = null;
     this.selectedPlotIndex = null;
@@ -5456,6 +5965,7 @@ export class FarmScene extends Phaser.Scene {
     this.pathModeTier = null;
     this.pathGestureVisited.clear();
     this.pathLastCell = null;
+    this.paintGesture.reset();
     this.hud.setPathModeActive(false);
     this.seedBar.setVisible(true);
   }
@@ -5471,6 +5981,42 @@ export class FarmScene extends Phaser.Scene {
    * tile; the free tier (dirt) floats nothing, and neither does a same-tier
    * repaint - the store refuses it, so there is no float and no second charge.
    */
+  /**
+   * A move of the painting finger (U3c-r1). Drives the `PaintGesture` phase:
+   * the first move past TAP_SLOP CONFIRMS the stroke (lay the first tile at the
+   * down point, then this move's tile - so a drag looks identical to the old
+   * paint-on-down feel); every later move paints the tile under the finger. A
+   * still-within-slop move, or a halted stroke (a second finger arrived), lays
+   * nothing.
+   */
+  private handlePaintMove(pointer: Phaser.Input.Pointer): void {
+    const effect = this.paintGesture.move(pointer.x, pointer.y);
+    if (effect === 'none') return;
+    if (effect === 'confirm') {
+      this.fieldGesture = 'paint';
+      this.paintPathAt(this.paintDownWorldX, this.paintDownWorldY);
+    }
+    const world = this.fieldPointerWorld(pointer);
+    this.paintPathAt(world.x, world.y);
+  }
+
+  /**
+   * A second finger landed on a live paint gesture (U3c-r1). Before the stroke
+   * confirmed it is a pinch ATTEMPT: cancel outright - zero tiles, zero coins,
+   * gesture inert (no pinch; the camera stays disabled in paint mode). Mid
+   * confirmed stroke it HALTS further painting - the `PaintGesture` phase goes
+   * 'halted', so subsequent moves lay nothing, while the tiles already laid
+   * stay (they were deliberate) and the stroke ends normally on release.
+   */
+  private handlePaintSecondFinger(): void {
+    if (this.paintGesture.secondFinger() === 'cancel') {
+      this.fieldGesture = null;
+      this.gesturePointerId = -1;
+      this.pathGestureVisited.clear();
+      this.pathLastCell = null;
+    }
+  }
+
   private paintPathAt(worldX: number, worldY: number): void {
     const tier = this.pathModeTier;
     if (tier === null) return;
@@ -5532,6 +6078,9 @@ export class FarmScene extends Phaser.Scene {
     this.selectedDecorationIndex = null;
     this.selectedPlotIndex = null;
     this.selectedStructureId = null;
+    // Fresh mode, fresh occlusion cycle (U3c) and toolbar origin (U3c-r1).
+    this.selectionCycle = null;
+    this.selectionFromLongPress = false;
     // Start recording arrange actions' inverses onto the undo stack (U3b); every
     // exit path runs through `exitArrangeMode`, which ends the session.
     gameState.beginEditSession();
@@ -5593,6 +6142,9 @@ export class FarmScene extends Phaser.Scene {
   private exitArrangeMode(): void {
     this.hideShedPanel();
     this.arrangeModeActive = false;
+    // Mode exit resets the occlusion cycle (U3c) and toolbar origin (U3c-r1).
+    this.selectionCycle = null;
+    this.selectionFromLongPress = false;
     // End the undo session (U3b): stop recording and discard the stack - undo
     // is a within-session affordance, and leaving commits the steps. This is
     // THE single exit path (Done, the Edit Layout toggle, and enterPathMode all
@@ -6454,8 +7006,9 @@ export class FarmScene extends Phaser.Scene {
    * `setDecorationSelection`/`setPlotSelection`, re-deriving the contextual
    * toolbar (U3b - Flip for a flippable movable, Put away for a building).
    */
-  private setStructureSelection(ref: MovableAnchorRef | null): void {
+  private setStructureSelection(ref: MovableAnchorRef | null, fromLongPress = false): void {
     this.disarmCancel();
+    this.selectionFromLongPress = fromLongPress; // U3c-r2: atomic, see setDecorationSelection.
     if (ref !== null) {
       if (this.selectedDecorationIndex !== null) {
         this.decorationSprites[this.selectedDecorationIndex]?.clearTint();
