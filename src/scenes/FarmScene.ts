@@ -88,6 +88,7 @@ import {
   registerFootprintsToggle,
   registerGroundModeCycle,
   registerHitboxToggle,
+  registerEditBulkHooks,
   registerPaintModeHooks,
   registerSceneLayersProbe,
 } from '../systems/dev';
@@ -449,6 +450,22 @@ interface MovableCandidate extends OcclusionCandidate {
 }
 
 /**
+ * What a matured long-press fires (U3c; U5-r1 adds 'paint') - see
+ * `pendingArrangeEntry`. 'arrange' enters arrange pre-targeted at a movable;
+ * 'paint' enters paint mode on a bare painted tile's tier.
+ */
+type LongPressAction =
+  | {
+      kind: 'arrange';
+      target: {
+        kind: 'decor' | 'plot' | 'structure';
+        target: Phaser.GameObjects.Image;
+        structureId?: MovableAnchorRef;
+      };
+    }
+  | { kind: 'paint'; tier: PathTierId };
+
+/**
  * Expand-sign ground shadow geometry (T3.art-2). The sign draws itself from
  * its own PRIVATE constants in ui/ExpandSign.ts - position (540, 1300),
  * 240px display size on a square frame, center origin - at depth 1900 (the
@@ -571,6 +588,46 @@ const ARRANGE_BUTTON_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
 /** Enabled/dim convention shared by the Undo button and the contextual toolbar. */
 const ARRANGE_STORE_ENABLED_ALPHA = 1;
 const ARRANGE_STORE_DISABLED_ALPHA = 0.4;
+
+/**
+ * Arrange SECONDARY ROW (U5-r1): two wide flat buttons sitting directly above
+ * the main bottom bar - [Store All Decorations] [Clear All Paths]. Each banks
+ * its whole category to the shed in ONE undo group behind a two-tap confirm
+ * (the Cancel pattern), and dims inert when it has nothing to act on (no placed
+ * decor/trophies; no painted tiles). Drawn in the U2b card language (parchment
+ * fill + thin dark-brown stroke, the contextual toolbar's `CTX_BTN_FILL`/
+ * `CTX_STROKE_BROWN`) rather than the main bar's `panel` nineslice, with a
+ * paired invisible Zone as the hit target so the rounded art needs no
+ * frame-relative hitArea. Slightly shorter than the main bar (76 vs 100). Sits
+ * just above the bar's top edge (~1650), clear of it.
+ */
+const ARRANGE_BULK_ROW_Y = 1584;
+const ARRANGE_BULK_HEIGHT = 76;
+const ARRANGE_BULK_GAP = 24;
+const ARRANGE_BULK_RADIUS = 16;
+const ARRANGE_BULK_STROKE_W = 2;
+const ARRANGE_BULK_STORE_WIDTH = 400;
+const ARRANGE_BULK_CLEAR_WIDTH = 320;
+const ARRANGE_BULK_STORE_LABEL = 'Store All Decorations';
+const ARRANGE_BULK_CLEAR_LABEL = 'Clear All Paths';
+/** Both bulk confirms wear the arrange bar's armed copy (U5-r1). */
+const ARRANGE_BULK_ARMED_LABEL = 'Confirm?';
+/** Center the two bulk widths as one evenly-gapped row on the design width. */
+const ARRANGE_BULK_TOTAL_WIDTH =
+  ARRANGE_BULK_STORE_WIDTH + ARRANGE_BULK_CLEAR_WIDTH + ARRANGE_BULK_GAP;
+const ARRANGE_BULK_STORE_X =
+  DESIGN_WIDTH / 2 - ARRANGE_BULK_TOTAL_WIDTH / 2 + ARRANGE_BULK_STORE_WIDTH / 2;
+const ARRANGE_BULK_CLEAR_X =
+  ARRANGE_BULK_STORE_X +
+  ARRANGE_BULK_STORE_WIDTH / 2 +
+  ARRANGE_BULK_GAP +
+  ARRANGE_BULK_CLEAR_WIDTH / 2;
+const ARRANGE_BULK_LABEL_STYLE: Phaser.Types.GameObjects.Text.TextStyle = {
+  fontFamily: 'Arial, sans-serif',
+  fontSize: '30px',
+  fontStyle: 'bold',
+  color: '#4a3218',
+};
 
 /**
  * Shed-count badge on the bottom bar's Shed button (U3b): a small stroked
@@ -1500,6 +1557,20 @@ export class FarmScene extends Phaser.Scene {
   private arrangeShopButton!: Phaser.GameObjects.NineSlice;
   private arrangeShopText!: Phaser.GameObjects.Text;
   /**
+   * Arrange SECONDARY ROW (U5-r1): [Store All Decorations] [Clear All Paths],
+   * drawn-vector buttons (bg Graphics + label + paired hit Zone) above the main
+   * bar - see the ARRANGE_BULK_* constants. Each is a two-tap confirm with its
+   * own armed timestamp; dims inert when its category is empty.
+   */
+  private arrangeStoreBg!: Phaser.GameObjects.Graphics;
+  private arrangeStoreLabel!: Phaser.GameObjects.Text;
+  private arrangeStoreZone!: Phaser.GameObjects.Zone;
+  private storeAllArmedAt = 0;
+  private arrangeClearBg!: Phaser.GameObjects.Graphics;
+  private arrangeClearLabel!: Phaser.GameObjects.Text;
+  private arrangeClearZone!: Phaser.GameObjects.Zone;
+  private clearAllPathsArmedAt = 0;
+  /**
    * Contextual toolbar (U3b; a vertical column since U3b-r2): a world-layer
    * drawn-vector bar that floats above the selected asset with its valid
    * Flip / Put away / Place actions - see `createContextualToolbar`. Hidden with
@@ -1681,23 +1752,34 @@ export class FarmScene extends Phaser.Scene {
    */
   private selectionFromLongPress = false;
   /**
-   * The pending long-press-to-arrange entry (U3c), armed while a one-finger
-   * hold sits on a placed movable in PLAIN farm mode (not arrange/paint/modal/
+   * Fresh-placement "in hand" grant (U5-r1 addendum): true while the currently
+   * selected movable was JUST placed from the shed (or the building fast path)
+   * and has not been grabbed or deselected yet. While set, the next touch on it
+   * lifts INSTANTLY even where it overlaps other objects - bypassing the U3c
+   * hold-to-grab that otherwise wins in an overlap - so a shed-placed item drags
+   * in the same motion as any other selected item. Set by the placers right
+   * after they select the new item; cleared on any selection change (the
+   * setters), on the first lift (`startLift`), and on drop (`finishLift`).
+   */
+  private freshPlacement = false;
+  /**
+   * The pending long-press entry (U3c; U5-r1 adds the paint action), armed while
+   * a one-finger hold sits on something the hold can act on (not paint/modal/
    * onboarding). Independent of `fieldGesture` - the normal tap classification
-   * runs untouched alongside it, so tap timing is byte-identical; only the
-   * timer maturing (`fireArrangeEntry`) converts the gesture into arrange-mode
-   * entry, pre-targeted at `target`. Movement past TAP_SLOP, a second finger,
-   * or a release before HOLD all cancel it (`cancelArrangeEntry`).
+   * runs untouched alongside it, so tap timing is byte-identical; only the timer
+   * maturing (`fireArrangeEntry`) fires the entry. The `action` decides what:
+   *   - 'arrange' (farm-mode hold on a placed movable): enter arrange mode
+   *     pre-targeted at that movable (the U3c behaviour).
+   *   - 'paint' (farm OR arrange hold on a bare PAINTED tile - no movable above
+   *     it): enter paint mode on that tile's tier (U5-r1).
+   * Movement past TAP_SLOP, a second finger, or a release before HOLD all cancel
+   * it (`cancelArrangeEntry`).
    */
   private pendingArrangeEntry: {
     pointer: Phaser.Input.Pointer;
     downX: number;
     downY: number;
-    target: {
-      kind: 'decor' | 'plot' | 'structure';
-      target: Phaser.GameObjects.Image;
-      structureId?: MovableAnchorRef;
-    };
+    action: LongPressAction;
     timer: Phaser.Time.TimerEvent;
   } | null = null;
   /** The lift pulse's target and its pre-pulse scale, so a release landing
@@ -2037,6 +2119,18 @@ export class FarmScene extends Phaser.Scene {
       setScale: (mult) => this.setFarmhouseDevScale(mult),
       nudge: (dx, dy) => this.nudgeFarmhouseDev(dx, dy),
       reset: () => this.resetFarmhouseDevTransform(),
+    });
+    // U5-r1 edit-bulk live-proof seams: the arrange secondary row is not
+    // reachable from desktop automation, so the screenshots drive the scene
+    // handlers directly (the longPress/paintMode precedent). Each tap arms then
+    // fires, so calling twice is the two-tap confirm. (The long-press-on-a-path
+    // entry rides the existing `dev.longPress` seam, extended in `devLongPressAt`.)
+    registerEditBulkHooks({
+      enterArrange: () => {
+        if (!this.arrangeModeActive) this.enterArrangeMode();
+      },
+      storeAllTap: () => this.handleStoreAllTap(),
+      clearAllPathsTap: () => this.handleClearAllPathsTap(),
     });
   }
 
@@ -2380,6 +2474,27 @@ export class FarmScene extends Phaser.Scene {
         );
         const candidates = topmost === null ? [] : this.collectMovablesAtWorld(world.x, world.y);
         if (candidates.length >= 2) {
+          // Fresh-placement in-hand grant (U5-r1): a shed-placed item spawns
+          // ON TOP of existing objects, so its very next touch lands in this
+          // occlusion branch - which normally requires a hold. While the grant
+          // holds, the just-placed (and still selected) piece lifts INSTANTLY
+          // here too, so it drags in one motion like any other selection; the
+          // grant is consumed by the grab (`startLift` re-selects, clearing it).
+          if (this.freshPlacement) {
+            const fresh = candidates.find((candidate) => this.isSelectedMovable(candidate));
+            if (
+              fresh !== undefined &&
+              this.startLift(
+                fresh.kind,
+                fresh.target,
+                fresh.target.x - world.x,
+                fresh.target.y - world.y,
+                fresh.structureId,
+              )
+            ) {
+              return;
+            }
+          }
           // Occlusion (U3c): several movables' hit areas overlap this point, so
           // the topmost rectangle would swallow every buried one. Resolve the
           // target LAZILY - a matured HOLD grabs the selected-or-nearest piece,
@@ -2462,6 +2577,12 @@ export class FarmScene extends Phaser.Scene {
       }
       return;
     }
+    // Arrange mode (U5-r1): a hold on a bare painted tile (no movable resolved
+    // it into the arrange branch above) enters paint mode on its tier. Armed
+    // independently of the pan/deselect gesture below, exactly like the farm
+    // long-press - a release before HOLD is still a normal tap (deselect). Farm
+    // mode already armed this at the top via `maybeArmArrangeEntry`.
+    if (this.arrangeModeActive) this.maybeArmPaintEntry(pointer, world);
     const plotIndex = plotIndexAtScreen(world.x, world.y, gameState.getState().plots);
     if (!this.arrangeModeActive && plotIndex !== null && this.plotActionable(plotIndex)) {
       // T3.4c: ARM the plot, do not process it - a pinch's first finger
@@ -3122,26 +3243,65 @@ export class FarmScene extends Phaser.Scene {
   // -- LONG-PRESS ARRANGE ENTRY (U3c) ----------------------------------------
 
   /**
-   * Arm the long-press-to-arrange entry (U3c) if this plain-farm-mode down sits
-   * on a placed movable. Bare-ground holds arm nothing (a no-op hold). The
-   * armed timer is independent of `fieldGesture`: the normal classification
-   * runs untouched, so a release before HOLD is a normal tap with zero added
-   * latency; only the timer maturing (`fireArrangeEntry`) enters arrange mode.
+   * Arm the long-press entry (U3c; U5-r1 adds the paint fallback) for this
+   * plain-farm-mode down. A hold on a placed MOVABLE arms an arrange entry; a
+   * hold on a bare PAINTED tile (no movable above it - movables win) arms a
+   * paint entry on that tile's tier; bare ground arms nothing. The armed timer
+   * is independent of `fieldGesture`: the normal classification runs untouched,
+   * so a release before HOLD is a normal tap with zero added latency; only the
+   * timer maturing (`fireArrangeEntry`) fires the entry.
    */
   private maybeArmArrangeEntry(pointer: Phaser.Input.Pointer): void {
-    // A fresh single-finger down: never stack two arms.
-    this.cancelArrangeEntry();
     const world = this.fieldPointerWorld(pointer);
     const candidates = this.collectEntryCandidates(world);
-    if (candidates.length === 0) return;
-    const best = orderByBaseDistance(candidates, world.x, world.y)[0]!;
+    if (candidates.length > 0) {
+      const best = orderByBaseDistance(candidates, world.x, world.y)[0]!;
+      this.armLongPressEntry(pointer, {
+        kind: 'arrange',
+        target: { kind: best.kind, target: best.target, structureId: best.structureId },
+      });
+      return;
+    }
+    // No movable: a hold on a painted tile enters paint mode on its tier (U5-r1).
+    this.maybeArmPaintEntry(pointer, world);
+  }
+
+  /**
+   * Arm a paint-mode long-press entry (U5-r1) if this down (with NO movable
+   * resolved above it) sits on a bare painted tile - used from BOTH farm mode
+   * (`maybeArmArrangeEntry`'s fallback) and arrange mode's empty-ground path, so
+   * a hold on a path enters paint on its tier either way. A no-op off a painted
+   * tile (bare ground holds arm nothing).
+   */
+  private maybeArmPaintEntry(pointer: Phaser.Input.Pointer, world: Phaser.Math.Vector2): void {
+    const tier = this.pathTierAtWorld(world.x, world.y);
+    if (tier === null) {
+      this.cancelArrangeEntry();
+      return;
+    }
+    this.armLongPressEntry(pointer, { kind: 'paint', tier });
+  }
+
+  /** Set the pending long-press entry with `action`, never stacking two arms
+   *  (a fresh single-finger down cancels any prior). */
+  private armLongPressEntry(pointer: Phaser.Input.Pointer, action: LongPressAction): void {
+    this.cancelArrangeEntry();
     this.pendingArrangeEntry = {
       pointer,
       downX: pointer.x,
       downY: pointer.y,
-      target: { kind: best.kind, target: best.target, structureId: best.structureId },
+      action,
       timer: this.time.delayedCall(LONG_PRESS_MS, () => this.fireArrangeEntry()),
     };
+  }
+
+  /** The painted tier on the tile under a world point, or null if none (U5-r1) -
+   *  the inline `paths.find` idiom the store uses, lifted to a scene helper. */
+  private pathTierAtWorld(worldX: number, worldY: number): PathTierId | null {
+    const { col, row } = isoToGrid(worldX, worldY);
+    const c = Math.round(col);
+    const r = Math.round(row);
+    return gameState.getState().paths.find((p) => p.col === c && p.row === r)?.tier ?? null;
   }
 
   /**
@@ -3167,31 +3327,43 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * The hold matured (U3c): a deliberate long-press on a movable in plain farm
-   * mode. Re-validate the gates (a modal / paint / arrange could have opened
-   * while held), neutralize the in-flight normal gesture so its release fires
-   * nothing, then enter arrange mode pre-targeted at the held movable (the U3b
-   * entrance flow) with one gentle hapticsOn-respecting buzz.
+   * The hold matured (U3c; U5-r1 adds the paint action): a deliberate long-press.
+   * Re-validate the shared gates (a modal / paint mode could have opened while
+   * held; a still-down finger), neutralize the in-flight normal gesture so its
+   * release fires nothing, then dispatch by action - enter arrange pre-targeted
+   * at the held movable, or enter paint mode on the held tile's tier. An
+   * 'arrange' action additionally bails if arrange is already active (it only
+   * enters from farm); a 'paint' action is fine from farm OR arrange
+   * (`enterPathMode` leaves arrange first).
    */
   private fireArrangeEntry(): void {
     const entry = this.pendingArrangeEntry;
     this.pendingArrangeEntry = null;
     if (entry === null) return;
-    if (
-      !entry.pointer.isDown ||
-      this.arrangeModeActive ||
-      this.pathModeActive() ||
-      !this.cameraGesturesAllowed()
-    ) {
-      return;
-    }
+    if (!entry.pointer.isDown || this.pathModeActive() || !this.cameraGesturesAllowed()) return;
+    if (entry.action.kind === 'arrange' && this.arrangeModeActive) return;
     // Claim the gesture: clear any armed structure tap / farm-pending arm and
     // detach the gesture pointer, so the coming release runs no tap action.
     this.armedStructure = null;
     this.structureArmedThisDown = false;
     this.fieldGesture = null;
     this.gesturePointerId = -1;
-    this.enterArrangeViaLongPress(entry.target);
+    if (entry.action.kind === 'arrange') {
+      this.enterArrangeViaLongPress(entry.action.target);
+    } else {
+      this.enterPaintViaLongPress(entry.action.tier);
+    }
+  }
+
+  /**
+   * Enter paint mode from a matured long-press on a painted tile (U5-r1) - the
+   * paint-side mirror of `enterArrangeViaLongPress`. `enterPathMode` leaves
+   * arrange first if it was active (the existing arrange->paint handover), and
+   * itself re-checks the onboarding gate. One gentle hapticsOn-respecting buzz.
+   */
+  private enterPaintViaLongPress(tier: PathTierId): void {
+    this.enterPathMode(tier);
+    buzz(LONG_PRESS_ENTER_VIBRATE_MS);
   }
 
   /**
@@ -3213,23 +3385,31 @@ export class FarmScene extends Phaser.Scene {
   }
 
   /**
-   * Dev seam (U3c-r2): drive a long-press arrange entry at a WORLD point,
-   * exactly as a matured hold would - so the Place-suppressed toolbar is
-   * demonstrable in-browser (a real 500ms hold is not reproducible from desktop
-   * automation). Collects every movable whose art is under the point, resolves
-   * the same way a real long-press does (`orderByBaseDistance`, alpha-aware),
-   * and enters arrange pre-targeted at the winner. No-op off an empty spot.
+   * Dev seam (U3c-r2; U5-r1 adds the path case): drive a long-press entry at a
+   * WORLD point, exactly as a matured hold would - so the Place-suppressed
+   * toolbar AND the path->paint entry are demonstrable in-browser (a real 500ms
+   * hold is not reproducible from desktop automation). A movable under the point
+   * resolves the same way a real long-press does (`orderByBaseDistance`,
+   * alpha-aware) and enters arrange pre-targeted at the winner; with NO movable,
+   * a painted tile enters paint mode on its tier (from farm OR arrange). No-op
+   * off an empty spot.
    */
   private devLongPressAt(worldX: number, worldY: number): void {
-    if (this.arrangeModeActive || this.pathModeActive() || !this.cameraGesturesAllowed()) return;
+    if (this.pathModeActive() || !this.cameraGesturesAllowed()) return;
     const candidates = this.collectMovablesAtWorld(worldX, worldY);
-    if (candidates.length === 0) return;
-    const best = orderByBaseDistance(candidates, worldX, worldY)[0]!;
-    this.enterArrangeViaLongPress({
-      kind: best.kind,
-      target: best.target,
-      structureId: best.structureId,
-    });
+    if (candidates.length > 0) {
+      // Movables win; arrange entry only enters from farm mode.
+      if (this.arrangeModeActive) return;
+      const best = orderByBaseDistance(candidates, worldX, worldY)[0]!;
+      this.enterArrangeViaLongPress({
+        kind: best.kind,
+        target: best.target,
+        structureId: best.structureId,
+      });
+      return;
+    }
+    const tier = this.pathTierAtWorld(worldX, worldY);
+    if (tier !== null) this.enterPaintViaLongPress(tier);
   }
 
   /**
@@ -5287,7 +5467,9 @@ export class FarmScene extends Phaser.Scene {
    * floats above whatever is selected.
    */
   private setDecorationSelection(index: number | null, fromLongPress = false): void {
-    this.disarmCancel();
+    this.disarmArrangeConfirms();
+    // A selection change clears the fresh-placement in-hand grant (U5-r1).
+    this.freshPlacement = false;
     // U3c-r2: the long-press origin is set ATOMICALLY with the selection (not in
     // a separate statement after, as r1 did), so no re-select - including a
     // mobile compatibility "ghost tap" landing on the now-interactive asset just
@@ -5315,7 +5497,8 @@ export class FarmScene extends Phaser.Scene {
    * `setDecorationSelection`, driving the same per-item button re-derive.
    */
   private setPlotSelection(index: number | null, fromLongPress = false): void {
-    this.disarmCancel();
+    this.disarmArrangeConfirms();
+    this.freshPlacement = false; // selection change clears the in-hand grant (U5-r1).
     this.selectionFromLongPress = fromLongPress; // U3c-r2: atomic, see setDecorationSelection.
     if (index !== null) {
       if (this.selectedDecorationIndex !== null) {
@@ -5376,7 +5559,7 @@ export class FarmScene extends Phaser.Scene {
     // bar tap; the arrange/modal guards downstream caught it, but a consumed tap
     // is the correct, defence-in-depth behaviour.
     this.onArrangeBarTap(this.arrangeShedButton, () => {
-      this.disarmCancel();
+      this.disarmArrangeConfirms();
       this.audio.sfx('tap');
       this.toggleShedPanel();
     });
@@ -5395,7 +5578,7 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeShopButton = this.buildArrangeBarButton(ARRANGE_SHOP_X, ARRANGE_SHOP_WIDTH);
     this.arrangeShopText = this.buildArrangeBarLabel(ARRANGE_SHOP_X, 'Shop');
     this.onArrangeBarTap(this.arrangeShopButton, () => {
-      this.disarmCancel();
+      this.disarmArrangeConfirms();
       this.openDecorShopFromArrange();
     });
 
@@ -5418,7 +5601,87 @@ export class FarmScene extends Phaser.Scene {
       this.exitArrangeMode();
     });
 
+    // Secondary bulk row (U5-r1): [Store All Decorations] [Clear All Paths].
+    const store = this.buildBulkButton(
+      ARRANGE_BULK_STORE_X,
+      ARRANGE_BULK_STORE_WIDTH,
+      ARRANGE_BULK_STORE_LABEL,
+      () => this.handleStoreAllTap(),
+    );
+    this.arrangeStoreBg = store.bg;
+    this.arrangeStoreLabel = store.label;
+    this.arrangeStoreZone = store.zone;
+    const clear = this.buildBulkButton(
+      ARRANGE_BULK_CLEAR_X,
+      ARRANGE_BULK_CLEAR_WIDTH,
+      ARRANGE_BULK_CLEAR_LABEL,
+      () => this.handleClearAllPathsTap(),
+    );
+    this.arrangeClearBg = clear.bg;
+    this.arrangeClearLabel = clear.label;
+    this.arrangeClearZone = clear.zone;
+
     this.createShedPanel();
+  }
+
+  /**
+   * Build one secondary-row bulk button (U5-r1): a drawn-vector rounded rect
+   * (the U2b card language) + centered label + paired invisible hit Zone - the
+   * ShopPanel/contextual-toolbar chrome, so the rounded art needs no
+   * frame-relative hitArea. Built hidden and inert; `setArrangeControlsVisible`
+   * shows it and `updateEditBarState` dims/enables it from its category count.
+   * The tap is consumed (stopPropagation) so the field classifier never
+   * re-processes it, exactly like the main bar's `onArrangeBarTap`.
+   */
+  private buildBulkButton(
+    x: number,
+    width: number,
+    label: string,
+    action: () => void,
+  ): {
+    bg: Phaser.GameObjects.Graphics;
+    label: Phaser.GameObjects.Text;
+    zone: Phaser.GameObjects.Zone;
+  } {
+    const bg = this.add.graphics().setPosition(x, ARRANGE_BULK_ROW_Y).setDepth(ARRANGE_UI_DEPTH);
+    bg.fillStyle(CTX_BTN_FILL, 1);
+    bg.fillRoundedRect(
+      -width / 2,
+      -ARRANGE_BULK_HEIGHT / 2,
+      width,
+      ARRANGE_BULK_HEIGHT,
+      ARRANGE_BULK_RADIUS,
+    );
+    bg.lineStyle(ARRANGE_BULK_STROKE_W, CTX_STROKE_BROWN, 1);
+    bg.strokeRoundedRect(
+      -width / 2,
+      -ARRANGE_BULK_HEIGHT / 2,
+      width,
+      ARRANGE_BULK_HEIGHT,
+      ARRANGE_BULK_RADIUS,
+    );
+    bg.setVisible(false);
+    const labelText = this.add
+      .text(x, ARRANGE_BULK_ROW_Y, label, ARRANGE_BULK_LABEL_STYLE)
+      .setOrigin(0.5)
+      .setDepth(ARRANGE_UI_DEPTH + 1)
+      .setVisible(false);
+    const zone = this.add
+      .zone(x, ARRANGE_BULK_ROW_Y, width, ARRANGE_BULK_HEIGHT)
+      .setDepth(ARRANGE_UI_DEPTH + 1);
+    zone.on(
+      Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,
+      (
+        _pointer: Phaser.Input.Pointer,
+        _localX: number,
+        _localY: number,
+        event: Phaser.Types.Input.EventData,
+      ) => {
+        event.stopPropagation();
+        action();
+      },
+    );
+    return { bg, label: labelText, zone };
   }
 
   /**
@@ -5599,8 +5862,19 @@ export class FarmScene extends Phaser.Scene {
       }
     }
     this.arrangeShedBadge.setVisible(visible);
-    // Cancel always starts disarmed when the bar is shown or hidden.
-    if (!visible) this.disarmCancel();
+    // Secondary bulk row (U5-r1): shows/hides with the bar; its enabled/dim
+    // state and hit zones are (re)derived by `updateEditBarState` when shown,
+    // so a hidden row keeps zero live hitboxes.
+    for (const [bg, label, zone] of [
+      [this.arrangeStoreBg, this.arrangeStoreLabel, this.arrangeStoreZone] as const,
+      [this.arrangeClearBg, this.arrangeClearLabel, this.arrangeClearZone] as const,
+    ]) {
+      bg.setVisible(visible);
+      label.setVisible(visible);
+      if (!visible) zone.disableInteractive();
+    }
+    // All three arrange confirms start disarmed when the bar is shown or hidden.
+    if (!visible) this.disarmArrangeConfirms();
   }
 
   /**
@@ -5626,15 +5900,65 @@ export class FarmScene extends Phaser.Scene {
     this.arrangeShedBadge
       .setText(shedTotal > 0 ? String(shedTotal) : '')
       .setVisible(this.arrangeModeActive && shedTotal > 0);
-    // Cancel disarms itself once its confirm window lapses (U3b-r1).
-    if (this.cancelArmedAt !== 0 && Date.now() - this.cancelArmedAt >= ARRANGE_CANCEL_ARM_MS) {
+    // Secondary bulk row (U5-r1): each button is enabled only while its category
+    // has something to act on - dimmed and hitbox-dead otherwise.
+    const state = gameState.getState();
+    this.setBulkButtonEnabled(
+      this.arrangeStoreBg,
+      this.arrangeStoreLabel,
+      this.arrangeStoreZone,
+      state.decorations.length > 0,
+    );
+    this.setBulkButtonEnabled(
+      this.arrangeClearBg,
+      this.arrangeClearLabel,
+      this.arrangeClearZone,
+      state.paths.length > 0,
+    );
+    // All three arrange confirms disarm themselves once their window lapses.
+    const now = Date.now();
+    if (this.cancelArmedAt !== 0 && now - this.cancelArmedAt >= ARRANGE_CANCEL_ARM_MS) {
       this.disarmCancel();
+    }
+    if (this.storeAllArmedAt !== 0 && now - this.storeAllArmedAt >= ARRANGE_CANCEL_ARM_MS) {
+      this.disarmStoreAll();
+    }
+    if (
+      this.clearAllPathsArmedAt !== 0 &&
+      now - this.clearAllPathsArmedAt >= ARRANGE_CANCEL_ARM_MS
+    ) {
+      this.disarmClearAllPaths();
+    }
+  }
+
+  /**
+   * Set one secondary-row bulk button's enabled state (U5-r1): full alpha +
+   * interactive zone when it has something to act on, dimmed + hitbox-dead (and
+   * disarmed) otherwise - the arrange-store dim convention. Only ever called
+   * while the row is shown, so a disabled button's zone stays dead until then.
+   */
+  private setBulkButtonEnabled(
+    bg: Phaser.GameObjects.Graphics,
+    label: Phaser.GameObjects.Text,
+    zone: Phaser.GameObjects.Zone,
+    enabled: boolean,
+  ): void {
+    const alpha = enabled ? ARRANGE_STORE_ENABLED_ALPHA : ARRANGE_STORE_DISABLED_ALPHA;
+    bg.setAlpha(alpha);
+    label.setAlpha(alpha);
+    if (enabled) {
+      zone.setInteractive({ useHandCursor: true });
+    } else {
+      zone.disableInteractive();
+      // A dead button can never take its second confirm tap - drop any arm.
+      if (zone === this.arrangeStoreZone) this.disarmStoreAll();
+      else this.disarmClearAllPaths();
     }
   }
 
   /** The Undo button (U3b): pop the last recorded arrange action and re-render. */
   private handleUndo(): void {
-    this.disarmCancel();
+    this.disarmArrangeConfirms();
     if (gameState.editUndoDepth() <= 0) return;
     this.audio.sfx('tap');
     if (!gameState.undoEditAction()) return;
@@ -5651,12 +5975,116 @@ export class FarmScene extends Phaser.Scene {
   private handleCancelTap(): void {
     this.audio.sfx('tap');
     const now = Date.now();
-    if (this.cancelArmedAt !== 0 && now - this.cancelArmedAt < ARRANGE_CANCEL_ARM_MS) {
+    const armed = this.cancelArmedAt !== 0 && now - this.cancelArmedAt < ARRANGE_CANCEL_ARM_MS;
+    // Only one arrange confirm can be live at a time (U5-r1): arming or firing
+    // this one disarms the two bulk confirms too.
+    this.disarmArrangeConfirms();
+    if (armed) {
       this.doCancelUnwind();
       return;
     }
     this.cancelArmedAt = now;
     this.arrangeCancelText.setText(ARRANGE_CANCEL_ARMED_LABEL);
+  }
+
+  /**
+   * "Store All Decorations" tap (U5-r1): the arrange bar's two-tap confirm.
+   * First tap arms it ("Confirm?"); a second within ARRANGE_CANCEL_ARM_MS banks
+   * every placed decoration and trophy to the shed in one undo group; the window
+   * lapsing re-arms. Inert while nothing is placed (belt-and-braces - the button
+   * is dimmed and hitbox-dead then). Arming disarms the other two confirms.
+   */
+  private handleStoreAllTap(): void {
+    if (gameState.getState().decorations.length === 0) return;
+    this.audio.sfx('tap');
+    const now = Date.now();
+    const armed = this.storeAllArmedAt !== 0 && now - this.storeAllArmedAt < ARRANGE_CANCEL_ARM_MS;
+    this.disarmArrangeConfirms();
+    if (armed) {
+      this.putAwayAllDecorations();
+      return;
+    }
+    this.storeAllArmedAt = now;
+    this.arrangeStoreLabel.setText(ARRANGE_BULK_ARMED_LABEL);
+  }
+
+  /**
+   * "Clear All Paths" tap (U5-r1): the mirror of `handleStoreAllTap` for paths.
+   * A second tap within the window banks every painted tile of every tier to the
+   * shed in one undo group, acting from ARRANGE mode directly (no need to enter
+   * paint mode first). Inert while nothing is painted.
+   */
+  private handleClearAllPathsTap(): void {
+    if (gameState.getState().paths.length === 0) return;
+    this.audio.sfx('tap');
+    const now = Date.now();
+    const armed =
+      this.clearAllPathsArmedAt !== 0 && now - this.clearAllPathsArmedAt < ARRANGE_CANCEL_ARM_MS;
+    this.disarmArrangeConfirms();
+    if (armed) {
+      this.clearAllPathsFromArrange();
+      return;
+    }
+    this.clearAllPathsArmedAt = now;
+    this.arrangeClearLabel.setText(ARRANGE_BULK_ARMED_LABEL);
+  }
+
+  /** Disarm the "Store All Decorations" confirm (U5-r1) - no-op when unarmed. */
+  private disarmStoreAll(): void {
+    if (this.storeAllArmedAt === 0) return;
+    this.storeAllArmedAt = 0;
+    this.arrangeStoreLabel.setText(ARRANGE_BULK_STORE_LABEL);
+  }
+
+  /** Disarm the "Clear All Paths" confirm (U5-r1) - no-op when unarmed. */
+  private disarmClearAllPaths(): void {
+    if (this.clearAllPathsArmedAt === 0) return;
+    this.clearAllPathsArmedAt = 0;
+    this.arrangeClearLabel.setText(ARRANGE_BULK_CLEAR_LABEL);
+  }
+
+  /** Disarm ALL THREE arrange confirms (U5-r1) - Cancel + the two bulk buttons.
+   *  The shared "any other input disarms" call the selection setters and the
+   *  main bar's other buttons make. */
+  private disarmArrangeConfirms(): void {
+    this.disarmCancel();
+    this.disarmStoreAll();
+    this.disarmClearAllPaths();
+  }
+
+  /**
+   * Bank every painted tile of every tier to the shed in ONE undo group (U5-r1),
+   * fired by the arrange bar's "Clear All Paths" - a single Undo repaints them
+   * all. Runs inside arrange's own edit session (open since `enterArrangeMode`),
+   * so it composes onto the session's undo stack exactly like the arrange
+   * actions; with no session open it still banks but records nothing. Tile
+   * coords are snapshotted before the loop - `putAwayToShed` splices `paths` in
+   * place, so iterating the live array would skip tiles. Plays ONE representative
+   * fly + Shed badge tick, not N flights.
+   */
+  private clearAllPathsFromArrange(): void {
+    const paths = gameState.getState().paths;
+    if (paths.length === 0) return;
+    // Representative fly source: the first tile's center and its tier art,
+    // captured before the store mutates the array.
+    const first = paths[0]!;
+    const frame = findPathTier(first.tier)?.frame;
+    const iso = gridToIso(first.col, first.row);
+    const screen = this.worldToScreen(iso.x, iso.y);
+    const displaySize = TILE_WIDTH * this.cameras.main.zoom;
+    const tiles = paths.map((tile) => ({ col: tile.col, row: tile.row }));
+    gameState.beginUndoGroup();
+    for (const { col, row } of tiles) {
+      gameState.putAwayToShed({ category: 'path', col, row });
+    }
+    gameState.endUndoGroup();
+    this.rebuildPaths();
+    // ONE representative fly + badge tick for the whole bulk action.
+    if (frame !== undefined) {
+      this.flyPutAwayToShed(frame, screen.x, screen.y, displaySize);
+    } else {
+      this.bounceShedButton();
+    }
   }
 
   /** Disarm the Cancel confirm (U3b-r1) - a no-op when it was not armed. */
@@ -5675,7 +6103,7 @@ export class FarmScene extends Phaser.Scene {
    * shed on unwind and is recoverable from the shed panel's building rows.
    */
   private doCancelUnwind(): void {
-    this.disarmCancel();
+    this.disarmArrangeConfirms();
     // The guard is belt-and-braces: undoEditAction always pops, so depth falls.
     let guard = 0;
     while (gameState.editUndoDepth() > 0 && guard < 1000) {
@@ -6325,6 +6753,7 @@ export class FarmScene extends Phaser.Scene {
     }
     if (index === -1) return;
     this.setStructureSelection({ kind: 'building', index });
+    this.freshPlacement = true; // building fast path is in-hand too (U5-r1).
   }
 
   /**
@@ -6493,6 +6922,9 @@ export class FarmScene extends Phaser.Scene {
     this.decorationSprites.push(sprite);
     this.decorationShadowSprites.push(this.createGroundShadow(sprite));
     this.setDecorationSelection(index);
+    // Just placed from the shed (or the chain Place) - grant the in-hand lift so
+    // the next touch drags it even where the spawn overlaps other decor (U5-r1).
+    this.freshPlacement = true;
   }
 
   /**
@@ -7202,7 +7634,8 @@ export class FarmScene extends Phaser.Scene {
    * toolbar (U3b - Flip for a flippable movable, Put away for a building).
    */
   private setStructureSelection(ref: MovableAnchorRef | null, fromLongPress = false): void {
-    this.disarmCancel();
+    this.disarmArrangeConfirms();
+    this.freshPlacement = false; // selection change clears the in-hand grant (U5-r1).
     this.selectionFromLongPress = fromLongPress; // U3c-r2: atomic, see setDecorationSelection.
     if (ref !== null) {
       if (this.selectedDecorationIndex !== null) {
@@ -7322,6 +7755,7 @@ export class FarmScene extends Phaser.Scene {
     this.audio.sfx('tap');
     this.hideShedPanel();
     this.setPlotSelection(placed);
+    this.freshPlacement = true; // in-hand grant, see spawnPlacedDecorationSprite (U5-r1).
     this.refreshArrangePlotInteractivity();
   }
 
@@ -7388,6 +7822,7 @@ export class FarmScene extends Phaser.Scene {
       this.audio.sfx('tap');
       this.refreshCrops();
       this.setPlotSelection(placed);
+      this.freshPlacement = true; // chain Place is in-hand too (U5-r1).
       this.refreshArrangePlotInteractivity();
     } else {
       // Read the anchor BEFORE placing - placements append, so its index is
@@ -7565,6 +8000,7 @@ export class FarmScene extends Phaser.Scene {
     // Render the new sprite now so it can be selected this frame.
     this.refreshBuildings(true);
     this.setStructureSelection({ kind: 'building', index: newIndex });
+    this.freshPlacement = true; // in-hand grant, see spawnPlacedDecorationSprite (U5-r1).
   }
 
   /** A decor/trophy row's Place action - also starts the decor chain session
@@ -7675,6 +8111,45 @@ export class FarmScene extends Phaser.Scene {
     this.plotShedRow.placeButton.disableInteractive();
     for (const row of this.shedRows) row.placeButton.disableInteractive();
     setPanelOpen('decor-shed', false);
+  }
+
+  /**
+   * Bank every placed decoration AND trophy back to the shed in ONE undo group
+   * (U5; fired by the arrange bar's "Store All Decorations" button since U5-r1),
+   * so a single Undo restores them all. `state.decorations` holds exactly the
+   * placed decor and trophies - buildings and plots are separate collections
+   * and left untouched. Iterates in REVERSE so each `splice` leaves the
+   * not-yet-processed indices intact. Runs inside arrange's edit session (U3b);
+   * with none open the put-aways still bank but record nothing (`recordUndo`
+   * no-ops). Plays ONE representative fly + Shed badge tick, not N flights.
+   */
+  private putAwayAllDecorations(): void {
+    const count = gameState.getState().decorations.length;
+    if (count === 0) return;
+    // Capture the representative flight source BEFORE the store mutates and the
+    // sprites die - the first placed decoration's on-screen center, frame, size.
+    const sprite = this.decorationSprites[0];
+    const frame = gameState.getState().decorations[0]?.frame;
+    const centre = sprite?.getCenter();
+    const screen = centre === undefined ? null : this.worldToScreen(centre.x, centre.y);
+    const displaySize = sprite === undefined ? 0 : sprite.displayWidth * this.cameras.main.zoom;
+    gameState.beginUndoGroup();
+    for (let i = count - 1; i >= 0; i--) {
+      gameState.putAwayToShed({ category: 'decor', index: i });
+    }
+    gameState.endUndoGroup();
+    // Rebuild the now decor-less field sprites and clear any selection/chain.
+    this.rebuildDecorationSpritesForArrange();
+    this.setDecorationSelection(null);
+    this.lastPlacedDecorIndex = -1;
+    this.placementSession = null;
+    if (this.shedPanelVisible) this.refreshShedPanel();
+    // ONE fly for the whole bulk action; `flyPutAwayToShed` ticks the badge.
+    if (frame !== undefined && screen !== null) {
+      this.flyPutAwayToShed(frame, screen.x, screen.y, displaySize);
+    } else {
+      this.bounceShedButton();
+    }
   }
 
   /**

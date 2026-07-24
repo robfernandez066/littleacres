@@ -217,6 +217,24 @@ export interface DevTools {
   exitPaintMode?(): void;
   paintStrokeAt?(worldX: number, worldY: number, tiles?: number): void;
   /**
+   * U5-r1 edit-bulk live-proof seams (the `paintMode` precedent) - the arrange
+   * secondary row is not reachable from desktop automation, so the U5-r1
+   * screenshots drive the scene handlers directly. Registered by FarmScene.
+   *
+   * - enterArrange(): enter arrange mode (if not already), so the secondary row
+   *   [Store All Decorations] [Clear All Paths] is screenshottable.
+   * - storeAllTap(): tap "Store All Decorations" through its real two-tap
+   *   handler - once arms it ("Confirm?"), twice banks every placed decor/trophy.
+   * - clearAllPathsTap(): tap "Clear All Paths" through its real two-tap handler
+   *   - once arms, twice banks every painted tile to the shed.
+   *
+   * The long-press-on-a-path entry rides the existing `longPress` seam (extended
+   * in `devLongPressAt` to enter paint mode on a bare painted tile).
+   */
+  enterArrange?(): void;
+  storeAllTap?(): void;
+  clearAllPathsTap?(): void;
+  /**
    * T3.26 dev-only farmhouse transform knobs, for diagnosing the building's
    * angle: does an in-plane rotation make it sit right on the iso grid (a tilt
    * the art can be rotated out of), or not (a perspective mismatch that needs
@@ -389,6 +407,22 @@ export function registerPaintModeHooks(hooks: {
   window.dev.paintMode = hooks.enter;
   window.dev.exitPaintMode = hooks.exit;
   window.dev.paintStrokeAt = hooks.strokeAt;
+}
+
+/**
+ * Late-bind the U5-r1 edit-bulk live-proof seams once the Farm scene exists,
+ * bundled like `registerPaintModeHooks` since the three are always wired
+ * together.
+ */
+export function registerEditBulkHooks(hooks: {
+  enterArrange: () => void;
+  storeAllTap: () => void;
+  clearAllPathsTap: () => void;
+}): void {
+  if (window.dev === undefined) return;
+  window.dev.enterArrange = hooks.enterArrange;
+  window.dev.storeAllTap = hooks.storeAllTap;
+  window.dev.clearAllPathsTap = hooks.clearAllPathsTap;
 }
 
 /**

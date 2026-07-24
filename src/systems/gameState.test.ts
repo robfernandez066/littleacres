@@ -9571,3 +9571,90 @@ describe('stroke undo grouping (U4)', () => {
     expect(store.editUndoDepth()).toBe(0);
   });
 });
+
+/**
+ * Remove-all bulk seams (U5; the buttons moved to the arrange bar in U5-r1):
+ * "Store All Decorations" (decor/trophy) and "Clear All Paths" each bank EVERY
+ * placed instance to the shed inside ONE undo group, so a single Undo restores
+ * the whole set. The bulk logic lives in the scene as a loop over the store's
+ * existing `beginUndoGroup`/`putAwayToShed`/`endUndoGroup` seam (no new store
+ * method); these tests pin that exact store-call sequence - the U4
+ * stroke-grouping precedent. U5-r1 only relocated the triggers, so these pins
+ * stand unchanged.
+ */
+describe('remove-all bulk seams (U5)', () => {
+  function removeAllStore(): GameStateStore {
+    const store = new GameStateStore({ storage: null });
+    completeOnboarding(store);
+    return store;
+  }
+
+  it('put away all: every decor + trophy banks in ONE group whose undo restores them byte-identically', () => {
+    const store = removeAllStore();
+    // Two decorations arranged specifically, plus a trophy - the mixed set the
+    // shed panel's "Put away all" targets (buildings/plots are separate).
+    store.devGrantToShed('decor_bench', 2);
+    store.getState().shedInventory.trophy_moonwell = 1;
+    expect(store.placeFromShed('decor_bench')).toBe(0);
+    expect(store.setDecorationTransform(0, 300, 900, 0.6, true)).toBe(true);
+    expect(store.placeFromShed('decor_bench')).toBe(1);
+    expect(store.setDecorationTransform(1, 500, 1100, 0.7, false)).toBe(true);
+    expect(store.placeFromShed('trophy_moonwell')).toBe(2);
+
+    store.beginEditSession();
+    const before = JSON.parse(JSON.stringify(store.getState())) as unknown;
+    // THE scene loop (`putAwayAllDecorations`): reverse order so each splice
+    // leaves the not-yet-processed indices intact, all inside one group.
+    const count = store.getState().decorations.length;
+    store.beginUndoGroup();
+    for (let i = count - 1; i >= 0; i--) {
+      expect(store.putAwayToShed({ category: 'decor', index: i })).not.toBeNull();
+    }
+    store.endUndoGroup();
+    expect(store.getState().decorations).toEqual([]);
+    expect(store.shedCount('decor_bench')).toBe(2);
+    expect(store.shedCount('trophy_moonwell')).toBe(1);
+    // Three items, ONE undoable action.
+    expect(store.editUndoDepth()).toBe(1);
+    expect(store.undoEditAction()).toBe(true);
+    // Re-placed in original order (the composed inverse re-appends oldest-first),
+    // so decorations come back byte-identical - order included.
+    expect(store.getState()).toEqual(before);
+    expect(store.editUndoDepth()).toBe(0);
+  });
+
+  it('clear all paths: every tile of every tier banks in ONE group whose undo restores the tile map', () => {
+    const store = removeAllStore();
+    store.devGrantToShed('gravel', 3);
+    store.devGrantToShed('stone', 2);
+    expect(store.placeFromShed('gravel', { col: 0, row: 0 })).toBe(0);
+    expect(store.placeFromShed('gravel', { col: 1, row: 0 })).toBe(1);
+    expect(store.placeFromShed('stone', { col: 2, row: 0 })).toBe(2);
+
+    store.beginEditSession();
+    const before = JSON.parse(JSON.stringify(store.getState())) as unknown;
+    // THE scene loop (`clearAllPathsFromArrange`): snapshot coords first
+    // (`putAwayToShed` splices `paths` in place), one group.
+    const tiles = store.getState().paths.map((tile) => ({ col: tile.col, row: tile.row }));
+    store.beginUndoGroup();
+    for (const { col, row } of tiles) {
+      expect(store.putAwayToShed({ category: 'path', col, row })).not.toBeNull();
+    }
+    store.endUndoGroup();
+    expect(store.getState().paths).toEqual([]);
+    expect(store.shedCount('gravel')).toBe(3);
+    expect(store.shedCount('stone')).toBe(2);
+    expect(store.editUndoDepth()).toBe(1);
+    expect(store.undoEditAction()).toBe(true);
+    // Path order carries nothing (coplanar, one tile per col/row), so the array
+    // comes back reversed - compare order-insensitively, everything else
+    // byte-identical (the U4 erase-stroke rule).
+    const sortTiles = (state: unknown): unknown => {
+      const clone = JSON.parse(JSON.stringify(state)) as { paths: PathTile[] };
+      clone.paths.sort((a, b) => a.col - b.col || a.row - b.row);
+      return clone;
+    };
+    expect(sortTiles(store.getState())).toEqual(sortTiles(before));
+    expect(store.editUndoDepth()).toBe(0);
+  });
+});

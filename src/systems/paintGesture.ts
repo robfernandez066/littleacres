@@ -3,8 +3,9 @@
  * paint stroke from laying a tile until the gesture has PROVEN itself a single
  * finger - the same defer-then-confirm discipline the plot-feedback path uses
  * for harvest/plant (FarmScene 'farm-pending'), lifted off-scene so its four
- * paths are unit-testable. The scene owns the tiles and coins; this owns only
- * "which phase are we in, and what should happen next".
+ * paths are unit-testable. The scene owns the tiles and the shed spend (U4:
+ * paint takes a tile from the shed, erase refunds it - no coins move); this
+ * owns only "which phase are we in, and what should happen next".
  *
  * A touch lays NOTHING at first. It confirms and begins painting only when the
  * single finger either moves past the tap slop (drag-paint) or releases within

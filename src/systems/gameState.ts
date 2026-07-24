@@ -2714,9 +2714,10 @@ export class GameStateStore {
    * Edit-session UNDO stack (U3a) - in-memory ONLY, never serialized, never
    * part of `GameStateData`, cleared on `endEditSession`. Each entry is the
    * INVERSE of one committed arrange action, a thunk that reapplies it and
-   * returns whether it succeeded (LIFO). Empty and inert until U3b's edit scene
-   * calls `beginEditSession`, so the whole mechanism is dormant in the live game
-   * today - which is what keeps this task's change player-invisible.
+   * returns whether it succeeded (LIFO). Empty and inert outside an edit
+   * session; arrange mode (U3b) and paint mode (U4) each open one via
+   * `beginEditSession`, so the Undo/Cancel affordances they carry are live in
+   * the game today.
    */
   private editUndoStack: (() => boolean)[] = [];
   /** Whether an edit session is active (U3a): arrange reducers record their

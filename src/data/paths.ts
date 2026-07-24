@@ -21,9 +21,11 @@ export interface PathTierDef {
   /** Atlas frame - a 256x128 tile diamond drawn at origin (0.5, 0.5). */
   frame: string;
   /**
-   * Coins deducted per painted tile, by `GameStateStore.paintPath`. Only
-   * `dirt` is free - it is the entry rung a player lands on, and the three
-   * priced rungs above it are the coin sink (T4.13).
+   * Coin price per tile, charged at SHOP BUY time - `costCoins` is the
+   * catalog price a tier is bought into the shed for (U4 retired the
+   * per-tile paint charge; painting now spends a tile from the shed, not
+   * coins). Only `dirt` is free - it is the entry rung a player lands on,
+   * and the three priced rungs above it are the coin sink (T4.13).
    */
   costCoins: number;
 }
