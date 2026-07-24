@@ -10,6 +10,7 @@
 
 ## Queued next
 
+- **U5-r2 (owner directive 2026-07-24):** the shop header's Shed pill becomes a BUTTON reusing the edit-bar Shed button's exact style (owner screenshot: "Shed" label + corner count badge, handles large counts) - tap closes the shop, enters edit mode if needed, opens the Shed panel. Fly-to-Shed animation retargets it unchanged.
 - **P-wave** (P1 art-contract templates, P2 ellipse shadow generator - owner's decor-oval directive, P3 Capacitor wrap spike) - after U5.
 - **Q3 post-L8 content runway** resurfaces after the P-wave (content, not tuning).
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
