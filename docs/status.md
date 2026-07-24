@@ -10,7 +10,8 @@
 
 ## Queued next
 
-- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator, P3 Capacitor wrap spike) + **remove-all-decor** small task - after the wave closes.
+- **U5 (first after the wave commit):** "Remove all decor" (edit bar) + "Remove all paths" (paint bar) - two-tap confirm, everything banks to the Shed, each removal is ONE undo-group entry (owner request 2026-07-24; supersedes the spec's out-of-scope deferral).
+- **P-wave** (P1 art-contract templates, P2 ellipse shadow generator, P3 Capacitor wrap spike) - after U5.
 - **Remove-all-decor-to-Shed** (owner request, post-U4; two-step confirm).
 - **P-wave (pipeline hardening, after the U-wave):** P1 art-contract templates per category; P2 unified soft-ellipse shadow generator (decor ovals + building default; owner picks from captures first); P3 Capacitor wrap spike (end goal is native mobile - decided 2026-07-23).
 - **Q3 - post-L8 content runway** (coins compound after ~day 12): needs content (more levels / a 2nd region / a recurring sink), not tuning. Paths stone/moonstone now absorb part of the coin surplus.
